@@ -1,6 +1,6 @@
 <div align="center">
 
-# my-agent-team
+# CrewDesk
 
 **Run a self-hosted AI engineering team — one Super Assistant, specialist coding agents across 4 harnesses (`oma` · Claude Code · `pi` · `omp`), a git-backed Wiki, and real-time Web + Lark sync.**
 
@@ -13,29 +13,29 @@
 [![npm version (rc)](https://img.shields.io/npm/v/@chengchenccc/oh-my-agent/rc?style=flat-square)](https://www.npmjs.com/package/@chengchenccc/oh-my-agent?activeTab=versions)
 [![npm downloads](https://img.shields.io/npm/dm/@chengchenccc/oh-my-agent?style=flat-square)](https://www.npmjs.com/package/@chengchenccc/oh-my-agent)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![CI](https://github.com/Chengchcc/my-agent-team/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Chengchcc/my-agent-team/actions/workflows/ci.yml)
+[![CI](https://github.com/Chengchcc/crewdesk/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Chengchcc/crewdesk/actions/workflows/ci.yml)
 
-[Why my-agent-team](#-why-my-agent-team) · [Quick Start](#-quick-start) · [Screenshots](#-screenshots) · [Architecture](#-architecture) · [Security](#-security-model) · [Docs](#-documentation)
+[Why CrewDesk](#-why-crewdesk) · [Quick Start](#-quick-start) · [Screenshots](#-screenshots) · [Architecture](#-architecture) · [Security](#-security-model) · [Docs](#-documentation)
 
 <br />
 
-<a href="https://github.com/Chengchcc/my-agent-team/releases/download/media-assets/demo-main-flow.mp4">
-  <img src="https://github.com/Chengchcc/my-agent-team/releases/download/media-assets/demo-preview.webp" alt="my-agent-team walkthrough: Today, Chat, Requirements, Multi-Harness Team, Workflow DAG, and Git Wiki" width="100%" />
+<a href="https://github.com/Chengchcc/crewdesk/releases/download/media-assets/demo-main-flow.mp4">
+  <img src="https://github.com/Chengchcc/crewdesk/releases/download/media-assets/demo-preview.webp" alt="CrewDesk walkthrough: Today, Chat, Requirements, Multi-Harness Team, Workflow DAG, and Git Wiki" width="100%" />
 </a>
 
-<sub>End-to-end walkthrough: Today → Chat & Artifacts → Tracked Requirements → 4-Harness Team → Workflow DAG → Git Wiki · <a href="https://github.com/Chengchcc/my-agent-team/releases/download/media-assets/demo-main-flow.mp4">Download full HD MP4</a></sub>
+<sub>End-to-end walkthrough: Today → Chat & Artifacts → Tracked Requirements → 4-Harness Team → Workflow DAG → Git Wiki · <a href="https://github.com/Chengchcc/crewdesk/releases/download/media-assets/demo-main-flow.mp4">Download full HD MP4</a></sub>
 
 </div>
 
 ---
 
-Most coding agents live in an isolated terminal tab. **my-agent-team** turns them into a coordinated, self-hosted team on a single Bun + SQLite stack:
+Most coding agents live in an isolated terminal tab. **CrewDesk** turns them into a coordinated, self-hosted team on a single Bun + SQLite stack:
 
 - Talk to a **Personal Assistant (PA)** from Web or Lark/Feishu.
 - The PA tracks goals as **Requirements**, dispatches specialist workers (Coder, Researcher, Reviewer) into isolated git workspaces, and compiles long-term knowledge into a **git-backed Wiki**.
 - Mix **`oma`**, **Claude Code**, **`pi`**, and **`omp`** on the same team over one Agent Client Protocol (ACP) rail — with fail-closed approvals, sandboxed workflows, and zero external database infrastructure.
 
-## ✨ Why my-agent-team
+## ✨ Why CrewDesk
 
 | Capability | What you get |
 |---|---|
@@ -102,7 +102,7 @@ Most coding agents live in an isolated terminal tab. **my-agent-team** turns the
 Install `oma` together with the prebuilt backend + web gateway bundle (requires `tar` and `zstd`; Bun is installed automatically if missing):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Chengchcc/my-agent-team/master/scripts/install.sh | OMA_VERSION=rc sh
+curl -fsSL https://raw.githubusercontent.com/Chengchcc/crewdesk/master/scripts/install.sh | OMA_VERSION=rc sh
 oma gateway up        # foreground; use `oma gateway up -d` for background
 ```
 
@@ -231,7 +231,7 @@ flowchart TB
 
 ## 🔐 Security Model
 
-`my-agent-team` is built for a **single-operator, local/self-hosted** threat model. Web login, the BFF, and the backend share one operator identity — there is **no multi-tenant isolation**. Do not expose this stack directly to the public internet as a multi-user service.
+`CrewDesk` is built for a **single-operator, local/self-hosted** threat model. Web login, the BFF, and the backend share one operator identity — there is **no multi-tenant isolation**. Do not expose this stack directly to the public internet as a multi-user service.
 
 Concrete security boundaries enforced by the runtime:
 

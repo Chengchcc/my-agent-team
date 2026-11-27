@@ -14,7 +14,8 @@ export interface McpToolCaller {
     name: string;
     arguments?: unknown;
     _meta?: Record<string, unknown>;
-  }): Promise<{ content: unknown }>;
+    signal?: AbortSignal;
+  }): Promise<{ content: unknown; isError?: boolean }>;
 }
 
 /** lowercase + replace non-[a-z0-9] with `-`, trim leading/trailing `-`, fallback to "server". */
@@ -45,10 +46,9 @@ export function adaptMcpTool(
     name,
     description,
     inputSchema,
-    // ponytail: signal not forwarded - MCP SDK callTool doesn't accept AbortSignal yet
     async execute(
       input: unknown,
-      _signal?: AbortSignal,
+      signal?: AbortSignal,
       options?: { callId?: string },
     ): Promise<ToolExecuteResult> {
       try {
@@ -58,11 +58,13 @@ export function adaptMcpTool(
         const result = await caller.callTool({
           name: mcpTool.name,
           arguments: input,
+          ...(signal ? { signal } : {}),
           ...(options?.callId ? { _meta: { identity: { callId: options.callId } } } : {}),
         });
         return {
           content:
             typeof result.content === "string" ? result.content : JSON.stringify(result.content),
+          ...(result.isError === true ? { isError: true } : {}),
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

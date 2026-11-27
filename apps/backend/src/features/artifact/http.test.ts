@@ -51,6 +51,48 @@ describe("artifact routes", () => {
     const filtered = await api(harness, "GET", `${BASE}?folder=bin`);
     const bin = (await filtered.json()) as { artifacts: Array<{ url: string }> };
     expect(bin.artifacts.map((a) => a.url)).toEqual(["artifacts://bin/blob.bin"]);
+
+    const provenanceFiltered = await api(
+      harness,
+      "GET",
+      `${BASE}?requirementId=req-x&conversationId=conv-x&workflowExecutionId=exec-x&agentId=agent-x&projectId=proj-x&runId=run-x`,
+    );
+    expect(provenanceFiltered.status).toBe(200);
+    expect(await provenanceFiltered.json()).toEqual({ artifacts: [] });
+  });
+
+  test("meta and verify endpoints return metadata/verification or 404 when missing", async () => {
+    const metaOk = await api(
+      harness,
+      "GET",
+      `${BASE}/meta?url=${encodeURIComponent("artifacts://runs/run-1/report.txt")}`,
+    );
+    expect(metaOk.status).toBe(200);
+    const { artifact } = (await metaOk.json()) as { artifact: { url: string; size: number } };
+    expect(artifact.url).toBe("artifacts://runs/run-1/report.txt");
+    expect(artifact.size).toBe("hello artifact".length);
+
+    const metaMissing = await api(
+      harness,
+      "GET",
+      `${BASE}/meta?url=${encodeURIComponent("artifacts://nope/missing.txt")}`,
+    );
+    expect(metaMissing.status).toBe(404);
+
+    const verifyOk = await api(
+      harness,
+      "GET",
+      `${BASE}/verify?url=${encodeURIComponent("artifacts://runs/run-1/report.txt")}`,
+    );
+    expect(verifyOk.status).toBe(200);
+    expect(((await verifyOk.json()) as { ok: boolean }).ok).toBe(true);
+
+    const verifyMissing = await api(
+      harness,
+      "GET",
+      `${BASE}/verify?url=${encodeURIComponent("artifacts://nope/missing.txt")}`,
+    );
+    expect(verifyMissing.status).toBe(404);
   });
 
   test("download round-trips content via ?url= and via /:url", async () => {

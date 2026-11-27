@@ -140,14 +140,17 @@ export function createOmaSession(opts: OmaSessionOptions): OmaSession {
     },
     async compact() {
       await emit({ type: "compaction_start" });
-      await compactSession(
-        opts.store,
-        opts.sessionId,
-        opts.summarize,
-        mutable.controller?.signal,
-        opts.contextBudget,
-      );
-      await emit({ type: "compaction_end" });
+      try {
+        await compactSession(
+          opts.store,
+          opts.sessionId,
+          opts.summarize,
+          mutable.controller?.signal,
+          opts.contextBudget,
+        );
+      } finally {
+        await emit({ type: "compaction_end" });
+      }
     },
 
     onEvent(listener) {

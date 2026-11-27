@@ -18,10 +18,14 @@ export interface CompactionResult {
 }
 
 /** Token budget used for compaction cut points. `estimate` is a per-message
- *  token cost; `limit` is the target ceiling for the retained context. */
+ *  token cost; `limit` is the target ceiling for the retained context;
+ *  `overheadTokens` accounts for fixed non-message prompt cost (systemPrompt,
+ *  tool schemas, existing summary) so findCut never NO-OPs when tools eat a
+ *  large share of the window. */
 export interface CompactionBudget {
   estimate(message: Message): number;
   limit: number;
+  overheadTokens?: number;
 }
 
 /** If the cut lands between an assistant tool_use and its tool_result,
@@ -86,8 +90,9 @@ function findCut(messages: readonly CodingSessionEntry[], budget?: CompactionBud
   if (!budget) {
     return { cutIdx: Math.floor(messages.length * 0.6) };
   }
+  const overhead = Math.max(0, budget.overheadTokens ?? 0);
   const tokens = messages.map((m) => budget.estimate((m as { message: Message }).message));
-  const tokensBefore = tokens.reduce((sum, t) => sum + t, 0);
+  const tokensBefore = tokens.reduce((sum, t) => sum + t, 0) + overhead;
   if (tokensBefore <= budget.limit) {
     return { cutIdx: 0, tokensBefore };
   }

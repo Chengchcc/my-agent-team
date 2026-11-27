@@ -177,7 +177,10 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
   ): Promise<SubagentResult> {
     // Phase 2 resume: reuse the registry's pinned spec + store snapshot
     // (later role edits never mutate an existing handle's definition).
-    const existing = input.resumeHandle ? registry.getEntry(input.resumeHandle) : null;
+    const rawExisting = input.resumeHandle ? registry.getEntry(input.resumeHandle) : null;
+    // Enforce scope isolation: a handle registered by a different session/run
+    // scope must not be resumable here.
+    const existing = rawExisting && rawExisting.scope === opts.scope ? rawExisting : null;
     if (input.resumeHandle && !existing) {
       const active = registry
         .listEntries(opts.scope)
@@ -212,6 +215,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
     const agentId = existing?.agentId ?? input.agentId;
     const sessionId = existing?.sessionId ?? `wf:${batchId}:${agentId}`;
     await pool.acquire(signal);
+    let slotOwnedByBackground = false;
     // gate() may throw (cap/budget): it runs inside the try so the acquired
     // concurrency slot is ALWAYS released - a leak here would deadlock every
     // later acquire once all slots are gone.
@@ -251,7 +255,12 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
           updatedAt: Date.now(),
         });
       }
-      const sessionGate = opts.makePermissionGate?.([spec.prompt]);
+      // Security invariant (P1-3): NEVER pass model-authored `spec.prompt` as
+      // "User request" to the permission classifier — a prompt-injected parent
+      // model could instruct a subagent to argue its own malicious action as a
+      // user request. Passing [] lets makeSessionPermissionGate supply ONLY the
+      // parent run's real human messages.
+      const sessionGate = opts.makePermissionGate?.([]);
       const handle = existing ? input.resumeHandle! : `sub-${crypto.randomUUID()}`;
       // Same-run resume reuses the live session; cross-run revive rebuilds it
       // on the CURRENT run's model stream (the old stream closed over the
@@ -508,8 +517,11 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
       };
 
       // 3.4 Phase 3: fire-and-forget. Acknowledge immediately with the
-      // handle; the result lands on the handle for hub output.
+      // handle; the result lands on the handle for hub output. Keep holding
+      // the pool concurrency slot until the background subagent actually
+      // settles so `background: true` cannot bypass `maxConcurrent`.
       if (spec.background) {
+        slotOwnedByBackground = true;
         registry.updateEntry(handle, { status: "running" });
         void finish()
           .then((agentResult) => {
@@ -539,6 +551,9 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
                     status: "failed",
                   },
             });
+          })
+          .finally(() => {
+            pool.release();
           });
         return { label, text: "", ok: true, handle, status: "running" };
       }
@@ -564,7 +579,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
       });
       return { label, text: "", ok: false, error: message };
     } finally {
-      pool.release();
+      if (!slotOwnedByBackground) pool.release();
     }
   }
 

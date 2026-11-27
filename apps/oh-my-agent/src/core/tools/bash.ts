@@ -80,8 +80,20 @@ export function deniedCommand(
     .split(",")
     .map((rule) => rule.trim())
     .filter((rule) => rule !== "");
+  if (rules.length === 0) return undefined;
   const trimmed = command.trim();
-  return rules.find((rule) => rule === trimmed);
+  const exact = rules.find((rule) => rule === trimmed);
+  if (exact !== undefined) return exact;
+  // Also match exact command segments separated by shell operators (&&, ||, ;, |, newline)
+  // so `echo ok && git push` cannot trivially bypass a `git push` rule while keeping
+  // `git push origin main` distinct from `git push` (not a prefix rule).
+  for (const seg of trimmed.split(/(?:&&|\|\||[;|\n])/)) {
+    const s = seg.trim();
+    if (s === "") continue;
+    const hit = rules.find((rule) => rule === s);
+    if (hit !== undefined) return hit;
+  }
+  return undefined;
 }
 
 /** Write-side fence for the SHELL (ADR 0072 applied to bash).
@@ -92,17 +104,40 @@ export function deniedCommand(
  *
  *  Deliberately narrow and honest about its ceiling: it looks at absolute
  *  paths in a command that also carries a write verb (or a redirect into that
- *  path) and refuses when one lands outside the workspace. Quotes, variables
- *  and `cd` chains can still defeat a textual scan — this is a guard against
- *  the accident, not a sandbox. The real boundary is OS isolation. */
+ *  path) and refuses when one lands outside the workspace (and outside any
+ *  explicit OMA_ALLOW_WRITE_PATHS). Quotes, variables and `cd` chains can still
+ *  defeat a textual scan — the real boundary is OS isolation. */
 const WRITE_VERB =
   /\b(?:rm|rmdir|mv|cp|tee|mkdir|touch|chmod|chown|dd|truncate|install|ln|sed\s+-i|git\s+(?:add|commit|checkout|switch|reset|clean|push|merge|rebase|stash|branch|tag))\b/;
 
-export function writeEscapeOf(command: string, workspaceRoot: string): string | undefined {
-  // A redirect is a write even when no verb is named ().
+export function writeEscapeOf(
+  command: string,
+  workspaceRoot: string,
+  allowRulesRaw: string | undefined = process.env.OMA_ALLOW_WRITE_PATHS,
+): string | undefined {
+  // A redirect is a write even when no verb is named.
   if (!WRITE_VERB.test(command) && !command.includes(">")) return undefined;
-  const root = workspaceRoot.endsWith("/") ? workspaceRoot : `${workspaceRoot}/`;
-  const absolute = [...command.matchAll(/(?:^|[\s;|&(])(\/[^\s;|&)"']+)/g)].map((m) => m[1]);
+  const ws = resolvePath(workspaceRoot);
+  const root = ws.endsWith("/") ? ws : `${ws}/`;
+  const allowRules = (allowRulesRaw ?? "")
+    .split(",")
+    .map((r) => r.trim())
+    .filter((r) => r !== "")
+    .map((r) => ({
+      raw: r,
+      dir: r.endsWith("/"),
+      base: resolvePath(r.endsWith("/") ? r.slice(0, -1) : r),
+    }));
+  const isAllowed = (candidate: string): boolean => {
+    const norm = resolvePath(candidate);
+    if (norm.startsWith(root)) return true;
+    if (allowRules.length === 0) return false;
+    return allowRules.some((r) =>
+      r.dir ? norm === r.base || norm.startsWith(`${r.base}/`) : norm === r.base,
+    );
+  };
+  // Include `>` (for spaceless redirects like `echo x>/tmp/out`, `2>>/tmp/out`, `&>/tmp/out`).
+  const absolute = [...command.matchAll(/(?:^|[\s;|&(>])(\/[^\s;|&)"']+)/g)].map((m) => m[1]);
   for (const path of absolute) {
     if (path === undefined) continue;
     // `/dev/null` and the standard streams are not files the run writes:
@@ -110,8 +145,8 @@ export function writeEscapeOf(command: string, workspaceRoot: string): string | 
     // commands look like escapes (live 2026-11-23 a worker could not inspect
     // a file because it redirected stderr).
     if (/^\/dev\/(null|stdout|stderr|tty)$/.test(path)) continue;
-    if (path === workspaceRoot) return path;
-    if (path.startsWith(root)) continue;
+    if (path === workspaceRoot || path === ws) return path;
+    if (isAllowed(path)) continue;
     // A denied absolute path that is only READ is fine; the write verb gate
     // above already scoped this to commands that change something.
     return path;
@@ -163,8 +198,9 @@ export function deniedPathOf(
     return undefined;
   };
   // Absolute tokens, and relative ones that walk up (`../x`) or name a denied
-  // entry (`cat .backend-data/backend.db`).
-  const tokens = [...command.matchAll(/(?:^|[\s;|&(='"])((?:\.\.?\/)?[^\s;|&)'"]+)/g)]
+  // entry (`cat .backend-data/backend.db`), including spaceless redirects
+  // (`cat</root/.env`, `echo x>/root/.env`).
+  const tokens = [...command.matchAll(/(?:^|[\s;|&(='"><])((?:\.\.?\/)?[^\s;|&)'"<>]+)/g)]
     .map((m) => m[1])
     .filter((t): t is string => t !== undefined);
   for (const token of tokens) {
@@ -217,10 +253,13 @@ export function foreignRepoRefusal(
   if (foreignTop === undefined) return undefined;
   if (!/\bgit\b/.test(command)) return undefined;
   const ws = resolvePath(workspaceRoot);
-  const owned = (candidate: string): boolean => {
+  // Strict child check: `cd .` or `git -C .` resolves to `ws` itself (which is
+  // NOT its own git repo — `foreignTop` is its ancestor!), so only a strict
+  // subdirectory inside `ws` (e.g. `projects/<id>`) can enter an owned repo.
+  const ownedSubdir = (candidate: string): boolean => {
     if (!candidate.startsWith("/")) candidate = resolvePath(`${ws}/${candidate}`);
     const target = resolvePath(candidate);
-    return target === ws || target.startsWith(`${ws}/`);
+    return target.startsWith(`${ws}/`);
   };
   for (const m of command.matchAll(/\bgit\s+(?:-C\s+)?([^\s;&|]+)/g)) {
     const arg = m[1];
@@ -230,12 +269,12 @@ export function foreignRepoRefusal(
     // A bare word is a git subcommand ("status"), not a path: treating it as
     // workspace-relative made every command look owned.
     if (!arg.includes("/") && arg !== "." && arg !== "..") continue;
-    if (owned(arg)) return undefined;
+    if (ownedSubdir(arg)) return undefined;
   }
   if (/\bcd\s+[^\s;&|]+\s*(?:&&|;)/.test(command)) {
     const cd = /\bcd\s+([^\s;&|]+)/.exec(command);
     const arg = cd?.[1];
-    if (arg !== undefined && owned(arg)) return undefined;
+    if (arg !== undefined && ownedSubdir(arg)) return undefined;
   }
   return foreignTop;
 }

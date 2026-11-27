@@ -1,4 +1,5 @@
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 /** Bash launch strategy (docs/architecture/security/bash-sandbox.md).
  * A sandbox wraps the actual spawn so the OS enforces filesystem + network
@@ -79,10 +80,81 @@ export class NullBashSandbox implements BashSandbox {
   }
 }
 
-/** Linux confinement via bubblewrap: system tree read-only, workspace the only
- * writable bind, /tmp a private tmpfs, network namespace unshared (no
- * egress). bwrap requires setuid or user namespaces; unavailability throws
- * at spawn time (the caller falls back to the approval pipeline). */
+/** Workspace-relative config files that remain read-only even inside a
+ *  writable workspace bind so a sandboxed command cannot tamper with MCP
+ *  endpoints, plugins, or workspace policy settings. */
+const BWRAP_RO_WORKSPACE_FILES = [".mcp.json", ".oma/plugins.json", ".oma/settings.json"] as const;
+
+/** Build the bwrap argv for a sandboxed bash command. Exported so security
+ *  invariants (--unshare-pid, sensitive dir masking, protected workspace files,
+ *  OMA_DENY_WRITE_PATHS masking) stay unit-testable even on hosts without bwrap. */
+export function buildBwrapArgs(
+  workspaceRoot: string,
+  command: string,
+  denyPathsRaw: string | undefined = process.env.OMA_DENY_WRITE_PATHS,
+): string[] {
+  const ws = resolve(workspaceRoot);
+  // Order matters: --tmpfs mounts on /tmp, /root, /home come BEFORE the
+  // workspace --bind so a workspace living under /tmp or /root stays mounted
+  // while sibling host secrets (~/.ssh, ~/.oma, ~/.env) stay masked.
+  const args: string[] = [
+    "bwrap",
+    "--ro-bind",
+    "/",
+    "/",
+    "--dev",
+    "/dev",
+    "--unshare-pid",
+    "--proc",
+    "/proc",
+    "--tmpfs",
+    "/tmp",
+  ];
+  for (const sensitiveDir of ["/root", "/home"]) {
+    if (existsSync(sensitiveDir)) {
+      args.push("--tmpfs", sensitiveDir);
+    }
+  }
+  args.push("--bind", ws, ws);
+
+  // Re-bind protected workspace files read-only when present.
+  for (const rel of BWRAP_RO_WORKSPACE_FILES) {
+    const full = join(ws, rel);
+    if (existsSync(full)) {
+      args.push("--ro-bind", full, full);
+    }
+  }
+
+  // Mask explicit OMA_DENY_WRITE_PATHS directories/files so commands cannot
+  // read or write them even through the ro root mount.
+  const denyRules = (denyPathsRaw ?? "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p !== "");
+  for (const rule of denyRules) {
+    const target = resolve(rule.endsWith("/") ? rule.slice(0, -1) : rule);
+    // Do not shadow the workspace root itself or an ancestor containing it.
+    if (target === ws || ws.startsWith(`${target}/`)) continue;
+    if (!existsSync(target)) continue;
+    try {
+      if (statSync(target).isDirectory()) {
+        args.push("--tmpfs", target);
+      } else {
+        args.push("--ro-bind", "/dev/null", target);
+      }
+    } catch {
+      /* unreadable target already unreachable */
+    }
+  }
+
+  args.push("--unshare-net", "--die-with-parent", "bash", "-c", command);
+  return args;
+}
+
+/** Linux confinement via bubblewrap: system tree read-only, PID & network
+ *  namespaces unshared, host home trees masked, workspace writable except
+ *  protected config files. bwrap requires setuid or user namespaces;
+ *  unavailability throws at spawn time (the caller falls back to approvals). */
 export class BwrapBashSandbox implements BashSandbox {
   readonly workspaceRoot: string;
 
@@ -91,38 +163,14 @@ export class BwrapBashSandbox implements BashSandbox {
   }
 
   spawn(command: string, opts: { cwd: string; env?: Readonly<Record<string, string>> }): BashSpawn {
-    // Order matters: --tmpfs /tmp would shadow a workspace bound under /tmp,
-    // so the workspace bind comes after it (probed on bwrap 0.8).
-    const proc = Bun.spawn(
-      [
-        "bwrap",
-        "--ro-bind",
-        "/",
-        "/",
-        "--dev",
-        "/dev",
-        "--proc",
-        "/proc",
-        "--tmpfs",
-        "/tmp",
-        "--bind",
-        this.workspaceRoot,
-        this.workspaceRoot,
-        "--unshare-net",
-        "--die-with-parent",
-        "bash",
-        "-c",
-        command,
-      ],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-        stdin: "ignore",
-        detached: true,
-        cwd: opts.cwd,
-        ...(opts.env ? { env: opts.env } : {}),
-      },
-    );
+    const proc = Bun.spawn(buildBwrapArgs(this.workspaceRoot, command), {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "ignore",
+      detached: true,
+      cwd: opts.cwd,
+      ...(opts.env ? { env: opts.env } : {}),
+    });
     return wrapBunSpawn(proc);
   }
 }

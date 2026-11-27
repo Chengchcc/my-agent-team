@@ -51,21 +51,24 @@ export function approvalTimeoutMs(): number {
   return Number.isFinite(n) && n >= 0 ? n : DEFAULT_APPROVAL_TIMEOUT_MS;
 }
 
-/** Resolve with a deadline; a silent human fails closed (deny). 0 = wait. */
+/** Resolve with a deadline; a silent human fails closed (deny). 0 = wait.
+ *  Clears and unrefs the deadline timer on settle so 24h timers never leak. */
 export function withApprovalDeadline(
   p: Promise<ApprovalDecision>,
   timeoutMs: number,
 ): Promise<ApprovalDecision> {
   if (timeoutMs === 0) return p;
-  return Promise.race([
-    p,
-    new Promise<ApprovalDecision>((resolve) =>
-      setTimeout(
-        () => resolve({ decision: "deny", reason: "approval deadline exceeded" }),
-        timeoutMs,
-      ),
-    ),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<ApprovalDecision>((resolve) => {
+    timer = setTimeout(
+      () => resolve({ decision: "deny", reason: "approval deadline exceeded" }),
+      timeoutMs,
+    );
+    timer.unref?.();
+  });
+  return Promise.race([p, deadline]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
 }
 
 /** Ask the human with a deadline. The deadline is stamped ON the request, so

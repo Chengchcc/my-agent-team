@@ -123,6 +123,8 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
   const log = opts.log ?? ((line: string) => process.stderr.write(`${line}\n`));
   const sessions = new Map<string, AcpSession>();
   let live: LiveRun | null = null;
+  let promptInFlightSessionId: string | null = null;
+  let cancelledInFlight = false;
   let resolveExit: ((code: number) => void) | null = null;
   const promise = new Promise<number>((resolve) => {
     resolveExit = resolve;
@@ -225,10 +227,19 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
       if (!session) {
         throw acp.RequestError.invalidParams(undefined, `unknown session: ${ctx.params.sessionId}`);
       }
-      if (live) {
+      // Single-flight guard set BEFORE any await so concurrent session/prompt
+      // requests cannot race through assemblePluginRuntime / createOmaRuntime.
+      if (promptInFlightSessionId !== null || live) {
         throw acp.RequestError.invalidParams(undefined, "a prompt is already running");
       }
-      return runPrompt(session, promptMessageOf(ctx.params.prompt), ctx.client);
+      promptInFlightSessionId = session.sessionId;
+      cancelledInFlight = false;
+      try {
+        return await runPrompt(session, promptMessageOf(ctx.params.prompt), ctx.client);
+      } finally {
+        promptInFlightSessionId = null;
+        cancelledInFlight = false;
+      }
     })
     .onRequest(STEER_METHOD, parseSteerParams, async (ctx) => {
       if (!live || live.sessionId !== ctx.params.sessionId) {
@@ -244,19 +255,26 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
       return { accepted: true };
     })
     .onNotification(acp.methods.agent.session.cancel, (ctx) => {
+      if (promptInFlightSessionId === ctx.params.sessionId) {
+        cancelledInFlight = true;
+      }
       if (!live || live.sessionId !== ctx.params.sessionId) return;
       releaseParkedApprovals();
       void live.runtime.stop().catch(() => {});
     });
 
-  void app.connect(opts.stream ?? processStream());
+  const finishOnDisconnect = () => {
+    cancelledInFlight = true;
+    releaseParkedApprovals();
+    if (live) void live.runtime.stop().catch(() => {});
+    resolveExit?.(0);
+  };
+  void app.connect(opts.stream ?? processStream()).then(finishOnDisconnect, finishOnDisconnect);
 
   return {
     promise,
     stop() {
-      releaseParkedApprovals();
-      if (live) void live.runtime.stop().catch(() => {});
-      resolveExit?.(0);
+      finishOnDisconnect();
     },
   };
 
@@ -429,49 +447,59 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
     });
     live = { runtime, sessionId: session.sessionId, pendingApprovals };
 
-    const input = {
-      input: {
-        inputId: `acp-in-${session.sessionId}-${Date.now()}`,
-        message: promptMessage,
-      },
-      run: {
-        runId: `acp-${session.sessionId}`,
-        model: { backendKind: "oma", modelId },
-        configRevision: 1,
-        systemPrompt: buildSystemPrompt({
-          workspacePrompt: cwdPrompt,
-          memorySummary: readMemorySummary(session.cwd),
-          cwd: session.cwd,
-        }),
-      },
-      workspace: { root: session.cwd, access: "read_write" },
-      // ADR 0038: without this the runtime never enters its resume branch, so
-      // the parked tool calls stay unpaired and the already-submitted HITL
-      // decisions silently never apply.
-      ...(resume ? { resume: { decisions: resume } } : {}),
-    } as never;
-    const segment = await runtime.run(input);
     let outcome: BackendRunOutcome;
     try {
-      outcome = await segment.outcome;
-    } catch (err) {
-      outcome = { status: "failed", error: err instanceof Error ? err.message : String(err) };
+      // Honor a session/cancel notification that arrived during pre-run setup
+      // (plugin assembly / MCP list / runtime creation) before `live` was set.
+      if (cancelledInFlight) {
+        return { stopReason: "cancelled" };
+      }
+
+      const input = {
+        input: {
+          inputId: `acp-in-${session.sessionId}-${Date.now()}`,
+          message: promptMessage,
+        },
+        run: {
+          runId: `acp-${session.sessionId}`,
+          model: { backendKind: "oma", modelId },
+          configRevision: 1,
+          systemPrompt: buildSystemPrompt({
+            workspacePrompt: cwdPrompt,
+            memorySummary: readMemorySummary(session.cwd),
+            cwd: session.cwd,
+          }),
+        },
+        workspace: { root: session.cwd, access: "read_write" },
+        // ADR 0038: without this the runtime never enters its resume branch, so
+        // the parked tool calls stay unpaired and the already-submitted HITL
+        // decisions silently never apply.
+        ...(resume ? { resume: { decisions: resume } } : {}),
+      } as never;
+      const segment = await runtime.run(input);
+      try {
+        outcome = await segment.outcome;
+      } catch (err) {
+        outcome = { status: "failed", error: err instanceof Error ? err.message : String(err) };
+      }
+      if (resumedAssistant && outcome.status === "completed") {
+        outcome = { ...outcome, messages: [resumedAssistant, ...(outcome.messages ?? [])] };
+      }
+      if (outcome.status === "completed") {
+        await persistSessionTurn({
+          sessionId: session.sessionId,
+          cwd: session.cwd,
+          runtime,
+          dir: sessionDir,
+          ...(outcome.title ? { title: outcome.title } : {}),
+          ...(outcome.summary ? { summary: outcome.summary } : {}),
+        }).catch(() => {});
+      }
+    } finally {
+      releaseParkedApprovals();
+      live = null;
+      await runtime.close().catch(() => {});
     }
-    if (resumedAssistant && outcome.status === "completed") {
-      outcome = { ...outcome, messages: [resumedAssistant, ...(outcome.messages ?? [])] };
-    }
-    if (outcome.status === "completed") {
-      await persistSessionTurn({
-        sessionId: session.sessionId,
-        cwd: session.cwd,
-        runtime,
-        dir: sessionDir,
-        ...(outcome.title ? { title: outcome.title } : {}),
-        ...(outcome.summary ? { summary: outcome.summary } : {}),
-      }).catch(() => {});
-    }
-    live = null;
-    await runtime.close().catch(() => {});
 
     if (outcome.status === "aborted") {
       return { stopReason: "cancelled" };
@@ -559,18 +587,34 @@ const ACP_MCP_META = {
 
 let acpMcpRequestSeq = 0;
 
+const DEFAULT_ACP_MCP_TIMEOUT_MS = 120_000;
+
+function acpMcpTimeoutMs(): number {
+  const raw = process.env.OMA_MCP_TIMEOUT_MS;
+  if (raw !== undefined && raw.trim() !== "") {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_ACP_MCP_TIMEOUT_MS;
+}
+
 /** One `mcp/message` round trip (RFCD envelope: serverId + logical
  *  requestId + flattened method/params). The inner outcome rides the outer
  *  success: `{result: {result|error}}` — an inner error is NOT an ACP
- *  error, so the carrier keeps the provenance. */
+ *  error, so the carrier keeps the provenance. Bounded by timeout + AbortSignal
+ *  so a hung product tool never wedges the loop indefinitely. */
 async function acpMcpCall(
   client: acp.AgentContext,
   serverId: string,
   method: string,
   params: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<unknown> {
+  if (signal?.aborted) {
+    throw new Error(`mcp/${method} aborted`);
+  }
   const requestId = `oma-mcp-${++acpMcpRequestSeq}`;
-  const response = (await client.request("mcp/message", {
+  const reqPromise = client.request("mcp/message", {
     serverId,
     requestId,
     method,
@@ -581,12 +625,61 @@ async function acpMcpCall(
       ...params,
       _meta: { ...ACP_MCP_META, ...((params._meta as Record<string, unknown> | undefined) ?? {}) },
     },
-  } as never)) as { result?: { result?: unknown; error?: { message?: string } } };
+  } as never) as Promise<{ result?: { result?: unknown; error?: { message?: string } } }>;
+
+  const timeoutMs = acpMcpTimeoutMs();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const response = await new Promise<{
+    result?: { result?: unknown; error?: { message?: string } };
+  }>((resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`mcp/${method} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    timer.unref?.();
+    if (signal) {
+      onAbort = () => reject(new Error(`mcp/${method} aborted`));
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+    reqPromise.then(resolve, reject);
+  }).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+    if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+  });
+
   const inner = response.result;
   if (inner?.error) {
     throw new Error(`mcp/${method} failed: ${inner.error.message ?? "unknown error"}`);
   }
   return inner?.result;
+}
+
+/** Extract clean text + isError from an MCP tools/call result so MCP-over-ACP
+ *  never double-JSON-encodes `{ content: [{ type: "text", text }] }` or drops
+ *  `isError: true`. */
+function unwrapMcpCallResult(raw: unknown): { content: unknown; isError?: boolean } {
+  if (typeof raw !== "object" || raw === null) {
+    return { content: raw };
+  }
+  const rec = raw as { content?: unknown; isError?: unknown };
+  const isError = rec.isError === true;
+  if (Array.isArray(rec.content)) {
+    const blocks = rec.content as Array<{ type?: unknown; text?: unknown }>;
+    if (
+      blocks.length > 0 &&
+      blocks.every((b) => b?.type === "text" && typeof b.text === "string")
+    ) {
+      return {
+        content: blocks.map((b) => b.text as string).join("\n"),
+        ...(isError ? { isError: true } : {}),
+      };
+    }
+    return { content: rec.content, ...(isError ? { isError: true } : {}) };
+  }
+  if ("content" in rec) {
+    return { content: rec.content, ...(isError ? { isError: true } : {}) };
+  }
+  return { content: raw, ...(isError ? { isError: true } : {}) };
 }
 
 /** Fetch every declared ACP MCP server's tools, adapted into oma tools. A
@@ -606,13 +699,20 @@ async function fetchAcpMcpTools(
       for (const tool of listed?.tools ?? []) {
         tools.push(
           adaptMcpTool(server.name, tool, {
-            callTool: async ({ name, arguments: args, _meta }) => ({
-              content: await acpMcpCall(client, server.serverId, "tools/call", {
-                name,
-                arguments: args,
-                ...(_meta ? { _meta } : {}),
-              }),
-            }),
+            callTool: async ({ name, arguments: args, _meta, signal }) => {
+              const raw = await acpMcpCall(
+                client,
+                server.serverId,
+                "tools/call",
+                {
+                  name,
+                  arguments: args,
+                  ...(_meta ? { _meta } : {}),
+                },
+                signal,
+              );
+              return unwrapMcpCallResult(raw);
+            },
           }),
         );
       }
@@ -879,9 +979,14 @@ function acpApproval(
 ): Promise<ApprovalDecision> {
   return new Promise<ApprovalDecision>((resolve) => {
     let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const settle = (d: ApprovalDecision): void => {
       if (settled) return;
       settled = true;
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
       pendingApprovals.delete(req.callId);
       resolve(d);
     };
@@ -891,6 +996,7 @@ function acpApproval(
         sessionId: session.sessionId,
         toolCall: {
           toolCallId: req.callId,
+          name: req.toolName,
           title: req.reason ?? `${req.toolName} needs approval`,
           kind: toolKindFor(req.toolName),
           status: "pending",
@@ -944,10 +1050,11 @@ function acpApproval(
     const timeoutMs =
       req.deadlineAt === undefined ? approvalTimeoutMs() : Math.max(1, req.deadlineAt - Date.now());
     if (timeoutMs > 0) {
-      setTimeout(
+      timer = setTimeout(
         () => settle({ decision: "deny", reason: "approval deadline exceeded" }),
         timeoutMs,
       );
+      timer.unref?.();
     }
   });
 }

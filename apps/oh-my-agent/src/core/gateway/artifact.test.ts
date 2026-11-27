@@ -72,7 +72,7 @@ describe("releaseLocation", () => {
   test("targets the GitHub release for a version", () => {
     const loc = releaseLocation("0.2.0", {});
     expect(loc.tarball).toBe(
-      "https://github.com/Chengchcc/my-agent-team/releases/download/v0.2.0/oma-gateway-0.2.0.tar.zst",
+      "https://github.com/Chengchcc/crewdesk/releases/download/v0.2.0/oma-gateway-0.2.0.tar.zst",
     );
     expect(loc.sums.endsWith("/SHA256SUMS")).toBe(true);
   });

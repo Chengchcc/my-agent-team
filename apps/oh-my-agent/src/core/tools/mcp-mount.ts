@@ -341,19 +341,25 @@ export async function withCallTimeout<T>(
   if (signal?.aborted) throw new Error("Aborted");
   if (timeoutMs <= 0 && !signal) return call;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
   const bail = new Promise<never>((_, reject) => {
     if (timeoutMs > 0) {
       timer = setTimeout(
         () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
         timeoutMs,
       );
+      timer.unref?.();
     }
-    signal?.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
+    if (signal) {
+      onAbort = () => reject(new Error("Aborted"));
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
   });
   try {
     return await Promise.race([call, bail]);
   } finally {
-    clearTimeout(timer);
+    if (timer !== undefined) clearTimeout(timer);
+    if (signal && onAbort) signal.removeEventListener("abort", onAbort);
   }
 }
 
@@ -390,7 +396,7 @@ export async function mountWorkspaceMcpServers(
   const mountTimeoutMs = mcpMountTimeoutMs(timeouts);
   const servers = includeWorkspace
     ? mergeMcpConfigs(workspaceRoot, pluginServers)
-    : mergePluginMcpConfigs(pluginServers);
+    : mergePluginMcpConfigs(pluginServers, workspaceRoot);
   const tools: PluginTool[] = [];
   const reports: McpMountReport[] = [];
   const clients: McpClientLike[] = [];
@@ -541,13 +547,19 @@ export function mergeMcpConfigs(
 }
 
 /** Plugin servers only (workspace .mcp.json gated off — standalone trust). */
-function mergePluginMcpConfigs(plugins: readonly PluginMcpConfig[]): Record<string, McpJsonServer> {
+export function mergePluginMcpConfigs(
+  plugins: readonly PluginMcpConfig[],
+  workspaceRoot: string,
+): Record<string, McpJsonServer> {
   const merged: Record<string, McpJsonServer> = {};
   for (const p of plugins) {
     for (const [name, raw] of Object.entries(p.servers)) {
       if (name in merged) continue;
       if (typeof raw !== "object" || raw === null) continue;
-      merged[name] = raw as McpJsonServer;
+      merged[name] = substitutePluginVars(raw as McpJsonServer, {
+        pluginRoot: p.pluginRoot,
+        workspaceRoot,
+      });
     }
   }
   return merged;

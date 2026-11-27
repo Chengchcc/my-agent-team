@@ -1,7 +1,7 @@
 #!/bin/sh
 # oma installer: one command for the CLI plus the backend + web gateway artifact.
 #
-#   curl -fsSL https://raw.githubusercontent.com/Chengchcc/my-agent-team/master/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/Chengchcc/crewdesk/master/scripts/install.sh | sh
 #
 # POSIX sh on purpose (dash, not bash): pipelines like this run under whatever
 # /bin/sh is, so no bashisms. Idempotent, no sudo, and it never starts the gateway

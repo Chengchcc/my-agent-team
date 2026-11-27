@@ -96,7 +96,12 @@ export function mapRunEvent(event: TransportRunEvent): BackendEvent {
     case "tool_execution_end": {
       const toolName = String(event.data.toolName ?? "unknown");
       const callId = String(event.data.callId ?? `call-${event.id}`);
-      const result = event.data.result as Readonly<Record<string, unknown>> | undefined;
+      const rawResult = event.data.result as Readonly<Record<string, unknown>> | undefined;
+      const failed = event.data.isError === true;
+      const result =
+        rawResult !== undefined || failed
+          ? { ...(rawResult ?? {}), ...(failed ? { isError: true } : {}) }
+          : undefined;
       const presentation = readPresentation(event.data.presentation);
       if (presentation !== undefined) {
         return { type: "native_tool_completed", toolName, callId, result, presentation };

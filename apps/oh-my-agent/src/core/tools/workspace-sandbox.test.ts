@@ -106,6 +106,8 @@ describe("WorkspaceSandbox", () => {
       join(tmpRoot, "dir-alias"),
       join(tmpRoot, "loop-a"),
       join(tmpRoot, "loop-b"),
+      join(tmpRoot, "abs-dangling-out"),
+      join(tmpRoot, "abs-dangling-in"),
     ];
     try {
       // Relative dangling symlink staying inside root resolves to canonical target
@@ -117,6 +119,14 @@ describe("WorkspaceSandbox", () => {
       // Relative dangling symlink escaping root is refused
       symlinkSync("../../outside-dangling.txt", links[1]!);
       expect(() => sandbox.validateNew("rel-dangling-out")).toThrow(WorkspaceEscapeError);
+
+      // Absolute dangling symlinks: escaping is refused, contained resolves cleanly
+      symlinkSync("/tmp/definitely-outside-dangling.txt", links[5]!);
+      expect(() => sandbox.validateNew("abs-dangling-out")).toThrow(WorkspaceEscapeError);
+      symlinkSync(join(sandbox.root, "subdir", "abs-not-yet.txt"), links[6]!);
+      expect(sandbox.validateNew("abs-dangling-in")).toBe(
+        join(sandbox.root, "subdir", "abs-not-yet.txt"),
+      );
 
       // In-workspace directory symlink resolves nested children to canonical realpath
       symlinkSync("subdir", links[2]!);

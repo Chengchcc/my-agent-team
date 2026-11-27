@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trustFile } from "../plugins/plugin-trust.js";
 import {
   hasProjectSettings,
   loadProjectSettings,
@@ -93,6 +94,7 @@ describe("project settings", () => {
         }),
         "utf8",
       );
+      // Untrusted workspace settings.json strips security-weakening browserLocalNetwork: true
       expect(loadProjectSettings(root)).toEqual({
         maxSteps: 42,
         modelTimeoutMs: 1000,
@@ -105,8 +107,10 @@ describe("project settings", () => {
         memoryExtract: true,
         memoryModel: "fake/echo",
         permissionClassifierModel: "fake/echo2",
-        browserLocalNetwork: true,
       });
+      // Once explicitly trusted, browserLocalNetwork: true is honored
+      trustFile(join(root, ".oma", "settings.json"));
+      expect(loadProjectSettings(root).browserLocalNetwork).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

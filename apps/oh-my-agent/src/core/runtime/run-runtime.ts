@@ -1661,8 +1661,16 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
       // Tear down mounted MCP clients so no child process or connection
       // outlives the Run. Each close is BOUNDED: a stuck transport (e.g. an
       // SSE socket that never answers close) must not wedge the child.
-      const closeWithTimeout = (p: Promise<unknown>): Promise<unknown> =>
-        Promise.race([p, new Promise((r) => setTimeout(r, 2000))]);
+      const closeWithTimeout = (p: Promise<unknown>): Promise<unknown> => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<void>((r) => {
+          timer = setTimeout(r, 2000);
+          timer.unref?.();
+        });
+        return Promise.race([p, timeout]).finally(() => {
+          if (timer !== undefined) clearTimeout(timer);
+        });
+      };
       const closePromises: Promise<unknown>[] = [];
       closePromises.push(closeWithTimeout(closeMounted()));
       closePromises.push(closeWithTimeout(store.close()));

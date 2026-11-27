@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isFileTrusted, readTrustedPlugins, trustFile } from "../plugins/plugin-trust.js";
 
 /** Project-level oma settings (`.oma/settings.json` in the workspace root).
  *
@@ -129,8 +130,13 @@ function settingsPath(root: string): string {
 /** Read project settings. Missing/corrupt file degrades to `{}`. */
 export function loadProjectSettings(root: string): ProjectSettings {
   try {
-    const parsed = JSON.parse(readFileSync(settingsPath(root), "utf8")) as unknown;
+    const path = settingsPath(root);
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
     if (typeof parsed !== "object" || parsed === null) return {};
+    // Security-weakening workspace settings (`permissionMode: "yolo"`,
+    // `browserLocalNetwork: true`) require explicit local trust so a cloned
+    // repo's `.oma/settings.json` cannot silently disarm gating or open LAN SSRF.
+    const trusted = isFileTrusted(path, readTrustedPlugins());
     const result: ProjectSettings = {};
     if ("model" in parsed && typeof parsed.model === "string") result.model = parsed.model;
     if ("skills" in parsed && Array.isArray(parsed.skills)) {
@@ -192,7 +198,9 @@ export function loadProjectSettings(root: string): ProjectSettings {
       result.bashSandbox = parsed.bashSandbox;
     }
     if ("browserLocalNetwork" in parsed && typeof parsed.browserLocalNetwork === "boolean") {
-      result.browserLocalNetwork = parsed.browserLocalNetwork;
+      if (parsed.browserLocalNetwork === false || trusted) {
+        result.browserLocalNetwork = parsed.browserLocalNetwork;
+      }
     }
     if (
       "editFreshness" in parsed &&
@@ -236,7 +244,8 @@ export function loadProjectSettings(root: string): ProjectSettings {
         parsed.permissionMode === "deny" ||
         parsed.permissionMode === "yolo")
     ) {
-      result.permissionMode = parsed.permissionMode;
+      result.permissionMode =
+        parsed.permissionMode === "yolo" && !trusted ? "ask" : parsed.permissionMode;
     }
     if ("maxToolTimeoutMs" in parsed && typeof parsed.maxToolTimeoutMs === "number") {
       result.maxToolTimeoutMs = parsed.maxToolTimeoutMs;
@@ -273,6 +282,11 @@ export function saveProjectSettings(root: string, settings: ProjectSettings): vo
   }
   mkdirSync(join(root, ".oma"), { recursive: true });
   writeFileSync(path, `${JSON.stringify({ ...existing, ...settings }, null, 2)}\n`, "utf8");
+  try {
+    trustFile(path);
+  } catch {
+    /* best-effort in read-only agentDir environments */
+  }
 }
 
 /** Persist a TUI model choice to `.oma/settings.json`, preserving other keys. */
@@ -374,7 +388,7 @@ export function resolveRuntimeKnobs(
   if (evalTimeoutMs !== undefined) knobs.evalTimeoutMs = evalTimeoutMs;
   const approvalTimeoutMs = envNumber(env, "OMA_APPROVAL_TIMEOUT_MS");
   if (approvalTimeoutMs !== undefined) knobs.approvalTimeoutMs = approvalTimeoutMs;
-  const classifierModel = s.permissionClassifierModel ?? env.permissionClassifierModel;
+  const classifierModel = s.permissionClassifierModel ?? env.OMA_PERMISSION_CLASSIFIER_MODEL;
   const classifierModelTrimmed = classifierModel?.trim();
   if (classifierModelTrimmed) knobs.permissionClassifierModel = classifierModelTrimmed;
   const classifierTimeoutMs = envNumber(env, "OMA_CLASSIFIER_TIMEOUT_MS");

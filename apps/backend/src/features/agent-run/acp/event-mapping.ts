@@ -288,16 +288,77 @@ function planEntriesToItems(
 }
 
 /** ADR 0063 D5.1: the child's `_oma/update` custom notification is the rail
- *  for events the ACP schema does not know (ADR 0039 rule 3). Only the job
- *  lifecycle is consumed today; everything else stays dropped on purpose. */
+ *  for events the ACP schema does not know (ADR 0039 rule 3). Maps liveness
+ *  heartbeats (so the silence watchdog does not kill long thinking/compaction),
+ *  job lifecycle, delegation progress, and MCP mount results. */
 export function mapOmaUpdate<K extends string>(envelope: unknown, kind: K): BackendEvent<K>[] {
   if (typeof envelope !== "object" || envelope === null) return [];
   const event = envelope as { type?: unknown; data?: unknown };
+  const data = (
+    typeof event.data === "object" && event.data !== null ? event.data : event
+  ) as Record<string, unknown>;
+
+  if (event.type === "heartbeat") {
+    return [{ type: "status", status: "heartbeat" }];
+  }
+  if (event.type === "delegation_batch_started") {
+    const source = data.source;
+    return [
+      {
+        type: "delegation_batch_started",
+        batchId: String(data.batchId ?? ""),
+        label: String(data.label ?? ""),
+        agentCount: Number(data.agentCount ?? 0),
+        ...(source === "task" || source === "workflow" ? { source } : {}),
+      },
+    ];
+  }
+  if (event.type === "delegation_agent_started") {
+    return [
+      {
+        type: "delegation_agent_started",
+        batchId: String(data.batchId ?? ""),
+        agentId: String(data.agentId ?? ""),
+        label: String(data.label ?? ""),
+      },
+    ];
+  }
+  if (event.type === "delegation_agent_completed") {
+    const usage =
+      typeof data.usage === "object" && data.usage !== null
+        ? (data.usage as Readonly<Record<string, unknown>>)
+        : undefined;
+    return [
+      {
+        type: "delegation_agent_completed",
+        batchId: String(data.batchId ?? ""),
+        agentId: String(data.agentId ?? ""),
+        label: String(data.label ?? ""),
+        ok: data.ok === true,
+        ...(typeof data.error === "string" ? { error: data.error } : {}),
+        ...(usage ? { usage } : {}),
+      },
+    ];
+  }
+  if (event.type === "delegation_batch_completed") {
+    return [
+      {
+        type: "delegation_batch_completed",
+        batchId: String(data.batchId ?? ""),
+        ok: data.ok === true,
+        agentCount: Number(data.agentCount ?? 0),
+        totalTokens: Number(data.totalTokens ?? 0),
+      },
+    ];
+  }
+  if (event.type === "mcp_mount_result") {
+    return [{ type: `backend.${kind}.mcp_mount_result`, payload: data }];
+  }
   if (event.type !== "job_state") return [];
   // The wire carries the runtime's ENVELOPE (`{id, type, data}`), where the
   // event fields live under `data`; a bare event is accepted too so the
   // mapper does not depend on which side of the envelope it is handed.
-  const { jobId, jobKind, label, state } = (event.data ?? event) as {
+  const { jobId, jobKind, label, state } = data as {
     jobId?: unknown;
     jobKind?: unknown;
     label?: unknown;

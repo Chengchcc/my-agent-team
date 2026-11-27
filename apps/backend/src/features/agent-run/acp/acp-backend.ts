@@ -286,11 +286,17 @@ export class AcpBackend implements AgentBackend<"acp"> {
   private async onMcpMessage(
     req: McpOverAcpRequest,
     caller: { readonly runId: string; readonly agentId: string },
-  ): Promise<{ readonly result: { readonly result: unknown } }> {
+  ): Promise<{
+    readonly result: {
+      readonly result?: unknown;
+      readonly error?: { readonly code: number; readonly message: string };
+    };
+  }> {
     const provider = this.acpMcpProvider;
-    const inner = (result: unknown) => ({ result: { result } });
+    const innerOk = (result: unknown) => ({ result: { result } });
+    const innerErr = (code: number, message: string) => ({ result: { error: { code, message } } });
     if (!provider) {
-      return inner({ error: { code: -32601, message: "no MCP provider for this connection" } });
+      return innerErr(-32601, "no MCP provider for this connection");
     }
     if (req.serverId !== provider.serverId) {
       // A binding failure is the ACP layer's to report (RFCD error codes).
@@ -301,11 +307,11 @@ export class AcpBackend implements AgentBackend<"acp"> {
     }
     const method = typeof req.method === "string" ? req.method : "";
     const params = (req.params ?? {}) as Record<string, unknown>;
-    if (method === "tools/list") return inner(provider.listTools());
+    if (method === "tools/list") return innerOk(provider.listTools());
     if (method === "tools/call") {
       const name = typeof params.name === "string" ? params.name : "";
       if (name === "") {
-        return inner({ error: { code: -32602, message: "tools/call requires a name" } });
+        return innerErr(-32602, "tools/call requires a name");
       }
       const metaIdentity = (params._meta as { identity?: Record<string, unknown> } | undefined)
         ?.identity;
@@ -315,12 +321,12 @@ export class AcpBackend implements AgentBackend<"acp"> {
         args: (params.arguments ?? {}) as Record<string, unknown>,
         ...(metaIdentity ? { metaIdentity } : {}),
       });
-      return inner({
+      return innerOk({
         content: [{ type: "text", text: out.content }],
         ...(out.isError ? { isError: true } : {}),
       });
     }
-    return inner({ error: { code: -32601, message: `unsupported MCP method ${method}` } });
+    return innerErr(-32601, `unsupported MCP method ${method}`);
   }
 
   async execute(input: BackendRunInput<"acp">): Promise<BackendRunSegment<"acp">> {

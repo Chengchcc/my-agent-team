@@ -157,3 +157,36 @@ test("list rejects folders escaping the root (M13)", async () => {
   await expect(adapter.list("../outside")).rejects.toThrow(/escapes root/);
   await expect(adapter.list("a/../../../etc")).rejects.toThrow(/escapes root/);
 });
+
+test("getMeta resolves via list fallback and port.getMeta when provided", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "art-meta-"));
+  const adapter = createArtifactFsAdapter(dir);
+  const svc = createArtifactService(adapter);
+
+  const uploaded = await svc.upload({ folder: "docs", filename: "spec.md", content: "# spec" });
+  const found = await svc.getMeta(uploaded.url);
+  expect(found?.url).toBe(uploaded.url);
+  expect(await svc.getMeta("artifacts://docs/missing.md")).toBeNull();
+  expect(await svc.backfill()).toBe(0);
+
+  // Exercise list-fallback branch when port omits getMeta
+  const { getMeta: _omit, ...portWithoutGetMeta } = adapter;
+  const svcFallback = createArtifactService(portWithoutGetMeta);
+  expect((await svcFallback.getMeta(uploaded.url))?.url).toBe(uploaded.url);
+  expect(await svcFallback.getMeta("artifacts://docs/missing.md")).toBeNull();
+
+  let directCalled = 0;
+  const svcWithDirect = createArtifactService({
+    ...adapter,
+    async getMeta(url) {
+      directCalled += 1;
+      return url === uploaded.url ? uploaded : null;
+    },
+    async backfill() {
+      return 3;
+    },
+  });
+  expect((await svcWithDirect.getMeta(uploaded.url))?.url).toBe(uploaded.url);
+  expect(directCalled).toBe(1);
+  expect(await svcWithDirect.backfill()).toBe(3);
+});

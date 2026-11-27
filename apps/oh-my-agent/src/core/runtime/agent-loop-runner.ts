@@ -100,8 +100,6 @@ async function prepareLoopStart(
   mode: "normal" | "follow_up",
 ): Promise<{ systemPrompt: string; messages: Message[] }> {
   const { opts, emit, persist, state, toolMapRef, baseTools, mutable } = ctx;
-  if (mutable.active) throw new Error("Loop already active");
-  mutable.active = true;
   mutable.status = "running";
   mutable.controller = new AbortController();
 
@@ -486,62 +484,80 @@ async function finalizeLoop(
   };
 }
 
-type TurnControl = { action: "break" } | { action: "return"; result: OmaLoopResult };
+type TurnControl = { action: "break" } | { action: "terminal" };
 
 /** Run one model-turn retry loop (prune/compact/stream/handle). Returns
- *  "break" when the turn completed, or a terminal result. */
+ *  "break" when the turn completed, or "terminal" to settle via finalizeLoop. */
 async function runModelTurnLoop(
   ctx: LoopRunnerContext,
   stepState: LoopStepState,
 ): Promise<TurnControl> {
-  const { opts, emit, persist, state, callCtx, tokenEstimateCache, mutable } = ctx;
+  const { opts, emit, persist, state, toolMapRef, callCtx, tokenEstimateCache, mutable } = ctx;
+
+  /** Fixed non-message prompt overhead: systemPrompt + serialized tool schemas.
+   *  Without accounting for this, a run with 20k-30k tokens of tool schemas
+   *  underestimates context usage and causes findCut to NO-OP during overflow. */
+  const estimateFixedOverhead = (estimate: (m: Message) => number): number => {
+    let overhead = 0;
+    if (stepState.systemPrompt) {
+      overhead += estimate({ role: "system", text: stepState.systemPrompt });
+    }
+    const tools = [...toolMapRef.current.values()];
+    if (tools.length > 0) {
+      const schemaText = JSON.stringify(
+        tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          inputSchema: t.inputSchema,
+        })),
+      );
+      overhead += estimate({ role: "system", text: schemaText });
+    }
+    return overhead;
+  };
+
   /** One proactive compaction recovery, shared by the threshold trigger and the
-   *  two overflow triggers (silent + provider error).
-   *
-   *  It compacts down to the TRIGGER (`limit * triggerRatio`), not to `limit`.
-   *  Sizing the retained tail to `limit` while the trigger sits at
-   *  `limit * triggerRatio` left a freshly compacted branch over the threshold
-   *  by construction, so the next iteration compacted again — summarizing
-   *  entries the previous compaction had just retained. Targeting the trigger
-   *  brings the estimate under it, which is what quiets the gate.
-   *
-   *  There is deliberately NO "already compacted" flag. One was tried and had
-   *  to be re-armed from state that the loop cannot observe (the check right
-   *  after a recovery already sees the new turn's growth), so it silently
-   *  disabled proactive compaction for the rest of the Run. The no-progress
-   *  case is handled where the decision belongs: compactSession returns an
-   *  empty result when a cut would cover nothing new, so triggering on the
-   *  budget alone can neither loop nor summarize twice for nothing. */
-  const runCompactionRecovery = async (): Promise<void> => {
+   *  two overflow triggers (silent + provider error). */
+  const runCompactionRecovery = async (optsRecovery?: {
+    forceOnOverflow?: boolean;
+  }): Promise<void> => {
     stepState.usageAnchor = null;
     tokenEstimateCache.clear();
     await emit({ type: "compaction_start" });
     const contextBudget = opts.contextBudget!;
     try {
-      const result = await compactSession(
+      const branch = await opts.store.readBranch(opts.sessionId);
+      const prevCompaction = latestCompaction(branch);
+      const summaryOverhead = prevCompaction
+        ? contextBudget.estimate({ role: "user", text: prevCompaction.summary })
+        : 0;
+      const overheadTokens = estimateFixedOverhead(contextBudget.estimate) + summaryOverhead;
+      let result = await compactSession(
         opts.store,
         opts.sessionId,
         opts.summarize,
         mutable.controller?.signal,
         {
           estimate: contextBudget.estimate,
-          // Down to the proactive trigger, so the loop settles instead of
-          // compacting again next iteration — but never above the WINDOW: a
-          // deployment can configure a trigger above it (tests do, to isolate an
-          // overflow), and an overflow recovery must still compact then.
           limit: contextBudget.limit * Math.min(1, contextBudget.triggerRatio),
+          overheadTokens,
         },
       );
+      // Provider-reported or silent overflow where local chars/4 still thinks
+      // we're under limit: fall back to heuristic cut (no budget) so overflow
+      // recovery never NO-OPs into a guaranteed second 400.
+      if (result.coveredIds.length === 0 && optsRecovery?.forceOnOverflow) {
+        result = await compactSession(
+          opts.store,
+          opts.sessionId,
+          opts.summarize,
+          mutable.controller?.signal,
+        );
+      }
       if (result.coveredIds.length > 0) {
         stepState.messages = await readBranchMessages(opts.store, opts.sessionId);
       }
     } catch (err) {
-      // Compaction is a best-effort optimization, never a run verdict: a
-      // failed summarizer call (transient network, provider hiccup) used to
-      // propagate to runLoop's outer catch and terminalize an otherwise
-      // healthy run as "failed". Log it and let the model call proceed — if
-      // the context really is over the window, the provider-overflow path
-      // retries once and then terminalizes with its own one-shot guard.
       debugLog(
         "oma",
         `compaction failed (run continues): ${err instanceof Error ? err.message : String(err)}`,
@@ -590,11 +606,16 @@ async function runModelTurnLoop(
         compaction && !stepState.usageAnchor
           ? opts.contextBudget.estimate({ role: "user", text: compaction.summary })
           : 0;
+      const fixedOverheadTokens = !stepState.usageAnchor
+        ? estimateFixedOverhead(opts.contextBudget.estimate)
+        : 0;
       callBoundaryId = msgEntries.at(-1)?.entryId ?? null;
       const totalTokens =
         estimateContextTokens(msgEntries, stepState.usageAnchor, (e) =>
           tokenEstimateCache.estimate(e.entryId, e.message, opts.contextBudget!.estimate),
-        ) + summaryTokens;
+        ) +
+        summaryTokens +
+        fixedOverheadTokens;
       const overThreshold =
         totalTokens > opts.contextBudget.limit * opts.contextBudget.triggerRatio;
       if (overThreshold) {
@@ -652,7 +673,7 @@ async function runModelTurnLoop(
         isSilentContextOverflow(turn.usage, turn.stopReason, opts.contextBudget.limit);
       if (silentOverflow) {
         stepState.overflowCompacted = true;
-        await runCompactionRecovery();
+        await runCompactionRecovery({ forceOnOverflow: true });
         continue;
       }
       // TTSR stream-rule hit: discard the partial turn (nothing was
@@ -695,12 +716,8 @@ async function runModelTurnLoop(
         // on resume (API 400 for unpaired tool_use).
         if (mutable.controller?.signal.aborted) {
           mutable.status = "stopped";
-          await emit({ type: "agent_end", status: mutable.status });
-          mutable.controller = null;
-          return {
-            action: "return",
-            result: { status: mutable.status, usage: state.runUsage, error: "stopped by user" },
-          };
+          stepState.runError ??= "stopped by user";
+          return { action: "terminal" };
         }
 
         // Durable parked-turn marker (ADR 0038): the atomic batch below
@@ -723,12 +740,8 @@ async function runModelTurnLoop(
 
         if (mutable.controller?.signal.aborted) {
           mutable.status = "stopped";
-          await emit({ type: "agent_end", status: mutable.status });
-          mutable.controller = null;
-          return {
-            action: "return",
-            result: { status: mutable.status, usage: state.runUsage, error: "stopped by user" },
-          };
+          stepState.runError ??= "stopped by user";
+          return { action: "terminal" };
         }
 
         // Persist assistant(tool_use) + all tool_results atomically.
@@ -802,29 +815,19 @@ async function runModelTurnLoop(
       if (stopRequested || providerAborted) {
         mutable.status = "stopped";
         stepState.runError ??= err instanceof Error ? err.message : "stopped by user";
-        await emit({ type: "agent_end", status: mutable.status });
-        mutable.controller = null;
-        return {
-          action: "return",
-          result: { status: mutable.status, usage: state.runUsage, error: stepState.runError },
-        };
+        return { action: "terminal" };
       }
       // Overflow: one-shot compaction recovery inside the same turn.
       if (err instanceof ProviderError && err.kind === "overflow" && !stepState.overflowCompacted) {
         stepState.overflowCompacted = true;
-        await runCompactionRecovery();
+        await runCompactionRecovery({ forceOnOverflow: true });
         continue; // retry model call in the SAME turn, no extra step
       }
       // Anything else is terminal: retryStream already applied its
       // bounded policy.
       stepState.runError ??= err instanceof Error ? err.message : String(err);
       mutable.status = "failed";
-      await emit({ type: "agent_end", status: mutable.status });
-      mutable.controller = null;
-      return {
-        action: "return",
-        result: { status: mutable.status, usage: state.runUsage, error: stepState.runError },
-      };
+      return { action: "terminal" };
     }
   }
   return { action: "break" };
@@ -845,6 +848,10 @@ export async function runLoop(
   mode: "normal" | "follow_up",
 ): Promise<OmaLoopResult> {
   const { opts, emit, state, mutable } = ctx;
+  // Concurrency guard MUST run BEFORE entering try/finally so a rejected
+  // concurrent startLoop() never clears the live run's `active` / `controller`.
+  if (mutable.active) throw new Error("Loop already active");
+  mutable.active = true;
   let runError: string | undefined;
   // Liveness: the parent cannot tell a working-but-quiet child from a stuck
   // one, so the loop proves it is alive. Without this a run whose child stops
@@ -902,7 +909,7 @@ export async function runLoop(
       stepState.messages = await drainSteerQueue(ctx, stepState.messages);
 
       const turnControl = await runModelTurnLoop(ctx, stepState);
-      if (turnControl.action === "return") return turnControl.result;
+      if (turnControl.action === "terminal") break;
       // afterModel hook: after the turn's output + tool results are
       // persisted, before turn_end.
       for (const p of opts.plugins) {
@@ -916,11 +923,22 @@ export async function runLoop(
       }
 
       await emit({ type: "turn_end", turn: step });
+      // A steer accepted during afterModel / turn_end must not be dropped at
+      // loop exit: continue into the next step to drain it.
+      if (stepState.naturalStop && mutable.steerQueue.length > 0 && step < opts.maxSteps) {
+        stepState.naturalStop = false;
+      }
       if (stepState.naturalStop) {
         // ADR 0059: background work holds the turn open; a settle or a steer
         // within one slice resumes it instead of ending it.
         const held = await holdForBackground(ctx, stepState);
-        if (!held) break;
+        if (!held) {
+          if (mutable.steerQueue.length > 0 && step < opts.maxSteps) {
+            stepState.naturalStop = false;
+          } else {
+            break;
+          }
+        }
       }
     }
 

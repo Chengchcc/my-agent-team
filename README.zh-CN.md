@@ -1,6 +1,6 @@
 <div align="center">
 
-# my-agent-team
+# CrewDesk
 
 **自托管的 AI 工程团队工作台：一个超级助理统筹多位专职 Agent，统一接入 `oma` / Claude Code / `pi` / `omp` 四种引擎，共享 Git Wiki 与 Web / 飞书实时同步。**
 
@@ -13,23 +13,23 @@
 [![npm version (rc)](https://img.shields.io/npm/v/@chengchenccc/oh-my-agent/rc?style=flat-square)](https://www.npmjs.com/package/@chengchenccc/oh-my-agent?activeTab=versions)
 [![npm downloads](https://img.shields.io/npm/dm/@chengchenccc/oh-my-agent?style=flat-square)](https://www.npmjs.com/package/@chengchenccc/oh-my-agent)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![CI](https://github.com/Chengchcc/my-agent-team/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Chengchcc/my-agent-team/actions/workflows/ci.yml)
+[![CI](https://github.com/Chengchcc/crewdesk/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Chengchcc/crewdesk/actions/workflows/ci.yml)
 
 [核心能力](#-核心能力) · [快速开始](#-快速开始) · [界面预览](#-界面预览) · [架构设计](#-架构设计) · [安全模型](#-安全模型) · [文档入口](#-文档入口)
 
 <br />
 
-<a href="https://github.com/Chengchcc/my-agent-team/releases/download/media-assets/demo-main-flow.mp4">
-  <img src="https://github.com/Chengchcc/my-agent-team/releases/download/media-assets/demo-preview.webp" alt="my-agent-team 主流程演示：Today、对话与产物、事项追踪、多引擎团队、Workflow DAG 与 Git Wiki" width="100%" />
+<a href="https://github.com/Chengchcc/crewdesk/releases/download/media-assets/demo-main-flow.mp4">
+  <img src="https://github.com/Chengchcc/crewdesk/releases/download/media-assets/demo-preview.webp" alt="CrewDesk 主流程演示：Today、对话与产物、事项追踪、多引擎团队、Workflow DAG 与 Git Wiki" width="100%" />
 </a>
 
-<sub>主流程演示：Today → 对话与产物预览 → 事项追踪 → 四引擎团队 → Workflow DAG → Git Wiki · <a href="https://github.com/Chengchcc/my-agent-team/releases/download/media-assets/demo-main-flow.mp4">下载高清 MP4</a></sub>
+<sub>主流程演示：Today → 对话与产物预览 → 事项追踪 → 四引擎团队 → Workflow DAG → Git Wiki · <a href="https://github.com/Chengchcc/crewdesk/releases/download/media-assets/demo-main-flow.mp4">下载高清 MP4</a></sub>
 
 </div>
 
 ---
 
-大多数 Coding Agent 都困在各自的终端标签页里。**my-agent-team** 用单机 Bun + SQLite 技术栈，把它们组织成一支可协作、可审计、可自托管的 AI 工程团队：
+大多数 Coding Agent 都困在各自的终端标签页里。**CrewDesk** 用单机 Bun + SQLite 技术栈，把它们组织成一支可协作、可审计、可自托管的 AI 工程团队：
 
 - 在 Web 控制台或飞书里直接找你的**超级助理（PA）**沟通。
 - PA 把真实目标沉淀为**事项（Requirement）**，拆解派单给专职成员（开发 / 调研 / 评审）在独立 Git 副本里干活，并把长期经验沉淀进 **Git 驱动的共享 Wiki**。
@@ -102,7 +102,7 @@
 一条命令安装 `oma` CLI 并下发预编译的 backend + web 产物（系统需有 `tar` 与 `zstd`，缺 Bun 会自动安装）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Chengchcc/my-agent-team/master/scripts/install.sh | OMA_VERSION=rc sh
+curl -fsSL https://raw.githubusercontent.com/Chengchcc/crewdesk/master/scripts/install.sh | OMA_VERSION=rc sh
 oma gateway up        # 前台运行；加 -d 放后台，健康后返回
 ```
 

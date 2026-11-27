@@ -45,7 +45,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Chengchcc/my-agent-team.git",
+    "url": "git+https://github.com/Chengchcc/crewdesk.git",
     "directory": "apps/oh-my-agent"
   }
 }

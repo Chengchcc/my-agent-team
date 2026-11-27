@@ -21,7 +21,7 @@
   "version": "0.1.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Chengchcc/my-agent-team.git",
+    "url": "git+https://github.com/Chengchcc/crewdesk.git",
     "directory": "packages/source-fetch"
   },
   "main": "./src/index.ts"

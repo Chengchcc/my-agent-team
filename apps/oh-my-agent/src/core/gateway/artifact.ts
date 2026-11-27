@@ -6,7 +6,7 @@ import { type GatewayManifest, readGatewayManifest } from "./manifest.js";
 
 export class GatewayArtifactError extends Error {}
 
-const DEFAULT_STACK_REPO = "Chengchcc/my-agent-team";
+const DEFAULT_STACK_REPO = "Chengchcc/crewdesk";
 
 /** Written last, after a version is fully unpacked: its presence is what makes
  *  an install idempotent. */
