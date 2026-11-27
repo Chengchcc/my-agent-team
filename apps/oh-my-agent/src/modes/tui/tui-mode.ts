@@ -486,6 +486,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         // dominates the draft, and the implementer can differ.
         const planModel = planRuntime.activeModel;
         if (planModel && planModel !== modelId) {
+          if (!reentry && prePlanModel === undefined) prePlanModel = modelId;
           modelId = planModel;
           io.setHeader?.({ model: modelId, sessionId: session.sessionId, title: sessionTitle });
         }
@@ -624,8 +625,14 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     if (!isHiddenInput(text) && !text.startsWith("/")) loopRuntime.capturePrompt(text);
     if (!isHiddenInput(text)) planRuntime.onUserTurn();
 
+    // Plan mode's contract travels WITH turn 1 (not queued after turn 1 ends,
+    // which used to leave turn 1 without the read-only contract and fire a
+    // reminder immediately on top of it).
+    const planContract = planRuntime.takeContractPrompt(planModePrompt);
+    const effectivePrompt = planContract !== null ? `${planContract}\n\n${text}` : text;
+
     const built = await buildCliRunInput({
-      prompt: text,
+      prompt: effectivePrompt,
       workspaceRoot: opts.workspaceRoot,
       modelRuntime: opts.modelRuntime,
       modelId,
@@ -684,9 +691,18 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           runId: `tui-${randomUUID()}`,
           workspaceRoot: opts.workspaceRoot,
           workspaceAccess: opts.readOnly ? "read_only" : "read_write",
-          // M-bash: pty:true bash calls open the interactive console overlay.
-          bashPtyConsole: (command, cwd, env, signal) =>
-            io.runPtyConsole!(command, cwd, env, signal),
+          // M-bash: pty:true bash calls open the interactive console overlay
+          // (guarded so headless drivers without runPtyConsole never throw).
+          ...(io.runPtyConsole
+            ? {
+                bashPtyConsole: (
+                  command: string,
+                  cwd: string,
+                  env: Record<string, string>,
+                  signal?: AbortSignal,
+                ) => io.runPtyConsole!(command, cwd, env, signal),
+              }
+            : {}),
           // HITL: interactive approval overlay; absent picker or cancel = deny.
           approvalHandler: async (req) => {
             writeAgentStatus(opts.workspaceRoot, "blocked", session.sessionId);
@@ -724,6 +740,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           // screen incrementally; the TUI's requestRender throttles/coalesces,
           // so high-frequency chunk events are safe here.
           onEvent: (envelope) => {
+            markToolUsage(envelope);
             const event = envelope.data as OmaLoopEvent;
             applyEvent(state, event);
             // Steers the loop actually injected are no longer "queued".
@@ -761,6 +778,14 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       ),
     );
     io.setBusy?.(true);
+    let turnUsedTools = false;
+    // Snapshot of the run's live event stream: track tool execution directly
+    // instead of probing state.runs.at(-1), which pushStatus() overwrites.
+    const markToolUsage = (ev: { type?: string }): void => {
+      if (ev.type === "native_tool_started" || ev.type === "tool_execution_start") {
+        turnUsedTools = true;
+      }
+    };
     const turnStartedAt = Date.now();
     liveRuntime = runtime;
 
@@ -923,14 +948,6 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     // channel while the Run was live — honor it now that the Run settled.
     if (quitting) return 0;
 
-    // Plan mode's contract travels WITH the turn that starts the planning: the
-    // model cannot obey a rule it was never told, and the rule is the whole
-    // mechanism behind the read-only guarantee for bash.
-    const contract = planRuntime.takeContractPrompt(planModePrompt);
-    if (contract !== null) {
-      pendingFollowUps.push(formatGoalInput(contract));
-    }
-
     // Plan mode's contract: a planning turn that produced no usable draft has
     // not done its job. One reminder (not a loop — a model that ignored the
     // contract twice needs the user, not another nudge). The runtime owns the
@@ -998,7 +1015,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         usage: outcome.usage ?? {},
         wallSeconds: Math.max(0, (Date.now() - turnStartedAt) / 1000),
         status: outcome.status,
-        usedTools: state.runs.at(-1)?.items.some((item) => item.kind === "tool") === true,
+        usedTools: turnUsedTools,
       });
       if (decision.action === "continue") {
         // A continuation has no visible user nudge,

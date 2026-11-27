@@ -470,8 +470,14 @@ export function createTerminalIo(
   tui.start();
   tui.terminal.write("\x1b[?1004h");
 
+  let closed = false;
+  const safeRequestRender = (): void => {
+    if (!closed) tui.requestRender();
+  };
+
   return {
     render(state: TuiViewState) {
+      if (closed) return;
       shell.render(state);
     },
     setDriverStatus(kind, text) {
@@ -718,6 +724,7 @@ export function createTerminalIo(
         ...(opts?.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
       });
       dock(panel, () => {
+        panel.dispose();
         undock(panel);
         resolve(null);
       });
@@ -810,19 +817,25 @@ export function createTerminalIo(
       });
     },
     setHeader(info) {
+      if (closed) return;
       shell.setHeader(info.model ?? "", info.sessionId ?? "", info.title ?? "", info.context);
     },
     setInputText(text) {
+      if (closed) return;
       editor.setText(text);
-      tui.requestRender();
+      safeRequestRender();
     },
     isFocused() {
       return focused;
     },
     notify() {
+      if (closed) return;
       tui.terminal.write("\x07");
     },
     close() {
+      if (closed) return;
+      closed = true;
+      docked?.dismiss();
       abortActivePty?.();
       defaultRegistry.removeCompletionListener(onRegistrySettled);
       clearInterval(elapsedTimer);

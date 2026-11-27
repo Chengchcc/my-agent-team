@@ -330,7 +330,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       argumentHint: "[<objective> | set <objective> | show | pause | resume | drop | budget <n>]",
       group: "general",
       live: true,
-      run: (args) => {
+      run: async (args) => {
         const runtime = ctx.goals;
         if (!runtime) return void ctx.pushStatus("goal mode unavailable in this session");
         if (!goalsEnabled(ctx)) {
@@ -380,7 +380,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         }
         if (sub === "drop" || sub === "clear" || sub === "stop") {
           if (!goal) return void ctx.pushStatus("no goal set");
-          void (async () => {
+          return (async () => {
             // Dropping is permanent and there is no separate /goal stop, so it
             // asks first. FAIL CLOSED: only an explicit "allow" drops; cancel
             // (null) and a missing hook both leave the goal alone.
@@ -397,7 +397,6 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
             runtime.drop();
             ctx.refreshDriverStatus?.();
           })();
-          return;
         }
         if (sub === "budget") {
           if (!goal) return void ctx.pushStatus("no active goal");
@@ -432,7 +431,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
               `  ${goal.objective}`,
             ]);
           }
-          void (async () => {
+          return (async () => {
             const items: Array<{ value: string; label: string; description: string }> = [];
             if (goal.status === "paused") {
               items.push({ value: "resume", label: "Resume", description: "continue the goal" });
@@ -469,7 +468,6 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
             }
             await command.run(picked);
           })();
-          return;
         }
         // /goal set <objective> or /goal <objective>: create, or REPLACE an
         // active goal (replaceGoal) — only a COMPLETE goal blocks a new

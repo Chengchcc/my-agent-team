@@ -58,6 +58,9 @@ export class GoalRuntime {
   /** Set by complete(): the settled run's usage still has to land on the
    *  completed goal (the tool fired mid-run, before usage existed). */
   #pendingFinalFlush = false;
+  /** Prevents settleTurn() from re-broadcasting "goal COMPLETE" on every
+   *  subsequent turn after completion was already reported once. */
+  #completionReported = false;
 
   constructor(
     /** Persist a transition (session event). Called on EVERY mutation so a
@@ -96,6 +99,7 @@ export class GoalRuntime {
   /** Resume replay (session event): a live goal comes back PAUSED. */
   restore(state: GoalModeState | null): void {
     this.#state = state;
+    this.#completionReported = state?.reason === "completed";
   }
 
   #commit(next: GoalModeState | null, options?: { recordCompletion?: boolean }): void {
@@ -116,6 +120,7 @@ export class GoalRuntime {
     const next = createGoal(objective, tokenBudget);
     this.#interviewing = false;
     this.#noProgressTurns = 0;
+    this.#completionReported = false;
     this.#commit(next);
     this.notify(
       replacing
@@ -236,7 +241,8 @@ export class GoalRuntime {
       });
     }
     if (!isAccountingStatus(state.goal)) {
-      if (state.reason === "completed") {
+      if (state.reason === "completed" && !this.#completionReported) {
+        this.#completionReported = true;
         return {
           action: "completed",
           objective: state.goal.objective,

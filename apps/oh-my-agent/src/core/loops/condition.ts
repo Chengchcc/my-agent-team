@@ -20,6 +20,9 @@ export interface LoopConditionConfig {
   /** true = `--until` (stop when the command succeeds); false = `--while`
    *  (stop when it fails). */
   until: boolean;
+  /** When true (e.g. POSIX grep 0/1/2 queue checks), any exit code > 1 is
+   *  treated as a broken condition rather than a false predicate. */
+  strictExit1?: boolean;
 }
 
 export type LoopConditionVerdict =
@@ -87,6 +90,7 @@ export async function evaluateLoopCondition(
 ): Promise<LoopConditionVerdict> {
   let proc: ConditionProcess | undefined;
   let timer: Timer | undefined;
+  if (options.signal?.aborted) return { kind: "aborted" };
   let timedOut = false;
   let aborted = false;
   const onAbort = (): void => {
@@ -108,6 +112,7 @@ export async function evaluateLoopCondition(
               proc?.kill();
               resolve(124); // conventional timeout status
             }, options.timeoutMs);
+            timer.unref?.();
           })
         : new Promise<number | null>(() => {}),
     ]);
@@ -129,15 +134,24 @@ export async function evaluateLoopCondition(
         message: `loop condition ${quoteCommand(condition.command)} is now satisfied`,
       };
     }
-    if (exitCode === 1) {
+    // Shell/OS execution errors (126 not executable, 127 command not found,
+    // >=128 signal death, null exit, or bash syntax error) are broken conditions;
+    // normal non-zero exit codes (e.g. exit 1, tsc/make exit 2, curl exit 7)
+    // mean the predicate is false so --until keeps going and --while halts.
+    const isBrokenCondition =
+      exitCode === null ||
+      exitCode === 126 ||
+      exitCode === 127 ||
+      exitCode >= 128 ||
+      (condition.strictExit1 === true && exitCode > 1) ||
+      (exitCode === 2 && /syntax error|unexpected EOF/i.test(output));
+    if (!isBrokenCondition) {
       if (condition.until) return { kind: "continue" };
       return {
         kind: "halt",
         message: `loop condition ${quoteCommand(condition.command)} no longer holds`,
       };
     }
-    // Exit >1 (or a signal death, which reports no status) is the condition
-    // breaking, not answering.
     const preview = previewOutput(output);
     const detail = preview ? `: ${preview}` : "";
     const status = exitCode === null ? "no exit status" : `exit ${exitCode}`;
@@ -179,13 +193,25 @@ function startCondition(
     stdout: "pipe",
     stderr: "pipe",
     stdin: "ignore",
+    detached: true,
     cwd: options.cwd,
   });
   return {
     stdout: proc.stdout,
     stderr: proc.stderr,
     exited: proc.exited,
-    kill: () => proc.kill(),
+    kill: () => {
+      try {
+        process.kill(-proc.pid, "SIGKILL");
+      } catch {
+        /* not a group leader or already gone */
+      }
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    },
   };
 }
 

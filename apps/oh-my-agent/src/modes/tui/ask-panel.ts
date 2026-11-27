@@ -935,10 +935,18 @@ export class AskPanel implements Component, Focusable {
    *  row the user was focused on when they wrote a note) and is marked
    *  `timedOut`: the model must be able to tell an auto-selection from consent.
    *  Then the ask submits, answered or not. */
+  /** Stop timers without triggering onSettle (used on external dismiss/close). */
+  dispose(): void {
+    this.settled = true;
+    this.clearTimers();
+  }
+
   private expire(): void {
     if (this.settled) return;
     if (this.open) {
-      // Never yank a field mid-edit; run once it closes (oh-my-pi defers too).
+      // Never yank a field mid-edit; stop the 1s countdown ticker immediately
+      // and run expiry once the field closes (oh-my-pi defers too).
+      this.clearTimers();
       this.timeoutPending = true;
       return;
     }

@@ -30,7 +30,7 @@ export function ralphQueuePath(workspaceRoot: string): string {
  *  its own progress. Overridable — `/loop --until 'bun test'` swaps the
  *  authority to the verifier. */
 export function ralphCondition(): LoopConditionConfig {
-  return { command: RALPH_QUEUE_CHECK, until: false };
+  return { command: RALPH_QUEUE_CHECK, until: false, strictExit1: true };
 }
 
 /** One iteration's instructions. The queue is the plan; the model's job is to

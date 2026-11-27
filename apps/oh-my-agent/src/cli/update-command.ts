@@ -72,6 +72,8 @@ export interface UpdateCommandOptions {
   home?: string;
   /** Pin the target version instead of asking the registry. */
   version?: string;
+  /** Custom npm registry URL forwarded to `bun add -g --registry`. */
+  registry?: string;
   /** Report state and stop; no download, no install, no restart. */
   check?: boolean;
   log?: (line: string) => void;
@@ -202,11 +204,12 @@ export async function runUpdateCommand(opts: UpdateCommandOptions = {}): Promise
   if (cliVersion === target.version || (!pinned && !isNewer(target.version, cliVersion))) {
     log(`oma CLI ${cliVersion} is current`);
   } else if (owner.kind === "bun-global") {
+    const registry = opts.registry ?? process.env.OMA_NPM_REGISTRY;
     const installArgs = [
       process.execPath,
       "add",
       "-g",
-      ...(opts.registry ? ["--registry", opts.registry] : []),
+      ...(registry ? ["--registry", registry] : []),
       owner.spec,
     ];
     const code = await (opts.runInstall ?? runBunInstall)(installArgs);

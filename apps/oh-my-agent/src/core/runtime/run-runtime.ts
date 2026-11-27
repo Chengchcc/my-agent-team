@@ -404,40 +404,44 @@ async function buildNativeToolStage(
     if (bashSandbox) bashToolOpts.sandbox = bashSandbox;
     if (deps.bashPtyConsole) bashToolOpts.ptyConsole = deps.bashPtyConsole;
     agentTools.push(toPluginTool(createBashTool(bashToolOpts)));
-    agentTools.push(
-      toPluginTool(
-        createEvalTool({
-          workspaceRoot: deps.workspaceRoot,
-          scope,
-          registry,
-          ...(knobs.evalTimeoutMs !== undefined ? { timeoutMs: knobs.evalTimeoutMs } : {}),
-          ...(bashSandbox
-            ? {
-                isolation: {
-                  noNetwork: true,
-                  denyReadDirs: (process.env.OMA_DENY_WRITE_PATHS ?? "")
-                    .split(",")
-                    .map((p) => p.trim())
-                    .filter(Boolean),
-                },
-              }
-            : {}),
-        }),
-      ),
-    );
-    // Interactive web (JS/interaction/screenshots): browser is a headless
-    // Chromium subprocess — read_only runs don't get it (it writes
-    // screenshots into the workspace and drives real sessions).
-    agentTools.push(
-      toPluginTool(
-        createBrowserTool({
-          workspaceRoot: deps.workspaceRoot,
-          // Opt-in local access (dev-server screenshots). Absent = the same
-          // egress rule web_fetch enforces.
-          ...(knobs.browserLocalNetwork ? { allowLocalNetwork: true } : {}),
-        }),
-      ),
-    );
+    // Plan mode (read-only investigation): omit eval and browser so planning
+    // turns cannot mutate files or drive stateful browser sessions outside the
+    // single guarded plan draft file.
+    if (!deps.planMode) {
+      agentTools.push(
+        toPluginTool(
+          createEvalTool({
+            workspaceRoot: deps.workspaceRoot,
+            scope,
+            registry,
+            ...(knobs.evalTimeoutMs !== undefined ? { timeoutMs: knobs.evalTimeoutMs } : {}),
+            ...(bashSandbox
+              ? {
+                  isolation: {
+                    noNetwork: true,
+                    denyReadDirs: (process.env.OMA_DENY_WRITE_PATHS ?? "")
+                      .split(",")
+                      .map((p) => p.trim())
+                      .filter(Boolean),
+                  },
+                }
+              : {}),
+          }),
+        ),
+      );
+      // Interactive web (JS/interaction/screenshots): browser is a headless
+      // Chromium subprocess — read_only / plan runs don't get it.
+      agentTools.push(
+        toPluginTool(
+          createBrowserTool({
+            workspaceRoot: deps.workspaceRoot,
+            // Opt-in local access (dev-server screenshots). Absent = the same
+            // egress rule web_fetch enforces.
+            ...(knobs.browserLocalNetwork ? { allowLocalNetwork: true } : {}),
+          }),
+        ),
+      );
+    }
   }
   // Generic .mcp.json mounting (ADR 0022): user servers + spawner-bridged
   // servers. Skips names that collide with the native table; the mounted
@@ -1191,8 +1195,8 @@ function createDelegationStack(
     runScript,
     plugins: [
       { name: "delegation-tools", tools: delegationTools },
-      // workflow_run executes scripts & saves files — omitted on read_only runs.
-      ...(deps.workspaceAccess === "read_write"
+      // workflow_run executes scripts & saves files — omitted on read_only and plan runs.
+      ...(deps.workspaceAccess === "read_write" && !deps.planMode
         ? [{ name: "orchestrate-tool", tools: orchestrateTools }]
         : []),
       { name: "hub-tool", tools: hubTools },
@@ -1391,7 +1395,7 @@ export async function assembleRunRuntime(deps: RunRuntimeDeps): Promise<RunRunti
   // STANDALONE-ONLY (localMemory, set by print/json/tui via shared.ts): the
   // product RPC path keeps its own memory semantics — a workspace file must
   // never steer the product, and the product surface stays frozen.
-  if (deps.workspaceAccess === "read_write" && deps.localMemory) {
+  if (deps.workspaceAccess === "read_write" && deps.localMemory && !deps.planMode) {
     plugins.push({
       name: "oma-native-learn",
       tools: [

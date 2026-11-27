@@ -1,3 +1,10 @@
+export type { AgentState, AgentStatusFile } from "./agent-status.js";
+export {
+  agentStatusPath,
+  DEFAULT_AGENT_STATUS_STALE_MS,
+  readAgentStatus,
+  writeAgentStatus,
+} from "./agent-status.js";
 export type { Env } from "./env.js";
 export { envSchema, parseEnv } from "./env.js";
 export type { GatewaySecretsRecord } from "./gateway-secrets.js";
@@ -7,3 +14,5 @@ export {
   readGatewaySecrets,
   updateGatewaySecrets,
 } from "./gateway-secrets.js";
+export type { SkillIndexEntry } from "./skill-index.js";
+export { buildSkillIndex } from "./skill-index.js";

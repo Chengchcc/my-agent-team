@@ -4,7 +4,11 @@ import type { Plugin, PluginHooks, PluginTool } from "../runtime/plugin.js";
 import { loadPluginCode } from "./plugin-code.js";
 import { listInstalledPlugins } from "./plugin-marketplace.js";
 import { isFileTrusted, isPluginTrusted, readTrustedPlugins } from "./plugin-trust.js";
-export type OmaMode = "tui" | "print" | "json" | "rpc";
+export type OmaMode = "tui" | "print" | "json" | "acp" | "rpc";
+
+function isProductMode(mode: OmaMode): boolean {
+  return mode === "acp" || mode === "rpc";
+}
 
 export interface CodeEntry {
   readonly name: string;
@@ -56,8 +60,8 @@ export function resolvePluginComponents(workspaceRoot: string, mode: OmaMode): R
     if (!hasCode && !mcp) continue;
 
     if (p.scope === "project") {
-      if (mode === "rpc") {
-        warnings.push(`${p.name}: project-scope code components never load in rpc mode`);
+      if (isProductMode(mode)) {
+        warnings.push(`${p.name}: project-scope code components never load in ${mode} mode`);
         continue;
       }
       if (!isPluginTrusted(p.root, trusted)) {
@@ -101,7 +105,7 @@ export async function assemblePluginRuntime(
   // repo-controlled; untrusted content mounts nothing (run-runtime enforces)
   // and the warning tells the user how to approve it. RPC skips this — the
   // product writes that file.
-  if (mode !== "rpc") {
+  if (!isProductMode(mode)) {
     const mcpJsonPath = join(workspaceRoot, ".mcp.json");
     if (existsSync(mcpJsonPath) && !isFileTrusted(mcpJsonPath, readTrustedPlugins())) {
       warnings.push(

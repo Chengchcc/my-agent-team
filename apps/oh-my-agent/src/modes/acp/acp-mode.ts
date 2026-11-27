@@ -342,7 +342,7 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
 
     const cwdSkills = scanWorkspaceSkillRoots(session.cwd);
     const cwdPrompt = readWorkspaceSystemPrompt(session.cwd);
-    const pluginRt = await assemblePluginRuntime(session.cwd, "rpc", {
+    const pluginRt = await assemblePluginRuntime(session.cwd, "acp", {
       permissionMode: session.permissionMode,
     });
     for (const warning of pluginRt.warnings) log(`[acp] plugin: ${warning}`);
