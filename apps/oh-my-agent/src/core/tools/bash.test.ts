@@ -393,10 +393,39 @@ describe("foreignRepoRefusal: git only in a repository the run owns", () => {
   });
 });
 
-describe("writeEscapeOf: the standard streams are not escapes", () => {
-  test("a redirect to /dev/null is allowed", () => {
-    expect(writeEscapeOf("grep -n root /etc/passwd 2>/dev/null", "/work")).toBe("/etc/passwd");
+describe("writeEscapeOf: standard streams, regexes, and quoted text are not escapes", () => {
+  test("a redirect to /dev/null or 2>&1 does not turn a read into a write escape", () => {
+    expect(writeEscapeOf("grep -n root /etc/passwd 2>/dev/null", "/work")).toBeUndefined();
     expect(writeEscapeOf("ls -la > /dev/null", "/work")).toBeUndefined();
     expect(writeEscapeOf("cat README.md 2>/dev/null", "/work")).toBeUndefined();
+    expect(writeEscapeOf("grep -n root /etc/passwd > /tmp/leaked", "/work")).toBe("/tmp/leaked");
+  });
+
+  test("regex patterns like /xxx/xxx, awk/sed patterns, and quoted > are not misclassified", () => {
+    expect(
+      writeEscapeOf(
+        "echo '=== 前端测试 ==='; grep -E '/api/bff|/proposals' apps/web/src/lib/*.test.ts 2>/dev/null | head -25",
+        "/work",
+      ),
+    ).toBeUndefined();
+    expect(
+      writeEscapeOf("awk '/^export/ && $1 > 10 {print}' src/a.ts 2>&1", "/work"),
+    ).toBeUndefined();
+    expect(
+      writeEscapeOf("grep 'a => b' src/a.ts | grep '/xxx/xxx' > report.txt", "/work"),
+    ).toBeUndefined();
+    expect(writeEscapeOf("grep '/xxx/xxx' src/a.ts | tee out.log", "/work")).toBeUndefined();
+    expect(writeEscapeOf("sed -i '/foo\\/bar/d' apps/web/a.ts", "/work")).toBeUndefined();
+    expect(writeEscapeOf("echo 'rm -rf /etc/passwd'", "/work")).toBeUndefined();
+  });
+
+  test("real write escapes with quotes, tee, sed -i, subshells, or dd remain blocked", () => {
+    expect(writeEscapeOf('rm -rf "/etc/foo"', "/work")).toBe("/etc/foo");
+    expect(writeEscapeOf("grep '/xxx/xxx' src/a.ts | tee /tmp/out.log", "/work")).toBe(
+      "/tmp/out.log",
+    );
+    expect(writeEscapeOf("sed -i '/foo/d' /etc/hosts", "/work")).toBe("/etc/hosts");
+    expect(writeEscapeOf("(cd /other/repo && git reset --hard)", "/work")).toBe("/other/repo");
+    expect(writeEscapeOf("dd if=/dev/zero of=/tmp/blob bs=1 count=1", "/work")).toBe("/tmp/blob");
   });
 });

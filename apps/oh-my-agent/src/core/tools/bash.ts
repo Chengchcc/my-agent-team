@@ -102,21 +102,268 @@ export function deniedCommand(
  *  /root/my-agent-team && git checkout -b x` and write anywhere. Live
  *  2026-11-23 a worker did exactly that in the operator's real repository.
  *
- *  Deliberately narrow and honest about its ceiling: it looks at absolute
- *  paths in a command that also carries a write verb (or a redirect into that
- *  path) and refuses when one lands outside the workspace (and outside any
- *  explicit OMA_ALLOW_WRITE_PATHS). Quotes, variables and `cd` chains can still
- *  defeat a textual scan — the real boundary is OS isolation. */
-const WRITE_VERB =
-  /\b(?:rm|rmdir|mv|cp|tee|mkdir|touch|chmod|chown|dd|truncate|install|ln|sed\s+-i|git\s+(?:add|commit|checkout|switch|reset|clean|push|merge|rebase|stash|branch|tag))\b/;
+ *  Quote- and segment-aware textual fence:
+ *  1. Every output file redirect (`>`, `>>`, `>|`, `&>`, `2>`, spaceless or
+ *     spaced, excluding fd dups like `2>&1` and standard streams `/dev/null`)
+ *     is checked directly on its target token.
+ *  2. Only segments whose actual command verb (outside quotes) is a write
+ *     verb — plus any preceding `cd <abs-path>` that sets cwd for a write
+ *     segment — have their path arguments checked.
+ *  This stops quoted regexes (`/xxx/xxx`), `awk '/pat/'`, `grep '/api/v1'
+ *  2>/dev/null`, `=>` arrows, or `2>&1` from being misclassified as writes
+ *  outside the workspace, while preserving all real write-escape blocks. */
+const WRITE_CMD_SINGLE = new Set([
+  "rm",
+  "rmdir",
+  "mv",
+  "cp",
+  "tee",
+  "mkdir",
+  "touch",
+  "chmod",
+  "chown",
+  "dd",
+  "truncate",
+  "install",
+  "ln",
+]);
+const GIT_WRITE_SUBS = new Set([
+  "add",
+  "commit",
+  "checkout",
+  "switch",
+  "reset",
+  "clean",
+  "push",
+  "merge",
+  "rebase",
+  "stash",
+  "branch",
+  "tag",
+]);
+const CMD_WRAPPERS = new Set(["env", "sudo", "command", "nohup", "time", "exec", "nice", "xargs"]);
+
+interface ShellToken {
+  value: string;
+  quoted: boolean;
+  /** True when the token was preceded by an output file redirect operator. */
+  isRedirectTarget: boolean;
+}
+
+interface ShellSegment {
+  tokens: ShellToken[];
+}
+
+/** Lightweight quote-aware shell segmenter for `writeEscapeOf`. Splits on
+ *  unquoted operators (`;`, `&&`, `||`, `|`, `\n`, `(`, `)`, `$(`) and marks
+ *  output file redirect targets (`>`, `>>`, `>|`, `&>`, `2>`, etc.) while
+ *  ignoring fd duplications (`2>&1`, `>&2`, `>&-`). */
+function parseShellSegments(command: string): ShellSegment[] {
+  const segments: ShellSegment[] = [];
+  let tokens: ShellToken[] = [];
+  let buf = "";
+  let bufQuoted = false;
+  let hasBuf = false;
+  let nextIsRedirect = false;
+
+  const flushSegment = (): void => {
+    if (tokens.length > 0) {
+      segments.push({ tokens });
+      tokens = [];
+    }
+    nextIsRedirect = false;
+  };
+
+  const flushToken = (): void => {
+    if (!hasBuf) return;
+    tokens.push({ value: buf, quoted: bufQuoted, isRedirectTarget: nextIsRedirect });
+    buf = "";
+    bufQuoted = false;
+    hasBuf = false;
+    nextIsRedirect = false;
+  };
+
+  const n = command.length;
+  let i = 0;
+  while (i < n) {
+    const ch = command[i]!;
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      hasBuf = true;
+      bufQuoted = true;
+      i++;
+      while (i < n && command[i] !== quote) {
+        if (quote === '"' && command[i] === "\\" && i + 1 < n) {
+          buf += command[i + 1]!;
+          i += 2;
+        } else {
+          buf += command[i]!;
+          i++;
+        }
+      }
+      if (i < n) i++; // closing quote
+      continue;
+    }
+    if (ch === "\\" && i + 1 < n) {
+      hasBuf = true;
+      buf += command[i + 1]!;
+      i += 2;
+      continue;
+    }
+    if (ch === " " || ch === "\t" || ch === "\r") {
+      flushToken();
+      i++;
+      continue;
+    }
+    if (ch === "\n" || ch === ";" || ch === "(" || ch === ")") {
+      flushToken();
+      flushSegment();
+      i++;
+      continue;
+    }
+    if (ch === "$" && command[i + 1] === "(") {
+      flushToken();
+      flushSegment();
+      i += 2;
+      continue;
+    }
+    if (ch === "|") {
+      flushToken();
+      flushSegment();
+      i += command[i + 1] === "|" ? 2 : 1;
+      continue;
+    }
+    if (ch === "&") {
+      if (command[i + 1] === ">") {
+        // `&>` or `&>>`: stdout+stderr file redirect
+        flushToken();
+        i += command[i + 2] === ">" ? 3 : 2;
+        if (command[i] === "&" && (command[i + 1] === "-" || /\d/.test(command[i + 1] ?? ""))) {
+          i += 2;
+        } else {
+          nextIsRedirect = true;
+        }
+        continue;
+      }
+      flushToken();
+      flushSegment();
+      i += command[i + 1] === "&" ? 2 : 1;
+      continue;
+    }
+    if (ch === ">") {
+      // Check whether the buffered prefix is purely an fd number (e.g. `2>` in `2>/dev/null`).
+      if (hasBuf && !bufQuoted && /^\d+$/.test(buf)) {
+        buf = "";
+        hasBuf = false;
+      } else {
+        flushToken();
+      }
+      i++;
+      if (command[i] === ">" || command[i] === "|") {
+        i++;
+        nextIsRedirect = true;
+      } else if (command[i] === "&") {
+        // `>&1`, `2>&1`, `>&-` = fd duplication, NOT a file write; `>&/path` = redirect
+        const afterAmp = command[i + 1] ?? "";
+        if (afterAmp === "-" || /\d/.test(afterAmp)) {
+          i += 2;
+          while (i < n && /\d/.test(command[i]!)) i++;
+        } else {
+          i++;
+          nextIsRedirect = true;
+        }
+      } else {
+        nextIsRedirect = true;
+      }
+      continue;
+    }
+    hasBuf = true;
+    buf += ch;
+    i++;
+  }
+  flushToken();
+  flushSegment();
+  return segments;
+}
+
+/** Identify the command verb of a segment (ignoring leading `VAR=val` env
+ *  assignments and common wrappers like `env`, `sudo`, `xargs`). Returns
+ *  `{ kind: "write" | "cd" | "read", cmdIdx, isSedInPlace }`. */
+function classifySegment(segment: ShellSegment): {
+  kind: "write" | "cd" | "read";
+  cmdIdx: number;
+  isSedInPlace: boolean;
+} {
+  const { tokens } = segment;
+  let idx = 0;
+  while (idx < tokens.length) {
+    const t = tokens[idx]!;
+    if (t.isRedirectTarget) {
+      idx++;
+      continue;
+    }
+    // Skip `FOO=bar` env assignments before the command.
+    if (!t.quoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t.value)) {
+      idx++;
+      continue;
+    }
+    if (!t.quoted && CMD_WRAPPERS.has(t.value)) {
+      idx++;
+      // Skip wrapper flags (e.g., `xargs -0`, `sudo -u root`)
+      while (
+        idx < tokens.length &&
+        !tokens[idx]!.isRedirectTarget &&
+        tokens[idx]!.value.startsWith("-")
+      ) {
+        idx++;
+      }
+      continue;
+    }
+    break;
+  }
+  const cmd = tokens[idx];
+  if (!cmd) return { kind: "read", cmdIdx: -1, isSedInPlace: false };
+  const name = cmd.value.includes("/") ? (cmd.value.split("/").pop() ?? cmd.value) : cmd.value;
+  if (name === "cd") return { kind: "cd", cmdIdx: idx, isSedInPlace: false };
+  if (WRITE_CMD_SINGLE.has(name)) return { kind: "write", cmdIdx: idx, isSedInPlace: false };
+  if (name === "sed") {
+    const hasInPlace = tokens
+      .slice(idx + 1)
+      .some(
+        (t) => !t.isRedirectTarget && /^-(?:[a-zA-Z]*i[a-zA-Z]*|-in-place(?:=.*)?)$/.test(t.value),
+      );
+    return { kind: hasInPlace ? "write" : "read", cmdIdx: idx, isSedInPlace: hasInPlace };
+  }
+  if (name === "git") {
+    // Skip global git flags (`-C <dir>`, `-c k=v`, `--git-dir=...`) to find subcommand.
+    for (let j = idx + 1; j < tokens.length; j++) {
+      const arg = tokens[j]!;
+      if (arg.isRedirectTarget) continue;
+      if (
+        arg.value === "-C" ||
+        arg.value === "-c" ||
+        arg.value === "--git-dir" ||
+        arg.value === "--work-tree"
+      ) {
+        j++;
+        continue;
+      }
+      if (arg.value.startsWith("-")) continue;
+      return {
+        kind: GIT_WRITE_SUBS.has(arg.value) ? "write" : "read",
+        cmdIdx: idx,
+        isSedInPlace: false,
+      };
+    }
+  }
+  return { kind: "read", cmdIdx: idx, isSedInPlace: false };
+}
 
 export function writeEscapeOf(
   command: string,
   workspaceRoot: string,
   allowRulesRaw: string | undefined = process.env.OMA_ALLOW_WRITE_PATHS,
 ): string | undefined {
-  // A redirect is a write even when no verb is named.
-  if (!WRITE_VERB.test(command) && !command.includes(">")) return undefined;
   const ws = resolvePath(workspaceRoot);
   const root = ws.endsWith("/") ? ws : `${ws}/`;
   const allowRules = (allowRulesRaw ?? "")
@@ -136,21 +383,90 @@ export function writeEscapeOf(
       r.dir ? norm === r.base || norm.startsWith(`${r.base}/`) : norm === r.base,
     );
   };
-  // Include `>` (for spaceless redirects like `echo x>/tmp/out`, `2>>/tmp/out`, `&>/tmp/out`).
-  const absolute = [...command.matchAll(/(?:^|[\s;|&(>])(\/[^\s;|&)"']+)/g)].map((m) => m[1]);
-  for (const path of absolute) {
-    if (path === undefined) continue;
-    // `/dev/null` and the standard streams are not files the run writes:
-    // `cmd 2>/dev/null` is read-only work, and refusing it made ordinary
-    // commands look like escapes (live 2026-11-23 a worker could not inspect
-    // a file because it redirected stderr).
-    if (/^\/dev\/(null|stdout|stderr|tty)$/.test(path)) continue;
+  const checkPath = (path: string): string | undefined => {
+    if (!path.startsWith("/")) return undefined;
+    // `/dev/null` and the standard streams are not files the run writes.
+    if (/^\/dev\/(null|stdout|stderr|tty)$/.test(path)) return undefined;
     if (path === workspaceRoot || path === ws) return path;
-    if (isAllowed(path)) continue;
-    // A denied absolute path that is only READ is fine; the write verb gate
-    // above already scoped this to commands that change something.
+    if (isAllowed(path)) return undefined;
     return path;
+  };
+
+  const segments = parseShellSegments(command);
+  const classified = segments.map((segment) => ({ segment, ...classifySegment(segment) }));
+  const hasWriteSegment = classified.some((c) => c.kind === "write");
+
+  for (const { segment, kind, cmdIdx, isSedInPlace } of classified) {
+    // 1. Always inspect explicit output file redirect targets in EVERY segment.
+    for (const token of segment.tokens) {
+      if (!token.isRedirectTarget) continue;
+      const hit = checkPath(token.value);
+      if (hit !== undefined) return hit;
+    }
+
+    // 2. Inspect path arguments ONLY for write segments, or `cd <dir>` when
+    //    the command also carries a write segment (e.g. `cd /other && git checkout -b x`).
+    if (kind === "cd" && hasWriteSegment) {
+      for (let i = cmdIdx + 1; i < segment.tokens.length; i++) {
+        const token = segment.tokens[i]!;
+        if (token.isRedirectTarget || token.value.startsWith("-")) continue;
+        const hit = checkPath(token.value);
+        if (hit !== undefined) return hit;
+      }
+      continue;
+    }
+
+    if (kind !== "write") continue;
+
+    // For `sed -i`, skip script expressions (`-e <expr>` or first positional arg
+    // when no `-e`/`-f` is present) so regex patterns like `sed -i '/foo/d' a.ts`
+    // are not mistaken for absolute file paths.
+    let sedHasExplicitScript = false;
+    let sedSkippedFirstPositional = false;
+    if (isSedInPlace) {
+      sedHasExplicitScript = segment.tokens
+        .slice(cmdIdx + 1)
+        .some(
+          (t) =>
+            !t.isRedirectTarget &&
+            (t.value === "-e" ||
+              t.value === "-f" ||
+              t.value.startsWith("-e") ||
+              t.value.startsWith("-f")),
+        );
+    }
+
+    for (let i = cmdIdx + 1; i < segment.tokens.length; i++) {
+      const token = segment.tokens[i]!;
+      if (token.isRedirectTarget) continue;
+      if (isSedInPlace && (token.value === "-e" || token.value === "-f")) {
+        i++; // skip the script / script-file arg of `-e` / `-f`
+        continue;
+      }
+      if (token.value.startsWith("-")) {
+        // Handle `--flag=/abs/path` (e.g. `dd of=/etc/x`, `git --git-dir=/other`)
+        const eq = token.value.indexOf("=");
+        if (eq !== -1) {
+          const hit = checkPath(token.value.slice(eq + 1));
+          if (hit !== undefined) return hit;
+        }
+        continue;
+      }
+      // Handle `dd of=/abs/path`
+      if (token.value.startsWith("of=")) {
+        const hit = checkPath(token.value.slice(3));
+        if (hit !== undefined) return hit;
+        continue;
+      }
+      if (isSedInPlace && !sedHasExplicitScript && !sedSkippedFirstPositional) {
+        sedSkippedFirstPositional = true;
+        continue;
+      }
+      const hit = checkPath(token.value);
+      if (hit !== undefined) return hit;
+    }
   }
+
   return undefined;
 }
 
