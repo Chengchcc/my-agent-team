@@ -1,23 +1,31 @@
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ModelRuntime } from "@chengchenccc/ai";
 import type { EmbeddingProvider, VectorMemoryStore } from "@chengchenccc/embedding";
 import { extractText, type Message } from "@chengchenccc/message";
+import { redactMemorySecrets } from "./learn.js";
 
 /**
- * Autonomous memory pipeline (v1, OMP AutoLearn-style but per-Run).
+ * Autonomous memory pipeline (v1, OMP AutoLearn-style, standalone CLI/TUI).
  *
- * After a COMPLETED oma run the child:
+ * After a COMPLETED standalone oma run:
  *   1. asks the model to extract durable facts from the run transcript
- *   2. writes them to `.oma/memory/facts/<runId>.md` (idempotent per run);
- *   3. merges them into `.oma/memory/memory_summary.md` (a second call);
+ *   2. redacts secrets and writes `.oma/memory/facts/<runId>.md` atomically;
+ *   3. consolidates into `.oma/memory/memory_summary.md` & `MEMORY.md` atomically;
  *   4. prepends the summary to the NEXT Run's system prompt (read side).
  *
- * `.oma/memory/MEMORY.md` stays agent-written — the pipeline never touches it.
+ * Disabled in ACP/product mode (`autonomousMemory: false`), where the backend
+ * owns long-term memory and writes `.oma/memory/product.md`.
  * Every failure is swallowed: memory must never fail or slow the Run.
  * Env: OMA_MEMORY_EXTRACT=0 disables; OMA_MEMORY_MODEL=<provider>/<model>
  * overrides the extract/merge model (default: the Run's own model).
  */
+
+function writeFileAtomic(target: string, content: string): void {
+  const tmp = `${target}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+  writeFileSync(tmp, content, "utf-8");
+  renameSync(tmp, target);
+}
 
 // omp AutoLearn bar: capture sparingly, only after the run actually SOLVED
 // or REVEALED something — one strong reusable lesson beats several vague
@@ -125,11 +133,15 @@ export async function extractAutonomousMemory(
     // fed to consolidation). Repeated learnings from later runs are dropped,
     // so memory/facts/*.md stays a unique-facts set, not an append log.
     const existing = readExistingFactContents(factsDir);
-    const fresh = facts.filter((f) => !existing.has(normalizeFact(f.content)));
+    const sanitized = facts.map((f) => ({
+      content: redactMemorySecrets(f.content),
+      ...(f.context ? { context: redactMemorySecrets(f.context) } : {}),
+    }));
+    const fresh = sanitized.filter((f) => !existing.has(normalizeFact(f.content)));
     if (fresh.length === 0) return { ran: true, freshFacts: 0 };
 
     mkdirSync(factsDir, { recursive: true });
-    writeFileSync(join(factsDir, `${input.runId}.md`), renderFacts(input.runId, fresh), "utf-8");
+    writeFileAtomic(join(factsDir, `${input.runId}.md`), renderFacts(input.runId, fresh));
 
     // Vector index double-write: best-effort per fact (an embedding failure
     // must never fail the memory pass); the file layer stays the truth.
@@ -157,10 +169,10 @@ export async function extractAutonomousMemory(
     );
     const consolidated = parseConsolidation(raw);
     if (consolidated.summary) {
-      writeFileSync(join(memDir, "memory_summary.md"), consolidated.summary, "utf-8");
+      writeFileAtomic(join(memDir, "memory_summary.md"), redactMemorySecrets(consolidated.summary));
     }
     if (consolidated.memory) {
-      writeFileSync(join(memDir, "MEMORY.md"), consolidated.memory, "utf-8");
+      writeFileAtomic(join(memDir, "MEMORY.md"), redactMemorySecrets(consolidated.memory));
     }
     return { ran: true, freshFacts: fresh.length };
   } catch (err) {

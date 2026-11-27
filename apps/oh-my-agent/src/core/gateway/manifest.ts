@@ -1,6 +1,18 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 
+const safeRelativePath = z
+  .string()
+  .min(1)
+  .refine(
+    (v) =>
+      !v.startsWith("/") &&
+      !v.startsWith("\\") &&
+      !/^[A-Za-z]:/.test(v) &&
+      !v.split(/[/\\]/).includes(".."),
+    "path must stay relative within the artifact root",
+  );
+
 /** One deployable process inside the gateway artifact (see scripts/pack-gateway.sh,
  *  which writes the manifest). */
 export const gatewayComponentSchema = z.object({
@@ -8,9 +20,9 @@ export const gatewayComponentSchema = z.object({
   /** Runtime that hosts the entry. "bun" is what the artifact ships. */
   runtime: z.enum(["bun", "node"]),
   /** Directory the entry runs from, relative to the artifact root. */
-  cwd: z.string().min(1),
+  cwd: safeRelativePath,
   /** Entry file, relative to cwd. */
-  entry: z.string().min(1),
+  entry: safeRelativePath,
   port: z.number().int().positive().optional(),
   healthUrl: z.string().min(1).optional(),
   /** Env for the child; values may carry {root}/{dataDir}/{omaBin}/{secret:NAME}. */

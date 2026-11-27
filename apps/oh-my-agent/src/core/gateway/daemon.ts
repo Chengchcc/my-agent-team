@@ -92,6 +92,12 @@ export interface StartDetachedOptions {
  *  record the pid. `detached: true` is a portable setsid, so the gateway
  *  survives the terminal that started it. */
 export async function startDetachedGateway(opts: StartDetachedOptions): Promise<GatewayDaemon> {
+  const existing = readDaemon(opts.home);
+  if (existing && isProcessAlive(existing.pid) && looksLikeOurGateway(existing.pid)) {
+    throw new Error(
+      `gateway is already running (pid ${existing.pid}, version ${existing.version}); stop it first with 'oma gateway down'`,
+    );
+  }
   const gateway = gatewayPaths(opts.home);
   await mkdir(gateway.root, { recursive: true });
   const paths = daemonPaths(opts.home);
@@ -140,7 +146,23 @@ export async function stopDetachedGateway(home: string, graceMs = 10_000): Promi
     };
   }
 
-  process.kill(daemon.pid, "SIGTERM");
+  const sendSignal = (sig: NodeJS.Signals): void => {
+    // Signal the detached process group first so child components stop too;
+    // fall back to the leader pid, and ignore ESRCH if it already exited.
+    try {
+      process.kill(-daemon.pid, sig);
+      return;
+    } catch {
+      /* not a process group leader or already gone */
+    }
+    try {
+      process.kill(daemon.pid, sig);
+    } catch {
+      /* ESRCH — already exited */
+    }
+  };
+
+  sendSignal("SIGTERM");
   const deadline = Date.now() + graceMs;
   while (Date.now() < deadline) {
     if (!isProcessAlive(daemon.pid)) {
@@ -151,7 +173,7 @@ export async function stopDetachedGateway(home: string, graceMs = 10_000): Promi
       setTimeout(res, 200);
     });
   }
-  process.kill(daemon.pid, "SIGKILL");
+  sendSignal("SIGKILL");
   await rm(daemonPaths(home).pid, { force: true });
   return { stopped: true, reason: "did not stop on SIGTERM, killed" };
 }

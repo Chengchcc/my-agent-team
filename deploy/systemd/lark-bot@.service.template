@@ -1,0 +1,21 @@
+[Unit]
+Description=@UNIT_PREFIX@ Lark bot (%i)
+After=network-online.target @UNIT_PREFIX@-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@RUN_USER@
+# The backend writes this 0600 EnvironmentFile before `systemctl start` and
+# updates it whenever the agent's Lark settings change (ADR 0068).
+EnvironmentFile=@REPO_DIR@/apps/backend/.backend-data/lark-bot/%i.env
+Environment=HOME=@RUN_HOME@
+Environment=PATH=@BUN_DIR@:/usr/local/bin:/usr/bin:/bin
+ExecStart=@REPO_DIR@/scripts/lark-bot-unit.sh
+Restart=always
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

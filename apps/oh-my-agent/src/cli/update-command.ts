@@ -199,15 +199,17 @@ export async function runUpdateCommand(opts: UpdateCommandOptions = {}): Promise
     fromCheckout: import.meta.filename.endsWith(".ts") || inMonorepoCheckout(),
     version: target.version,
   });
-  if (!isNewer(target.version, cliVersion)) {
+  if (cliVersion === target.version || (!pinned && !isNewer(target.version, cliVersion))) {
     log(`oma CLI ${cliVersion} is current`);
   } else if (owner.kind === "bun-global") {
-    const code = await (opts.runInstall ?? runBunInstall)([
+    const installArgs = [
       process.execPath,
       "add",
       "-g",
+      ...(opts.registry ? ["--registry", opts.registry] : []),
       owner.spec,
-    ]);
+    ];
+    const code = await (opts.runInstall ?? runBunInstall)(installArgs);
     log(code === 0 ? `oma CLI updated to ${target.version}` : `oma CLI install exited ${code}`);
     if (code !== 0) log(`install it by hand: bun add -g ${owner.spec}`);
   } else if (owner.kind === "source") {

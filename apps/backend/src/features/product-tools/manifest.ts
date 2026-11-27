@@ -441,7 +441,7 @@ export function buildHistoryTools(entrypoint: string): readonly ProductToolDescr
     {
       name: "remember",
       description:
-        "Write one durable lesson into this agent's long-term memory. Only when the human explicitly asks; appends to .oma/memory/learned.md, duplicates ignored. Only a run the human started may call this.",
+        "Write one durable lesson into this agent's long-term memory. Only when the human explicitly asks; appends to .oma/memory/product.md, duplicates ignored. Only a run the human started may call this.",
       inputSchema: {
         type: "object",
         properties: { text: { type: "string" } },

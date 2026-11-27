@@ -18,14 +18,33 @@ import type { VectorMemory } from "./vector-memory.js";
 const MAX_LESSONS = 100;
 const MAX_CONTENT_CHARS = 2000;
 const MAX_CONTEXT_CHARS = 400;
-const SECRET_PATTERN = /\b(sk|pk|ghp|gho|ghu|xox[baprs]|AIza|AKIA)[-_A-Za-z0-9]{16,}\b/g;
+const SECRET_PATTERNS: readonly RegExp[] = [
+  /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g,
+  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
+  /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/gi,
+  /\b(sk|pk|ghp|gho|ghu|xox[baprs]|AIza|AKIA)[-_A-Za-z0-9]{16,}\b/g,
+];
 
-function redact(text: string): string {
-  return text.replace(SECRET_PATTERN, "[redacted]");
+export function redactMemorySecrets(text: string): string {
+  let out = text;
+  for (const pattern of SECRET_PATTERNS) {
+    out = out.replace(pattern, "[redacted]");
+  }
+  return out;
 }
 
-function normalize(content: string): string {
-  return content.trim().replace(/\s+/g, " ").toLowerCase();
+function redact(text: string): string {
+  return redactMemorySecrets(text);
+}
+
+/** Normalize a lesson line for dedup, stripping the leading `- [YYYY-MM-DD]`
+ *  date prefix so the same lesson captured on different days still dedups. */
+function normalize(line: string): string {
+  return line
+    .trim()
+    .replace(/^-\s*\[\d{4}-\d{2}-\d{2}\]\s*/, "")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
 }
 
 export function createLearnTool(opts: {

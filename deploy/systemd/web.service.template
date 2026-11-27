@@ -1,0 +1,24 @@
+[Unit]
+Description=@UNIT_PREFIX@ web (Next.js console on :3001)
+After=network-online.target @UNIT_PREFIX@-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@RUN_USER@
+WorkingDirectory=@REPO_DIR@/apps/web
+# Next.js loads apps/web/.env (BACKEND_URL, BACKEND_AUTH_TOKEN, SESSION_SECRET, MOCK_PASSWORD).
+Environment=NODE_ENV=production
+Environment=HOME=@RUN_HOME@
+Environment=PATH=@BUN_DIR@:/usr/local/bin:/usr/bin:/bin
+ExecStart=@BUN_BIN@ node_modules/next/dist/bin/next start --port 3001 -H 127.0.0.1
+Restart=always
+RestartSec=3
+# Optional memory cap so a runaway web process fails fast without starving the backend.
+MemoryMax=@WEB_MEMORY_MAX@
+MemorySwapMax=0
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

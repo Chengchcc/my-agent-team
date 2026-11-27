@@ -94,6 +94,7 @@ function toRow(raw: RawRow): MemoryRow {
 
 export function openVectorMemoryStore(dbPath: string): VectorMemoryStore {
   const db = new Database(dbPath, { create: true });
+  db.exec("PRAGMA busy_timeout = 5000");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec(`
     CREATE TABLE IF NOT EXISTS memories (

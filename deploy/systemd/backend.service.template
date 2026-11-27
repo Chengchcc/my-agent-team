@@ -1,0 +1,26 @@
+[Unit]
+Description=@UNIT_PREFIX@ backend (control plane; supervises Lark bot units)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@RUN_USER@
+WorkingDirectory=@REPO_DIR@/apps/backend
+# Bun loads apps/backend/.env from WorkingDirectory; keeping secrets in one
+# 0600 file avoids duplicating them inside the unit definition.
+EnvironmentFile=@REPO_DIR@/apps/backend/.env
+Environment=NODE_ENV=production
+Environment=HOME=@RUN_HOME@
+Environment=PATH=@BUN_DIR@:/usr/local/bin:/usr/bin:/bin
+# ADR 0068: each Lark bot runs as its own template unit (@UNIT_PREFIX@-lark-bot@<agent>),
+# started and stopped by the backend via systemctl.
+Environment=LARK_BOT_SUPERVISOR=systemd
+ExecStart=@BUN_BIN@ run src/main.ts
+Restart=always
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

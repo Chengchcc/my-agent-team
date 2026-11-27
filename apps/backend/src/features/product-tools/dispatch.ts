@@ -315,7 +315,7 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
   {
     name: "remember",
     description:
-      "Write ONE durable lesson into your own long-term memory (ADR 0065). Use it only when the human explicitly asks you to remember something ('记住…', 'remember that…') — never to accumulate notes on your own. The line is appended to .oma/memory/learned.md in the format the memory pipeline reads; duplicates are ignored. Only a run the human started may call this.",
+      "Write ONE durable lesson into your own long-term memory (ADR 0065). Use it only when the human explicitly asks you to remember something ('记住…', 'remember that…') — never to accumulate notes on your own. The line is appended to .oma/memory/product.md in the format the memory pipeline reads; duplicates are ignored. Only a run the human started may call this.",
     inputSchema: {
       type: "object",
       properties: {

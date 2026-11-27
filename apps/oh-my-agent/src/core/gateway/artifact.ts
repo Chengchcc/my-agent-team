@@ -1,7 +1,12 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import {
+  GatewaySecretsError,
+  readGatewaySecrets,
+  updateGatewaySecrets,
+} from "@chengchenccc/config";
 import { type GatewayManifest, readGatewayManifest } from "./manifest.js";
 
 export class GatewayArtifactError extends Error {}
@@ -106,7 +111,7 @@ async function withStallTimeout<T>(work: Promise<T>, ms: number, onStall: () => 
 async function download(url: string, dest: string, stallMs: number): Promise<void> {
   let res: Response;
   try {
-    res = await fetch(url, { redirect: "follow" });
+    res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(stallMs) });
   } catch (err: unknown) {
     throw new GatewayArtifactError(
       `cannot reach ${url}: ${err instanceof Error ? err.message : err}`,
@@ -145,10 +150,33 @@ async function unpack(tarball: string, dest: string): Promise<void> {
   if (!Bun.which("zstd")) {
     throw new GatewayArtifactError("zstd not found on PATH — the gateway artifact is a .tar.zst");
   }
-  const proc = Bun.spawn(["tar", "--zstd", "-xf", tarball, "-C", dest], {
-    stdout: "ignore",
+  // Pre-scan archive entries to block Tar Slip (absolute paths or `..` segments).
+  const listProc = Bun.spawn(["tar", "--zstd", "-tf", tarball], {
+    stdout: "pipe",
     stderr: "pipe",
   });
+  const [listOut, listErr, listCode] = await Promise.all([
+    new Response(listProc.stdout).text(),
+    new Response(listProc.stderr).text(),
+    listProc.exited,
+  ]);
+  if (listCode !== 0) {
+    throw new GatewayArtifactError(`tar inspect failed (exit ${listCode}): ${listErr.trim()}`);
+  }
+  for (const rawEntry of listOut.split("\n")) {
+    const entry = rawEntry.trim();
+    if (!entry) continue;
+    if (entry.startsWith("/") || entry.startsWith("\\") || entry.split(/[/\\]/).includes("..")) {
+      throw new GatewayArtifactError(`unsafe tar entry rejected: ${entry}`);
+    }
+  }
+  const proc = Bun.spawn(
+    ["tar", "--zstd", "--no-same-owner", "--no-same-permissions", "-xf", tarball, "-C", dest],
+    {
+      stdout: "ignore",
+      stderr: "pipe",
+    },
+  );
   const code = await proc.exited;
   if (code !== 0) {
     const stderr = await new Response(proc.stderr).text();
@@ -188,44 +216,54 @@ function generateToken(): string {
 
 export function readSecrets(home: string): Record<string, string> {
   const path = gatewayPaths(home).secrets;
-  if (!existsSync(path)) return {};
-  let parsed: unknown;
+  let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    throw new GatewayArtifactError(`${path} is not valid JSON — fix or delete it`);
+    parsed = readGatewaySecrets(path);
+  } catch (err) {
+    if (err instanceof GatewaySecretsError) {
+      throw new GatewayArtifactError(err.message);
+    }
+    throw err;
   }
   const secrets: Record<string, string> = {};
-  if (typeof parsed === "object" && parsed !== null) {
-    for (const [key, value] of Object.entries(parsed)) {
-      if (typeof value === "string") secrets[key] = value;
-    }
+  for (const [key, value] of Object.entries(parsed)) {
+    if (typeof value === "string") secrets[key] = value;
   }
   return secrets;
 }
 
-/** Read the launcher's secrets, generating any missing one. 0600: they
- *  authenticate the local single-user gateway. */
+/** Read the launcher's secrets, generating any missing one. Uses the shared
+ *  atomic locked store in @chengchenccc/config so concurrent backend writes
+ *  (e.g. mcpEncryptionKey) are never clobbered. */
 export async function ensureSecrets(
   home: string,
   names: readonly string[],
 ): Promise<Record<string, string>> {
-  const existing = readSecrets(home);
-  let generated = false;
-  for (const name of names) {
-    if (existing[name]) continue;
-    // MOCK_PASSWORD is the one a human retypes at the login page; the rest are
-    // machine-to-machine tokens.
-    existing[name] = name === "MOCK_PASSWORD" ? generatePassword() : generateToken();
-    generated = true;
+  const path = gatewayPaths(home).secrets;
+  let updated: Record<string, unknown>;
+  try {
+    updated = updateGatewaySecrets(path, (existing) => {
+      let generated = false;
+      for (const name of names) {
+        if (typeof existing[name] === "string" && (existing[name] as string).length > 0) continue;
+        // MOCK_PASSWORD is the one a human retypes at the login page; the rest
+        // are machine-to-machine tokens.
+        existing[name] = name === "MOCK_PASSWORD" ? generatePassword() : generateToken();
+        generated = true;
+      }
+      return generated ? existing : null;
+    });
+  } catch (err) {
+    if (err instanceof GatewaySecretsError) {
+      throw new GatewayArtifactError(err.message);
+    }
+    throw err;
   }
-  if (generated) {
-    const path = gatewayPaths(home).secrets;
-    await mkdir(home, { recursive: true });
-    await writeFile(path, `${JSON.stringify(existing, null, 2)}\n`, { mode: 0o600 });
-    await chmod(path, 0o600);
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(updated)) {
+    if (typeof value === "string") out[key] = value;
   }
-  return existing;
+  return out;
 }
 
 export interface FetchOptions {

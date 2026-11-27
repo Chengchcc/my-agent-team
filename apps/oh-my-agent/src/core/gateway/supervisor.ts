@@ -200,6 +200,11 @@ export async function startGateway(opts: GatewayRunOptions = {}): Promise<Gatewa
         const deadline = Date.now() + timeoutMs;
         let healthy = false;
         while (Date.now() < deadline) {
+          if (proc.exitCode !== null || stopRequested) {
+            throw new GatewayStartError(
+              `${component.name} exited with code ${proc.exitCode ?? "?"} before becoming healthy at ${url}`,
+            );
+          }
           try {
             const res = await fetch(url);
             if (res.ok) {
@@ -209,9 +214,12 @@ export async function startGateway(opts: GatewayRunOptions = {}): Promise<Gatewa
           } catch {
             // not listening yet
           }
-          await new Promise((res) => {
-            setTimeout(res, interval);
-          });
+          await Promise.race([
+            proc.exited,
+            new Promise((res) => {
+              setTimeout(res, interval);
+            }),
+          ]);
         }
         if (!healthy) {
           throw new GatewayStartError(`${component.name} never became healthy at ${url}`);

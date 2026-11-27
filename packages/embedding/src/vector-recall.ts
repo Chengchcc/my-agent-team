@@ -35,6 +35,8 @@ export interface RecallOptions {
   /** 0 disables a voice (RRF then degenerates to the other ranking). */
   readonly vecWeight?: number;
   readonly ftsWeight?: number;
+  /** When true, skip UPDATE recall_count/last_recalled (safe for read-only callers). */
+  readonly readOnly?: boolean;
 }
 
 const VERACITY_WEIGHTS: Record<string, number> = {
@@ -216,7 +218,7 @@ export async function recallMemories(
   });
   fused.sort((a, b) => b.score - a.score);
   const top = fused.slice(0, topK);
-  if (top.length > 0) store.markRecalled(top.map((h) => h.id));
+  if (top.length > 0 && opts.readOnly !== true) store.markRecalled(top.map((h) => h.id));
   return top;
 }
 

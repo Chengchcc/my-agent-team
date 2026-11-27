@@ -1,47 +1,16 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { gatewaySecretsPath, updateGatewaySecrets } from "@chengchenccc/config";
 
-/** Where the deployment's secrets live. The launcher's `oma gateway` writes it
- *  (login password hash lives here too), so this module must PRESERVE the other
- *  fields it finds - it only owns `mcpEncryptionKey`.
- *
- *  Duplicated from `apps/oh-my-agent/src/core/gateway/artifact.ts` on purpose:
- *  the backend may not import an app, and both must resolve the same path
- *  (`OMA_HOME` or `~/.oma`). */
+/** Where the deployment's secrets live. Shared with `apps/oh-my-agent` via
+ *  `@chengchenccc/config` so both processes use the same path, lockfile, and
+ *  atomic `0600` temp-file rename (preserving every other field, and failing
+ *  loudly instead of wiping a corrupt file). */
 export function mcpSecretsFile(env: NodeJS.ProcessEnv = process.env): string {
-  return join(env.OMA_HOME ?? join(homedir(), ".oma"), "gateway-secrets.json");
+  return gatewaySecretsPath(env);
 }
 
 const KEY_FIELD = "mcpEncryptionKey";
 const PREFIX = "enc:v1:";
-
-interface SecretsFile {
-  [key: string]: unknown;
-}
-
-function readSecrets(path: string): SecretsFile {
-  if (!existsSync(path)) return {};
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
-    return typeof parsed === "object" && parsed !== null ? (parsed as SecretsFile) : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeSecrets(path: string, value: SecretsFile): void {
-  // First run on a fresh machine: ~/.oma may not exist yet (the launcher only
-  // creates it when the gateway runs). Without this the very first secret write
-  // fails with ENOENT - which is how CI caught it (a clean $HOME), not the dev
-  // box where ~/.oma already existed.
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  // The mode argument only applies on creation; a pre-existing file keeps its
-  // old bits, so set them explicitly.
-  chmodSync(path, 0o600);
-}
 
 /** Load the MCP encryption key, generating it on first use.
  *
@@ -49,15 +18,18 @@ function writeSecrets(path: string, value: SecretsFile): void {
  *  gate): a copied `dataDir` / `backend.db` then contains ciphertext only. The
  *  file is the launcher's, 0600, and every other field in it is preserved. */
 export function loadOrCreateMcpKey(path: string = mcpSecretsFile()): Buffer {
-  const secrets = readSecrets(path);
-  const existing = secrets[KEY_FIELD];
-  if (typeof existing === "string" && existing.length > 0) {
-    return Buffer.from(existing, "base64");
-  }
-  const key = randomBytes(32);
-  // Preserve whatever the launcher put here (password hash, gateway tokens...).
-  writeSecrets(path, { ...secrets, [KEY_FIELD]: key.toString("base64") });
-  return key;
+  let resolvedKey: Buffer | undefined;
+  updateGatewaySecrets(path, (secrets) => {
+    const existing = secrets[KEY_FIELD];
+    if (typeof existing === "string" && existing.length > 0) {
+      resolvedKey = Buffer.from(existing, "base64");
+      return null;
+    }
+    const key = randomBytes(32);
+    resolvedKey = key;
+    return { ...secrets, [KEY_FIELD]: key.toString("base64") };
+  });
+  return resolvedKey!;
 }
 
 export function isEncrypted(value: string): boolean {

@@ -59,7 +59,10 @@ export function createMemoryRecall(deps: MemoryRecallDeps): MemoryRecallPort {
       if (!existsSync(dbPath)) return fromFile.slice(0, limit);
       const store = openVectorMemoryStore(dbPath);
       try {
-        const hits = await recallMemories(store, deps.embedding ?? null, query, { topK: limit });
+        const hits = await recallMemories(store, deps.embedding ?? null, query, {
+          topK: limit,
+          readOnly: true,
+        });
         const fromDb = hits.map((hit) => ({
           id: hit.id,
           content: hit.content,
