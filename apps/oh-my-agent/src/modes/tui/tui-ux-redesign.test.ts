@@ -2,14 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createModelRuntime } from "@chengchenccc/ai";
 import { type Component, Container, TUI, VirtualTerminal, visibleWidth } from "@chengchenccc/tui";
 import { saveInputHistory } from "../../core/session/input-history.js";
 import { ApprovalPanel } from "./approval-panel.js";
 import { SettingsOverlay } from "./settings-overlay.js";
 import { FilterablePickerOverlay, OmaTranscriptContainer } from "./tui-components.js";
 import { EDITOR_THEME } from "./tui-format.js";
+import { runTuiSession } from "./tui-mode.js";
 import { TuiItemRenderer, TuiRenderShell } from "./tui-render.js";
-import type { ApprovalVerdict } from "./tui-seam.js";
+import type { ApprovalVerdict, ContextUsageInfo, TuiIo } from "./tui-seam.js";
 import { TuiTranscriptReconciler } from "./tui-transcript-reconciler.js";
 import { initialViewState, type TranscriptItem } from "./view-state.js";
 
@@ -236,6 +238,7 @@ describe("TuiItemRenderer terminal-native formatting", () => {
       estimatedTokens: 100_000,
       limit: 200_000,
       pct: 50,
+      usageSummary: "↑12.4k ↓1.8k",
     });
 
     const bar60 = stripAnsi(shell.renderStatusBarLine(60));
@@ -243,6 +246,20 @@ describe("TuiItemRenderer terminal-native formatting", () => {
     expect(bar60).toContain("✎ plan");
     expect(bar60).toContain("anthropic/sonnet");
     expect(bar60).toContain("50%");
+
+    // Wide status bar displays both context footprint and cumulative token spend
+    const bar110 = stripAnsi(shell.renderStatusBarLine(110));
+    expect(bar110).toContain("100k/200k");
+    expect(bar110).toContain("↑12.4k ↓1.8k");
+
+    // Memo key invalidates when token counts grow even at same percentage
+    shell.setHeader("anthropic/sonnet", "12345678-abcd", "", "ctx 101k/200k · 50%", {
+      estimatedTokens: 101_000,
+      limit: 200_000,
+      pct: 50,
+      usageSummary: "↑15.2k ↓2.4k",
+    });
+    expect(stripAnsi(shell.statusLineText)).toContain("↑15.2k ↓2.4k");
 
     // Narrow (<72 cols) header omits wide ASCII banner so workspace line is clean
     const headerText = transcript.children
@@ -326,5 +343,88 @@ describe("TUI performance invariants", () => {
     const vp = transcript.renderViewport(80, 10);
     expect(vp).toEqual(["live-0"]);
     expect(committedRenderCalls).toBe(0);
+  });
+
+  test("live & cumulative token usage grows across turns using real API usage anchor", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oma-tui-usage-"));
+    const savedSess = process.env.OMA_SESSION_DIR;
+    const savedTitle = process.env.OMA_TITLE_ENABLED;
+    const savedMem = process.env.OMA_MEMORY_EXTRACT;
+    process.env.OMA_SESSION_DIR = dir;
+    process.env.OMA_TITLE_ENABLED = "0";
+    process.env.OMA_MEMORY_EXTRACT = "0";
+    let call = 0;
+    try {
+      const modelRuntime = createModelRuntime();
+      modelRuntime.registerProvider({
+        id: "probe",
+        name: "Probe",
+        getModels: () => [
+          {
+            id: "m",
+            name: "M",
+            provider: "probe",
+            api: "anthropic-messages",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 200_000,
+            maxTokens: 8192,
+          },
+        ],
+        async *stream() {
+          call++;
+          yield { delta: { type: "text", text: `reply ${call}` } };
+          yield {
+            usage:
+              call === 1
+                ? { input: 20_000, output: 1_500, cacheRead: 10_000, cacheCreate: 0 }
+                : { input: 25_000, output: 2_000, cacheRead: 10_000, cacheCreate: 0 },
+          };
+          yield { stopReason: "end_turn" };
+        },
+      });
+
+      const queue = ["turn one", "turn two", "/exit"];
+      const contextUpdates: Array<{ busy: boolean; info?: ContextUsageInfo; context?: string }> =
+        [];
+      let isBusy = false;
+      const io: TuiIo = {
+        render() {},
+        waitForInput: async () => queue.shift() ?? null,
+        setBusy(b) {
+          isBusy = b;
+        },
+        setHeader(h) {
+          if (h.contextInfo || h.context) {
+            contextUpdates.push({ busy: isBusy, info: h.contextInfo, context: h.context });
+          }
+        },
+        close() {},
+      };
+
+      const code = await runTuiSession({ modelRuntime, workspaceRoot: dir }, io);
+      expect(code).toBe(0);
+      // Must receive live updates while busy (on message_end)
+      expect(contextUpdates.some((u) => u.busy)).toBe(true);
+      // Turn 1 real API usage: 20k + 10k + 1.5k = 31.5k context (~16%), ↑30k ↓1.5k
+      const firstInfo = contextUpdates[0]?.info;
+      expect(firstInfo?.estimatedTokens).toBe(31_500);
+      expect(firstInfo?.pct).toBe(16);
+      expect(firstInfo?.usageSummary).toBe("↑30k ↓1.5k");
+      // Turn 2 accumulates session total: ↑65k ↓3.5k and real context 37k (~19%)
+      const lastInfo = contextUpdates.at(-1)?.info;
+      expect(lastInfo?.estimatedTokens).toBe(37_000);
+      expect(lastInfo?.pct).toBe(19);
+      expect(lastInfo?.usageSummary).toBe("↑65k ↓3.5k");
+    } finally {
+      if (savedSess === undefined) delete process.env.OMA_SESSION_DIR;
+      else process.env.OMA_SESSION_DIR = savedSess;
+      if (savedTitle === undefined) delete process.env.OMA_TITLE_ENABLED;
+      else process.env.OMA_TITLE_ENABLED = savedTitle;
+      if (savedMem === undefined) delete process.env.OMA_MEMORY_EXTRACT;
+      else process.env.OMA_MEMORY_EXTRACT = savedMem;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

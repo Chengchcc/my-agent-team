@@ -1,4 +1,5 @@
 import type { TodoItem } from "../tools/todo-store.js";
+import type { TurnUsage } from "./context-estimate.js";
 import type { ToolPresentation } from "./contract/index.js";
 
 /** Pi-style typed lifecycle events per runtime/oma.md. */
@@ -24,7 +25,7 @@ export type OmaLoopEvent =
   | { type: "message_start" }
   | { type: "message_update"; text: string }
   | { type: "thinking_update"; text: string }
-  | { type: "message_end" }
+  | { type: "message_end"; usage?: TurnUsage }
   | {
       type: "tool_execution_start";
       toolName: string;

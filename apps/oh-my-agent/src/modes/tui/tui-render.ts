@@ -857,6 +857,13 @@ export class TuiRenderShell {
         fg: tuiTheme.dim,
         priority: 4,
       });
+      if (this.headerContextInfo.usageSummary) {
+        right.push({
+          text: this.headerContextInfo.usageSummary,
+          fg: tuiTheme.dim,
+          priority: 3,
+        });
+      }
     } else if (this.headerContext) {
       right.push({
         text: this.headerContext,
@@ -880,7 +887,7 @@ export class TuiRenderShell {
       this.driverStatus.get("loop") ?? "",
     ].join("|");
     const width = Math.max(40, this.tui.terminal.columns);
-    const key = `${width}|${this.headerModel}|${this.headerSession}|${this.headerContext}|${this.headerContextInfo?.pct ?? ""}|${git}|${runningBg}|${drivers}`;
+    const key = `${width}|${this.headerModel}|${this.headerSession}|${this.headerContext}|${this.headerContextInfo?.estimatedTokens ?? ""}|${this.headerContextInfo?.pct ?? ""}|${this.headerContextInfo?.usageSummary ?? ""}|${git}|${runningBg}|${drivers}`;
     if (!force && key === this.lastStatusKey) return;
     this.lastStatusKey = key;
     this.statusLineText = this.renderStatusBarLine(width);

@@ -487,7 +487,11 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
     },
 
     /** Estimated context footprint under the run model's window (the same
-     *  estimate/limit the compactor uses). Read before close(). */
+     *  estimate/limit the compactor uses). Prefers the latest live assistant
+     *  message's real API usage anchor (which includes system prompt + tool
+     *  definitions + cache tokens) plus per-message estimates for any entries
+     *  persisted after it; falls back to full estimation when no provider
+     *  usage was reported. Read before close(). */
     async contextUsage() {
       const budget = rt.contextBudget;
       if (!budget) return undefined;
@@ -496,10 +500,44 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
       // covered prefix would leave the meter above the window right after a
       // compaction that just brought the context down.
       const coveredIds = latestCompaction(branch)?.coveredIds ?? null;
+      const liveMessages = branch.filter(
+        (entry): entry is Extract<typeof entry, { type: "message" }> =>
+          entry.type === "message" && !coveredIds?.has(entry.entryId),
+      );
+      let anchorIdx = -1;
+      let anchorTokens = 0;
+      for (let i = liveMessages.length - 1; i >= 0; i--) {
+        const u = (
+          liveMessages[i]!.message as {
+            usage?: {
+              inputTokens?: number;
+              outputTokens?: number;
+              cacheReadTokens?: number;
+              cacheWriteTokens?: number;
+            };
+          }
+        ).usage;
+        if (!u) continue;
+        const total =
+          (u.inputTokens ?? 0) +
+          (u.outputTokens ?? 0) +
+          (u.cacheReadTokens ?? 0) +
+          (u.cacheWriteTokens ?? 0);
+        if (total > 0) {
+          anchorIdx = i;
+          anchorTokens = total;
+          break;
+        }
+      }
+      if (anchorIdx !== -1) {
+        let tailTokens = 0;
+        for (let i = anchorIdx + 1; i < liveMessages.length; i++) {
+          tailTokens += budget.estimate(liveMessages[i]!.message);
+        }
+        return { estimatedTokens: anchorTokens + tailTokens, limit: budget.limit };
+      }
       let estimatedTokens = 0;
-      for (const entry of branch) {
-        if (entry.type !== "message") continue;
-        if (coveredIds?.has(entry.entryId)) continue;
+      for (const entry of liveMessages) {
         estimatedTokens += budget.estimate(entry.message);
       }
       return { estimatedTokens, limit: budget.limit };

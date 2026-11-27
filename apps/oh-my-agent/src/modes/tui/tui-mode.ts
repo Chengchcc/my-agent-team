@@ -148,6 +148,57 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   /** Estimated context tokens after the last run: drives the picker's
    *  over-context warning (pi grays out models smaller than the session). */
   let lastContextTokens: number | undefined;
+  /** Session-cumulative real API token spend across all turns & steps. */
+  const sessionUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  };
+  let currentModelLimit = 0;
+
+  function formatSessionUsageSummary(): string {
+    const totalIn =
+      sessionUsage.inputTokens + sessionUsage.cacheReadTokens + sessionUsage.cacheWriteTokens;
+    const totalOut = sessionUsage.outputTokens;
+    const parts: string[] = [];
+    if (totalIn > 0) parts.push(`↑${formatTokens(totalIn)}`);
+    if (totalOut > 0) parts.push(`↓${formatTokens(totalOut)}`);
+    return parts.join(" ");
+  }
+
+  function publishContextStatus(contextTokens: number, limit: number): void {
+    if (contextTokens > 0) lastContextTokens = contextTokens;
+    if (limit > 0) currentModelLimit = limit;
+    const effLimit = limit > 0 ? limit : currentModelLimit;
+    const usageSummary = formatSessionUsageSummary();
+    if (!(effLimit > 0) && !usageSummary) return;
+    const ctx = effLimit > 0 ? `ctx ${formatTokens(contextTokens)}/${formatTokens(effLimit)}` : "";
+    const pct = effLimit > 0 ? Math.min(100, Math.round((contextTokens / effLimit) * 100)) : 0;
+    const context = [
+      ctx,
+      ...(effLimit > 0 ? [`${pct}%`] : []),
+      ...(usageSummary ? [usageSummary] : []),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    io.setHeader?.({
+      model: modelId,
+      sessionId: session.sessionId,
+      title: sessionTitle,
+      context,
+      ...(effLimit > 0
+        ? {
+            contextInfo: {
+              estimatedTokens: contextTokens,
+              limit: effLimit,
+              pct,
+              ...(usageSummary ? { usageSummary } : {}),
+            },
+          }
+        : {}),
+    });
+  }
   /** Recap shown when the terminal regains focus after an unfocused run. */
   let pendingFocusRecap: string | undefined;
   /** Prompt queued by a command (skill invocations): submitted as the next
@@ -169,6 +220,11 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
    *  continues with /goal resume. Run once at boot and again after every
    *  session switch (all three drivers are session-scoped and in-memory). */
   function reloadSessionDrivers(opts: { keepLoop?: boolean } = {}): void {
+    sessionUsage.inputTokens = 0;
+    sessionUsage.outputTokens = 0;
+    sessionUsage.cacheReadTokens = 0;
+    sessionUsage.cacheWriteTokens = 0;
+    lastContextTokens = undefined;
     const restored = loadSessionGoalState(session.sessionId, session.dir);
     if (restored) {
       const isLive = restored.goal.status === "active" || restored.goal.status === "budget-limited";
@@ -676,6 +732,19 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       pendingWorkflowScript = undefined;
     }
     modelId = built.run.model.modelId;
+    try {
+      const cat = await opts.modelRuntime.getCatalog();
+      const entry = cat.models.find((m) => `${m.providerId}/${m.modelId}` === modelId);
+      if (entry && entry.contextWindow > 0) currentModelLimit = entry.contextWindow;
+    } catch {
+      // catalog unavailable; settle-time runtime.contextUsage() still supplies limit
+    }
+    const runStreamedUsage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    };
     let pluginRt = await assemblePluginRuntime(opts.workspaceRoot, "tui");
     // Goal mode : the `goal` tool is mounted for THIS run only while
     // the mode is live (active goal or /guided-goal interview). The runtime
@@ -776,6 +845,22 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
             markToolUsage(envelope);
             const event = envelope.data as OmaLoopEvent;
             applyEvent(state, event);
+            // Live token & context telemetry: update the status bar on every
+            // completed LLM step inside a multi-step run (not only at settle).
+            if (event.type === "message_end" && event.usage) {
+              const u = event.usage;
+              runStreamedUsage.inputTokens += u.inputTokens;
+              runStreamedUsage.outputTokens += u.outputTokens;
+              runStreamedUsage.cacheReadTokens += u.cacheReadTokens;
+              runStreamedUsage.cacheWriteTokens += u.cacheWriteTokens;
+              sessionUsage.inputTokens += u.inputTokens;
+              sessionUsage.outputTokens += u.outputTokens;
+              sessionUsage.cacheReadTokens += u.cacheReadTokens;
+              sessionUsage.cacheWriteTokens += u.cacheWriteTokens;
+              const liveCtx =
+                u.inputTokens + u.outputTokens + u.cacheReadTokens + u.cacheWriteTokens;
+              publishContextStatus(liveCtx, currentModelLimit);
+            }
             // Steers the loop actually injected are no longer "queued".
             if (event.type === "queue_update" && event.drained) {
               for (const drained of event.drained) {
@@ -956,47 +1041,32 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     }
     // Context footprint of the settled branch under the run model's window
     // (pi's context-usage display); read BEFORE close() like compactions().
-    const usage = await runtime.contextUsage().catch(() => undefined);
-    if (usage) lastContextTokens = usage.estimatedTokens;
-    const usageParts: string[] = [];
+    // Fold any uncounted outcome usage delta (e.g. subagent delegation spend
+    // or providers that only emit usage on outcome) without double-counting
+    // live message_end updates.
     if (outcome.usage) {
-      if (outcome.usage.inputTokens) usageParts.push(`↑${outcome.usage.inputTokens}`);
-      if (outcome.usage.outputTokens) usageParts.push(`↓${outcome.usage.outputTokens}`);
-      if (outcome.usage.cacheReadTokens) usageParts.push(`cache ${outcome.usage.cacheReadTokens}`);
+      sessionUsage.inputTokens += Math.max(
+        0,
+        (outcome.usage.inputTokens ?? 0) - runStreamedUsage.inputTokens,
+      );
+      sessionUsage.outputTokens += Math.max(
+        0,
+        (outcome.usage.outputTokens ?? 0) - runStreamedUsage.outputTokens,
+      );
+      sessionUsage.cacheReadTokens += Math.max(
+        0,
+        (outcome.usage.cacheReadTokens ?? 0) - runStreamedUsage.cacheReadTokens,
+      );
+      sessionUsage.cacheWriteTokens += Math.max(
+        0,
+        (outcome.usage.cacheWriteTokens ?? 0) - runStreamedUsage.cacheWriteTokens,
+      );
     }
-    if ((usage && usage.limit > 0) || usageParts.length > 0) {
-      const ctx =
-        usage && usage.limit > 0
-          ? `ctx ${formatTokens(usage.estimatedTokens)}/${formatTokens(usage.limit)}`
-          : "";
-      const pct =
-        usage && usage.limit > 0
-          ? Math.min(100, Math.round((usage.estimatedTokens / usage.limit) * 100))
-          : 0;
-      const usageSummary = usageParts.join(" ");
-      const context = [
-        ctx,
-        ...(usage && usage.limit > 0 ? [`${pct}%`] : []),
-        ...(usageSummary ? [usageSummary] : []),
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      io.setHeader?.({
-        model: modelId,
-        sessionId: session.sessionId,
-        title: sessionTitle,
-        context,
-        ...(usage && usage.limit > 0
-          ? {
-              contextInfo: {
-                estimatedTokens: usage.estimatedTokens,
-                limit: usage.limit,
-                pct,
-                ...(usageSummary ? { usageSummary } : {}),
-              },
-            }
-          : {}),
-      });
+    const usage = await runtime.contextUsage().catch(() => undefined);
+    const settledCtx = usage?.estimatedTokens ?? lastContextTokens ?? 0;
+    const settledLimit = usage?.limit ?? currentModelLimit;
+    if (settledLimit > 0 || formatSessionUsageSummary()) {
+      publishContextStatus(settledCtx, settledLimit);
     }
     await runtime.close().catch(() => {});
     // /exit (or a second ctrl+c path) may have run via the live-command

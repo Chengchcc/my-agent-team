@@ -145,7 +145,10 @@ export async function streamModelTurn(
     }
   } finally {
     // message_end always pairs with message_start, even on failure/abort.
-    await emit({ type: "message_end" });
+    // Attach this call's accumulated API usage so live surfaces (TUI status
+    // bar) can tick up context/token counters on every step instead of staying
+    // frozen until the entire multi-step Run finishes.
+    await emit({ type: "message_end", ...(turnUsage ? { usage: turnUsage } : {}) });
   }
   state.runUsage = runUsage;
   debugLog(

@@ -348,10 +348,15 @@ export const USER_TEXT_STYLE: DefaultTextStyle = {
   color: (s) => `${tuiTheme.accent}${s}\u001b[0m`,
 };
 
-/** Compact token count for the header: 12k / 200k. */
+/** Compact token count for the header/status bar: 420, 1.4k, 12.5k, 200k. */
 export function formatTokens(n: number): string {
-  if (n >= 1000) return `${Math.round(n / 1000)}k`;
-  return `${n}`;
+  if (n >= 100_000) return `${Math.round(n / 1000)}k`;
+  if (n >= 1_000) {
+    const k = n / 1000;
+    const rounded = Math.round(k * 10) / 10;
+    return Number.isInteger(rounded) ? `${rounded}k` : `${rounded.toFixed(1)}k`;
+  }
+  return `${Math.max(0, Math.round(n))}`;
 }
 
 /** Compact model meta line (pi's ModelBrowser columns): display name,
