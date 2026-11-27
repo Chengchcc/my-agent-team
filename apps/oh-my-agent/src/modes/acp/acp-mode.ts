@@ -269,12 +269,14 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
     if (live) void live.runtime.stop().catch(() => {});
     resolveExit?.(0);
   };
-  void app.connect(opts.stream ?? processStream()).then(finishOnDisconnect, finishOnDisconnect);
+  const connection = app.connect(opts.stream ?? processStream());
+  void connection.closed.then(finishOnDisconnect, finishOnDisconnect);
 
   return {
     promise,
     stop() {
       finishOnDisconnect();
+      connection.close();
     },
   };
 

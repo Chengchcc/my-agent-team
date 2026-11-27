@@ -302,14 +302,12 @@ export function mapOmaUpdate<K extends string>(envelope: unknown, kind: K): Back
     return [{ type: "status", status: "heartbeat" }];
   }
   if (event.type === "delegation_batch_started") {
-    const source = data.source;
     return [
       {
         type: "delegation_batch_started",
         batchId: String(data.batchId ?? ""),
         label: String(data.label ?? ""),
         agentCount: Number(data.agentCount ?? 0),
-        ...(source === "task" || source === "workflow" ? { source } : {}),
       },
     ];
   }

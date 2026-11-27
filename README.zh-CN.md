@@ -15,7 +15,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![CI](https://github.com/Chengchcc/crewdesk/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Chengchcc/crewdesk/actions/workflows/ci.yml)
 
-[核心能力](#-核心能力) · [快速开始](#-快速开始) · [界面预览](#-界面预览) · [架构设计](#-架构设计) · [安全模型](#-安全模型) · [文档入口](#-文档入口)
+[PA + Worker 协作模型](#-pa--worker-团队协作模型) · [核心能力](#-核心能力) · [界面预览](#-界面预览) · [快速开始](#-快速开始) · [架构设计](#-架构设计) · [安全模型](#-安全模型) · [文档入口](#-文档入口)
 
 <br />
 
@@ -35,25 +35,51 @@
 - PA 把真实目标沉淀为**事项（Requirement）**，拆解派单给专职成员（开发 / 调研 / 评审）在独立 Git 副本里干活，并把长期经验沉淀进 **Git 驱动的共享 Wiki**。
 - 同一支团队可混用 **`oma`**、**Claude Code**、**`pi`**、**`omp`** 四个引擎，走同一条 ACP 协议轨，自带 fail-closed 人工审批与进程沙箱，无需 Docker Compose、Postgres 或 Redis。
 
+## 👥 PA + Worker 团队协作模型
+
+大多数 Coding Agent 把聊天、规划、跑命令和改代码全塞进同一个全能循环里——一次理解偏差就可能直接改坏仓库，或用满屏工具日志淹没对话。
+
+**CrewDesk** 用代码层（而非仅靠提示词）把团队拆成两类硬隔离角色：**一位超级助理（PA）守在前台管注意力**，**多位专职 Worker 在隔离车间里干活**。
+
+```mermaid
+flowchart LR
+    H["你（Web / 飞书）"] <-->|事项 · 决策审批 · 交付验收| PA["超级助理 PA（前台）\n无 bash · 无代码读写权限"]
+
+    PA -->|派发独立子会话| W1["开发 Worker（Claude Code / oma）\n独立 Git 副本 -> 只推 agent/<runId>"]
+    PA -->|派发独立核验| W2["评审 Worker（pi / oma）\n核验通过后解除交付门"]
+    PA -->|派发深度调研| W3["调研 Worker（omp / oma）\n代码与架构分析"]
+
+    W1 -.->|遇到阻塞升级提问| PA
+    PA -->|按来源引用沉淀知识| WIKI["Git 驱动的共享 Wiki"]
+    PA -.->|不可逆/策略决策升级| H
+```
+
+### 职责与硬边界（由工具层与运行时强制执行）
+
+| 角色 | 负责什么 | 硬边界（代码级强制，非口头约定） |
+|---|---|---|
+| **你（操作员）** | 配置团队成员与权限、批准不可逆风险动作、决定最终合并与验收。 | Agent 可以**提议**新建项目、修改流程或成员配置，但「采纳建议」≠「保存」，所有变更必须由你确认保存。 |
+| **超级助理 PA（前台）** | 管理你的注意力与主会话：澄清意图、把真实目标建为**事项（Requirement）**、按能力选人派单、跟进进度、基于上下文/Wiki 回复 Worker 提问，并维护**共享 Git Wiki**。 | **物理上没有执行工具**（无 `bash`/`read`/`write`/`edit`/`eval`/浏览器），工作区里也没有代码仓——不会擅自“自己去看看顺手改了”，需要对话外信息就必须派单给 Worker。 |
+| **专职 Worker**（开发 / 评审 / 调研…） | 在**独立子会话**和**独立 Git 项目副本**里深度执行，可按成员混用 `oma` / `Claude Code` / `pi` / `omp`，各自持有独立 `SOUL.md`、技能与 MCP。 | 不主动越级打扰人（除非你显式开直连或进工作区终端接管）；`project_push` 只允许推到 `agent/<runId>` 分支（禁止直推 `main`/`master`）；`deny_write_paths` / `deny_commands` 阻止写逃逸。 |
+
+### 一条真实需求的完整闭环
+
+1. **找 PA 提目标**：在 Web 控制台或飞书里说清楚要解决的问题（例如「给 `/webhooks/stripe` 补原子幂等校验，并让评审成员复核」）。
+2. **建事项并派单**：PA 把目标沉淀为**事项（Requirement）**（记录目标、约束与验收标准），并向开发 Worker 派发独立子会话与隔离 Git 工作区。
+3. **遇阻升级与 Fail-Closed 审批**：Worker 缺上下文时先向 PA 提问，PA 依据 Brief/Wiki 回答或升级成待决卡片交给你；高风险写文件/命令动作停在审批卡上，超时默认拒绝。
+4. **二号成员交付门**：开发 Worker 只把改动推到 `agent/<runId>` 并上传带类型的 `artifacts://`。若未经第二位成员（如评审 Worker）独立跑测与复核，后端会自动在交付消息中标注**「未经核验」**；最终由你决定是否合并。
+5. **知识复利入库**：过程中的架构决策、根因分析与踩坑记录按来源引用写入共享 **Git Wiki**，不再随聊天沉底。
+
 ## ✨ 核心能力
 
 | 能力 | 具体解决什么问题 |
 |---|---|
-| **超级助理 + 专职团队（职责隔离）** | PA 只负责理解、拆解、派单、协调与交付，本身没有代码写入与任意 shell 权限。专职成员在隔离的项目副本里工作，改动只推到 `agent/<runId>` 分支（禁止直推 `main`/`master`）；未经第二位成员核验的改动会触发**交付门**并显式标出「未经核验」。 |
 | **一条 ACP 轨，四个 Coding 引擎** | 每个 Agent 可自由选择 **`oma`**（内置 CLI/TUI 运行时）、**Claude Code**、**`pi`** 或 **`omp`**。四个引擎在统一 ACP 子进程边界下各自续接原生 session——切换底层引擎，不影响 Web 控制台、飞书机器人或审批流。 |
 | **工作区即配置 & Git Wiki** | 每个 Agent 的身份（`SOUL.md` / `USER.md`）、技能、MCP 服务与记忆都是工作区里的普通文件，人可直接编辑与版本管理。长期知识沉淀在产品级 Git **Wiki**（`raw/` 引用 + 编译后的主题页），不再随聊天记录流失。 |
 | **单一账本，多端实时同步** | Web 控制台、飞书机器人、Oma TUI 以及浏览器内的 **Coding** worktree 终端共用同一份 SQLite 对话账本。手机飞书里发需求，电脑 Web 里点审批看产物，一键跳进对应 Agent 的工作区终端。 |
 | **人在环审批与权限围栏** | 按 Agent 配置工具策略（`ask` / `auto` / `deny`）与路径/命令护栏（`deny_write_paths`、`allow_write_paths`、`deny_commands`）；审批与提问持久化在 `pending_action`，超时默认拒绝（fail-closed）。 |
 | **声明式 Agentic Workflow** | 可视化 DAG 编排器，支持 `agent`、`script`（bubblewrap 沙箱）、`human` 三类节点、JSON-Logic 条件路由、cron 定时触发以及带类型的 `artifacts://` 产物接力。 |
 | **零额外基础设施自托管** | 单机 Bun + SQLite 即可运行，无外部数据库与消息队列依赖。 |
-
-## 🔄 一条任务的完整流转
-
-1. **找超级助理说话**：在 Web 控制台或飞书里提出目标。
-2. **建事项并派单**：PA 把值得跟进的目标识别为**事项（Requirement）**，并向合适的专职成员派单。
-3. **隔离执行与审批**：成员在独立项目副本中经由 `oma` / `claude` / `pi` / `omp` 执行；高风险写文件或命令动作停在审批卡上等人确认。
-4. **核验与交付**：成员只把代码推到 `agent/<runId>` 分支并产出 `artifacts://`；第二位成员核对通过后解除**交付门**，最终由人决定是否合并。
-5. **知识沉淀**：关键结论、决策与踩坑记录按来源引用写入共享 **Git Wiki**。
 
 ## 📸 界面预览
 

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { agentDir } from "../session/session-file.js";
 
 export interface TrustRecord {
@@ -70,7 +70,9 @@ export function readTrustedPlugins(): TrustedPlugins {
 export function writeTrustedPlugins(map: TrustedPlugins): void {
   const obj: Record<string, TrustRecord> = {};
   for (const [root, rec] of map) obj[root] = rec;
-  writeFileSync(trustedPath(), `${JSON.stringify(obj, null, 2)}\n`);
+  const target = trustedPath();
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, `${JSON.stringify(obj, null, 2)}\n`);
 }
 
 /** Record explicit user trust for a plugin root at its current hash. */

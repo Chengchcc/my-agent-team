@@ -524,29 +524,39 @@ async function runModelTurnLoop(
     stepState.usageAnchor = null;
     tokenEstimateCache.clear();
     await emit({ type: "compaction_start" });
-    const contextBudget = opts.contextBudget!;
+    const contextBudget = opts.contextBudget;
     try {
-      const branch = await opts.store.readBranch(opts.sessionId);
-      const prevCompaction = latestCompaction(branch);
-      const summaryOverhead = prevCompaction
-        ? contextBudget.estimate({ role: "user", text: prevCompaction.summary })
-        : 0;
-      const overheadTokens = estimateFixedOverhead(contextBudget.estimate) + summaryOverhead;
-      let result = await compactSession(
-        opts.store,
-        opts.sessionId,
-        opts.summarize,
-        mutable.controller?.signal,
-        {
-          estimate: contextBudget.estimate,
-          limit: contextBudget.limit * Math.min(1, contextBudget.triggerRatio),
-          overheadTokens,
-        },
-      );
-      // Provider-reported or silent overflow where local chars/4 still thinks
-      // we're under limit: fall back to heuristic cut (no budget) so overflow
-      // recovery never NO-OPs into a guaranteed second 400.
-      if (result.coveredIds.length === 0 && optsRecovery?.forceOnOverflow) {
+      let result: { entryId: string; coveredIds: readonly string[] };
+      if (contextBudget) {
+        const branch = await opts.store.readBranch(opts.sessionId);
+        const prevCompaction = latestCompaction(branch);
+        const summaryOverhead = prevCompaction
+          ? contextBudget.estimate({ role: "user", text: prevCompaction.summary })
+          : 0;
+        const overheadTokens = estimateFixedOverhead(contextBudget.estimate) + summaryOverhead;
+        result = await compactSession(
+          opts.store,
+          opts.sessionId,
+          opts.summarize,
+          mutable.controller?.signal,
+          {
+            estimate: contextBudget.estimate,
+            limit: contextBudget.limit * Math.min(1, contextBudget.triggerRatio),
+            overheadTokens,
+          },
+        );
+        // Provider-reported or silent overflow where local chars/4 still thinks
+        // we're under limit: fall back to heuristic cut (no budget) so overflow
+        // recovery never NO-OPs into a guaranteed second 400.
+        if (result.coveredIds.length === 0 && optsRecovery?.forceOnOverflow) {
+          result = await compactSession(
+            opts.store,
+            opts.sessionId,
+            opts.summarize,
+            mutable.controller?.signal,
+          );
+        }
+      } else {
         result = await compactSession(
           opts.store,
           opts.sessionId,

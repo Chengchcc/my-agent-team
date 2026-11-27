@@ -15,7 +15,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![CI](https://github.com/Chengchcc/crewdesk/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Chengchcc/crewdesk/actions/workflows/ci.yml)
 
-[Why CrewDesk](#-why-crewdesk) · [Quick Start](#-quick-start) · [Screenshots](#-screenshots) · [Architecture](#-architecture) · [Security](#-security-model) · [Docs](#-documentation)
+[PA + Worker Model](#-the-pa--worker-team-model) · [Why CrewDesk](#-why-crewdesk) · [Screenshots](#-screenshots) · [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Security](#-security-model) · [Docs](#-documentation)
 
 <br />
 
@@ -35,25 +35,51 @@ Most coding agents live in an isolated terminal tab. **CrewDesk** turns them int
 - The PA tracks goals as **Requirements**, dispatches specialist workers (Coder, Researcher, Reviewer) into isolated git workspaces, and compiles long-term knowledge into a **git-backed Wiki**.
 - Mix **`oma`**, **Claude Code**, **`pi`**, and **`omp`** on the same team over one Agent Client Protocol (ACP) rail — with fail-closed approvals, sandboxed workflows, and zero external database infrastructure.
 
+## 👥 The PA + Worker Team Model
+
+Most coding agents put chat, planning, shell execution, and git writes inside one omnipotent loop — one misunderstanding silently mutates your repository or buries your chat in tool noise.
+
+**CrewDesk** enforces a hard organizational boundary in code (not just system prompts): **one Personal Assistant (PA)** manages your attention at the front desk, while **Specialist Workers** execute in isolated workshops.
+
+```mermaid
+flowchart LR
+    H["You (Web / Lark)"] <-->|Requirements · Decisions · Delivery| PA["Personal Assistant (Front Desk)\nNo bash · No repo writes"]
+
+    PA -->|scoped child session| W1["Backend Coder (Claude Code / oma)\nIsolated git copy -> agent/<runId>"]
+    PA -->|independent audit| W2["Security Reviewer (pi / oma)\nClears Delivery Gate"]
+    PA -->|deep research| W3["Infra Researcher (omp / oma)\nCodebase & profiling"]
+
+    W1 -.->|escalates blocker| PA
+    PA -->|compiles durable lessons| WIKI["Git-Backed Wiki"]
+    PA -.->|irreversible / policy gate| H
+```
+
+### Who Does What (Enforced by Runtime & Tool Boundaries)
+
+| Role | What it owns | Hard boundary (enforced in code) |
+|---|---|---|
+| **You (Human)** | Team roster, permissions, irreversible approvals, merge & acceptance decisions. | Agents can **propose** new projects, workflows, or member settings — nothing is saved or merged without your explicit confirmation. |
+| **Personal Assistant (PA / Front Desk)** | Your attention & main conversation: clarifies intent, turns real goals into tracked **Requirements**, selects workers by capability, monitors progress, answers worker questions from context/Wiki, and compiles knowledge into the **Git Wiki**. | **Physically has no execution tools** (`bash`, `write`, `edit`, `read`, `eval`, browser). It cannot silently inspect or hack your codebase — any work outside the conversation must be dispatched to a worker. |
+| **Specialist Workers** (Coder, Reviewer, Researcher, ...) | Deep execution inside **isolated child conversations** and **isolated git project copies** using any harness (`oma`, `Claude Code`, `pi`, `omp`) with per-worker `SOUL.md`, skills, and MCP servers. | Cannot talk to you uninvited (unless you explicitly step in via direct line or worktree terminal); `project_push` only pushes `agent/<runId>` branches (pushing `main`/`master` is rejected); `deny_write_paths` & `deny_commands` block workspace escape. |
+
+### How One Request Flows End-to-End
+
+1. **You talk to the PA** in Web or Lark/Feishu (e.g., *"Harden `/webhooks/stripe` with atomic idempotency keys and have Security Reviewer verify it"*).
+2. **Track & Dispatch** — The PA creates a tracked **Requirement** (goal, constraints, acceptance criteria) and dispatches a **Coder** into an isolated child session and isolated git worktree.
+3. **Escalation & Fail-Closed Approvals** — If a worker hits a missing detail, the PA answers from the brief/Wiki or escalates to you as a persistent decision card; high-risk shell/file actions pause on **fail-closed** approval cards (timeout = deny).
+4. **Two-Agent Delivery Gate** — The Coder pushes only to `agent/<runId>` and emits typed `artifacts://`. Until a second worker (e.g., **Reviewer**) independently verifies the diff and tests, the backend automatically stamps the delivery **Unverified**. You decide whether to merge.
+5. **Knowledge Compounds in Git** — Decisions, root causes, and architectural lessons are committed to the shared **Git Wiki** with source citations — instead of evaporating inside chat logs.
+
 ## ✨ Why CrewDesk
 
 | Capability | What you get |
 |---|---|
-| **Super Assistant + Specialist Team** | Clean separation of roles: the PA triages, plans, dispatches, and coordinates — it has no direct code-write or shell access. Workers operate in isolated project copies, push only to `agent/<runId>` branches (never `main`/`master`), and pass a **Delivery Gate** that marks output *unverified* until a second agent checks it. |
 | **One ACP Rail, Four Coding Harnesses** | Assign **`oma`** (built-in CLI/TUI runtime), **Claude Code**, **`pi`**, or **`omp`** per agent. Each harness keeps its own native session continuity behind one unified ACP child-process boundary — swap engines without changing your console, Lark bot, or approval flow. |
 | **Workspace-as-Config & Git Wiki** | Every agent's identity (`SOUL.md`, `USER.md`), skills, MCP servers, and memory are plain files in its workspace. Durable knowledge lives in a product-level git-backed **Wiki** (`raw/` references + compiled topic pages), rather than decaying inside chat history. |
 | **One Ledger, Every Surface in Sync** | Web Console, Lark/Feishu IM bot, Oma TUI, and in-browser **Coding** worktree terminals all project the same SQLite conversation ledger. Start a task in Lark on mobile, approve a tool call or inspect artifacts in Web, and jump into the agent's worktree terminal in one click. |
 | **Fail-Closed Approvals & Guardrails** | Per-agent tool policies (`ask` / `auto` / `deny`), path & command fences (`deny_write_paths`, `allow_write_paths`, `deny_commands`), and persistent HITL prompts (`pending_action`) that deny on timeout. |
 | **Declarative Agentic Workflows** | Visual DAG orchestrator with `agent`, `script` (bubblewrap-sandboxed), and `human` nodes, JSON-Logic conditional routing, cron triggers, and typed `artifacts://` passed between stages. |
 | **Zero-Infra Self-Hosting** | Single Bun + SQLite runtime. No Docker Compose sprawl, no Postgres, no Redis. |
-
-## 🔄 How a Task Flows
-
-1. **Ask your Personal Assistant** in the Web console or a Lark/Feishu chat.
-2. **Track & Dispatch** — The PA records non-trivial goals as a **Requirement** and dispatches specialist workers with scoped briefs.
-3. **Execute Safely** — Workers run on `oma`, `claude`, `pi`, or `omp` inside isolated project copies; high-risk actions pause on fail-closed approval cards.
-4. **Verify & Deliver** — Workers push commits only to `agent/<runId>` branches and emit `artifacts://`; a second agent reviews the diff before the **Delivery Gate** clears. Humans decide whether to merge.
-5. **Compound Knowledge** — Decisions, lessons, and project notes are committed into the shared **Git Wiki** with source references.
 
 ## 📸 Screenshots
 

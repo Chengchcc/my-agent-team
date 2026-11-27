@@ -1226,7 +1226,7 @@ describe("MCP over ACP (ADR 0039: the connection carries the servers)", () => {
     });
     // An unsupported inner method is an MCP-level error, not a transport one.
     expect(obs.mcpReplies?.[2]).toEqual({
-      result: { result: { error: { code: -32601, message: "unsupported MCP method nope" } } },
+      result: { error: { code: -32601, message: "unsupported MCP method nope" } },
     });
     expect(calls[0]).toMatchObject({
       caller: { runId: "run-1", agentId: "agent-1" },
