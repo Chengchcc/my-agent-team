@@ -86,7 +86,8 @@ export function createOmaSession(opts: OmaSessionOptions): OmaSession {
     "job_result",
   ]);
 
-  function persist(entries: readonly Record<string, unknown>[]): Promise<unknown> {
+  async function persist(entries: readonly Record<string, unknown>[]): Promise<unknown> {
+    const appended = await opts.store.appendBatch(opts.sessionId, { entries });
     if (opts.onPersistMessages) {
       const conversational = entries
         .filter(
@@ -100,7 +101,7 @@ export function createOmaSession(opts: OmaSessionOptions): OmaSession {
         .map((e) => e.message);
       if (conversational.length > 0) opts.onPersistMessages(conversational);
     }
-    return opts.store.appendBatch(opts.sessionId, { entries });
+    return appended;
   }
 
   const loopCtx: LoopRunnerContext = {

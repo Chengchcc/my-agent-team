@@ -65,8 +65,15 @@ export function createRetainTool(memory: VectorMemory): PluginTool {
     async execute(args: Record<string, unknown>) {
       const content = typeof args.content === "string" ? args.content.trim() : "";
       if (!content) return { content: "Error: content is required", isError: true };
+      const bounded = content.slice(0, 2000);
+      // Check before retainMemory (which returns the existing row id on duplicate)
+      // so duplicate writes skip embedding work and report honestly.
+      const existing = memory.store.byContent(bounded);
+      if (existing) {
+        return { content: `duplicate of an existing memory (${existing.id})`, id: existing.id };
+      }
       const id = await retainMemory(memory.store, memory.provider, {
-        content: content.slice(0, 2000),
+        content: bounded,
         ...(typeof args.context === "string" && args.context.trim()
           ? { context: args.context.trim().slice(0, 400) }
           : {}),

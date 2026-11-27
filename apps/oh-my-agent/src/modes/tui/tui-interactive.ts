@@ -91,6 +91,7 @@ export async function forkTreeInteractive(ctx: TuiSessionContext): Promise<void>
   }
   ctx.session = resolveSession(newId, ctx.session.dir);
   ctx.sessionTitle = undefined;
+  ctx.reloadSessionDrivers?.();
   hydrateTranscript(ctx.state, ctx.session.messages);
   ctx.io.setHeader?.({ model: ctx.modelId, sessionId: ctx.session.sessionId });
   ctx.pushStatus(

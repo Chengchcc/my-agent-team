@@ -135,6 +135,17 @@ if (mcpConfigSrc.includes("url: config.productToolsMcpUrl"))
 if (!mcpConfigSrc.includes('bearerTokenEnv: "PRODUCT_TOOLS_RUN_TOKEN"'))
   failures.push(`${mcpConfigRel}: product-tools bearerTokenEnv missing or not the env-var name`);
 
+// Oma runtime boundary: core/runtime must stay strictly one-way — never import
+// surface modes (`modes/`), launcher (`core/gateway/`), or self-updater (`core/update/`).
+checkFiles(
+  "apps/oh-my-agent/src/core/runtime",
+  new Set(),
+  (src) =>
+    /from\s+["'][^"']*(?:\.\.\/\.\.\/modes\/|\.\.\/gateway\/|\.\.\/update\/)/.test(src) ||
+    /import\(\s*["'][^"']*(?:\.\.\/\.\.\/modes\/|\.\.\/gateway\/|\.\.\/update\/)/.test(src),
+  "oma core/runtime must not depend on modes/, core/gateway/, or core/update/",
+);
+
 if (failures.length > 0) {
   console.error(`audit:contracts FAILED (${failures.length})`);
   for (const f of failures) console.error(`  - ${f}`);

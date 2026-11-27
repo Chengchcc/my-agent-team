@@ -1,12 +1,13 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import {
   GatewaySecretsError,
   readGatewaySecrets,
   updateGatewaySecrets,
 } from "@chengchenccc/config";
+import { omaVersion as readPackageVersion } from "../../version.js";
 import { type GatewayManifest, readGatewayManifest } from "./manifest.js";
 
 export class GatewayArtifactError extends Error {}
@@ -46,16 +47,13 @@ export function gatewayPaths(home: string = omaHome()): GatewayPaths {
   };
 }
 
-/** oma's own version, from the package this build belongs to (src/ and dist/
- *  are both three levels below the package root). */
+/** oma's own version, delegated to the zero-dep `src/version.ts` helper. */
 export function omaVersion(): string {
-  const pkgPath = resolve(import.meta.dirname, "../../../package.json");
-  const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf8"));
-  if (typeof parsed === "object" && parsed !== null && "version" in parsed) {
-    const version: unknown = parsed.version;
-    if (typeof version === "string") return version;
+  try {
+    return readPackageVersion();
+  } catch (err) {
+    throw new GatewayArtifactError(err instanceof Error ? err.message : String(err));
   }
-  throw new GatewayArtifactError(`no version found in ${pkgPath}`);
 }
 
 export interface ReleaseLocation {

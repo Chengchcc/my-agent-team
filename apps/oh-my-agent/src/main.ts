@@ -1,19 +1,12 @@
 import { createModelRuntime } from "@chengchenccc/ai";
 import { type CliArgs, parseArgs, UsageError } from "./cli/args.js";
-import { runGatewayCommand } from "./cli/gateway-commands.js";
 import { mergeInitialInput, readPipedStdin } from "./cli/initial-input.js";
-import { runUpdateCommand } from "./cli/update-command.js";
-import { omaVersion } from "./core/gateway/artifact.js";
 import { buildBackendModelCatalog } from "./core/runtime/model-catalog.js";
 import { registerBuiltinProviders } from "./core/runtime/run-runtime.js";
 import { parseToolFilter } from "./core/runtime/tool-filter.js";
 import { listSessions } from "./core/session/session-file.js";
 import { resolvePermissionMode } from "./core/settings/project-settings.js";
-import { newerVersion } from "./core/update/release.js";
-import { runAcpMode } from "./modes/acp/acp-mode.js";
-import { runJsonMode } from "./modes/json-mode.js";
-import { runPrintMode } from "./modes/print-mode.js";
-import { runTuiMode } from "./modes/tui/tui-mode.js";
+import { omaVersion } from "./version.js";
 
 /** --session <id> wins; --continue resolves the workspace's newest session
  *  (missing files degrade to a fresh session downstream). */
@@ -22,11 +15,35 @@ function resolveSessionArg(args: CliArgs): string | undefined {
   if (args.continueLast) return listSessions()[0]?.id;
   return undefined;
 }
+
 /** Parse args, run one CLI invocation, and return the process exit code.
  *  Never calls process.exit() - callers own exit-code assignment so stdout
- *  protocol output can flush. Pure enough to be imported from tests. */
+ *  protocol output can flush. Pure enough to be imported from tests.
+ *
+ *  Mode handlers (gateway, update, acp, tui, json, print) are lazy-imported so
+ *  each invocation only loads its own surface — e.g. `oma --mode acp` never
+ *  loads gateway/update or interactive TUI modules. */
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   const args = parseArgs(argv);
+
+  // Gateway commands never read stdin and never touch a model runtime or session.
+  if (args.gateway) {
+    const { runGatewayCommand } = await import("./cli/gateway-commands.js");
+    return runGatewayCommand(args.gateway, {
+      ...(args.gatewayVersion ? { version: args.gatewayVersion } : {}),
+      ...(args.gatewayDetach ? { detach: true } : {}),
+    });
+  }
+
+  // Same for `oma update`: no prompt, no session, and it must work over a pipe.
+  if (args.update) {
+    const { runUpdateCommand } = await import("./cli/update-command.js");
+    return runUpdateCommand({
+      ...(args.updateVersion ? { version: args.updateVersion } : {}),
+      ...(args.updateCheck ? { check: true } : {}),
+    });
+  }
+
   const modelRuntime = createModelRuntime();
   registerBuiltinProviders(modelRuntime, process.env);
 
@@ -36,6 +53,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
    *  odd payload). */
   const upgradeHint = async (): Promise<string | undefined> => {
     if (process.env.OMA_NO_UPDATE_CHECK) return undefined;
+    const { newerVersion } = await import("./core/update/release.js");
     return await newerVersion(omaVersion());
   };
 
@@ -46,25 +64,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 0;
   }
 
-  // Gateway commands never read stdin and never touch a session: keep them
-  // ahead of the rpc/tui/stdin paths so they work from a pipe or a postinstall.
-  if (args.gateway) {
-    return runGatewayCommand(args.gateway, {
-      ...(args.gatewayVersion ? { version: args.gatewayVersion } : {}),
-      ...(args.gatewayDetach ? { detach: true } : {}),
-    });
-  }
-
-  // Same for `oma update`: no prompt, no session, and it must work over a pipe.
-  if (args.update) {
-    return runUpdateCommand({
-      ...(args.updateVersion ? { version: args.updateVersion } : {}),
-      ...(args.updateCheck ? { check: true } : {}),
-    });
-  }
-
   if (args.mode === "acp") {
     // ACP stdin is the JSON-RPC stream: NEVER pre-read it (ADR 0039 P2).
+    const { runAcpMode } = await import("./modes/acp/acp-mode.js");
     const controller = runAcpMode({
       modelRuntime,
       ...(args.model ? { model: args.model } : {}),
@@ -85,24 +87,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     }
   }
 
-  if (args.mode === "tui") {
-    return runTuiMode({
-      modelRuntime,
-      workspaceRoot: process.cwd(),
-      model: args.model,
-      sessionId: resolveSessionArg(args),
-      ...(args.permission ? { permissionMode: args.permission } : {}),
-      ...(args.readOnly ? { readOnly: true } : {}),
-      ...(args.tools ? { toolFilter: parseToolFilter(args.tools) } : {}),
-      ...(args.prompt ? { initialPrompt: args.prompt } : {}),
-      checkUpdate: upgradeHint,
-    });
-  }
-
-  // Standalone default: `oma` (or `oma "<prompt>"`) on a TTY opens the
-  // TUI, with the positional prompt prefilled into the editor. Explicit
-  // -p/--mode or a pipe stays one-shot print/json.
-  if (!args.modeExplicit && process.stdin.isTTY) {
+  if (args.mode === "tui" || (!args.modeExplicit && process.stdin.isTTY)) {
+    const { runTuiMode } = await import("./modes/tui/tui-mode.js");
     return runTuiMode({
       modelRuntime,
       workspaceRoot: process.cwd(),
@@ -139,7 +125,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     ...(args.readOnly ? { readOnly: true } : {}),
     ...(args.tools ? { toolFilter: parseToolFilter(args.tools) } : {}),
   };
-  return args.mode === "json" ? runJsonMode(opts) : runPrintMode(opts);
+  if (args.mode === "json") {
+    const { runJsonMode } = await import("./modes/json-mode.js");
+    return runJsonMode(opts);
+  }
+  const { runPrintMode } = await import("./modes/print-mode.js");
+  return runPrintMode(opts);
 }
 
 /** CLI entry wrapper: run main() and map errors to stderr + exit codes.

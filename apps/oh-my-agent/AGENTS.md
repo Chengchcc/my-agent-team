@@ -5,10 +5,11 @@ core that the Product Backend spawns for each Run.
 
 ## What this app is
 
-- A run-centric CLI agent in four modes: `print`, `json`, `rpc`, and
+- A run-centric CLI agent in four modes: `print`, `json`, `acp`, and
   interactive `tui`.
-- `rpc` mode is the product integration surface: the backend adapter spawns
-  `oma --mode rpc` and speaks JSONL over stdin/stdout.
+- `acp` mode is the product integration surface (ADR 0039/0040): the backend
+  ACP client spawns `oma --mode acp` and speaks Agent Client Protocol JSON-RPC
+  over stdio.
 - `print`/`json` are one-shot CLI modes; `tui` is a full interactive
   terminal with streaming render, branch tree, tools, and slash commands.
 
@@ -28,30 +29,37 @@ bun run test         # bun test
 
 ```
 src/
-  cli.ts               # entrypoint
-  main.ts              # mode dispatch + argument parsing
+  cli.ts                         # entrypoint
+  main.ts                        # argument parsing + lazy mode dispatch
+  version.ts                     # zero-dep package version reader
   core/
-    runtime/README.md  # reading order + file map (start here)
-    runtime/create-runtime.ts  # createOmaRuntime: the per-Run facade
-    runtime/run-runtime.ts     # assembleRunRuntime: tools, gates, plugins
-    runtime/agent-loop.ts      # createOmaSession (the loop factory)
-    runtime/plugin.ts          # Plugin + hooks + validatePlugins
-    runtime/plugin-runtime.ts  # runtime capabilities injected into hooks
-    runtime/tool-filter.ts     # --tools whitelist/blacklist
+    runtime/README.md            # reading order + file map (start here)
+    runtime/create-runtime.ts    # createOmaRuntime: the per-Run facade
+    runtime/run-runtime.ts       # assembleRunRuntime: Run assembly coordinator
+    runtime/run-tools.ts         # native tool table, timeouts, MCP mount stage
+    runtime/run-permissions.ts   # ask/deny/auto permission gates & classifier
+    runtime/run-delegation.ts    # subagent executor, workflow script runner, hub
+    runtime/agent-loop.ts        # createOmaSession (the loop factory)
+    runtime/agent-loop-runner.ts # model-turn retry loop & runLoop driver
+    runtime/agent-loop-lifecycle.ts # start, resume, background hold, steer, finalize
+    runtime/plugin.ts            # Plugin + hooks + validatePlugins
+    runtime/plugin-runtime.ts    # runtime capabilities injected into hooks
+    runtime/tool-filter.ts       # --tools whitelist/blacklist
   modes/
     print-mode.ts
     json-mode.ts
-    rpc/rpc-mode.ts    # JSONL protocol (stdout is protocol-only)
-    tui/
-  core/tools/          # native tools (bash, grep, todo, eval, ...)
-  core/session/        # CLI-owned session files (JSONL): resume/fork
-  core/loops/          # loop mode: limits, condition, ralph
-  core/goals/          # goal mode state machine + tool
-  core/plans/          # plan mode state machine + prompts
-  core/gateway/        # `oma gateway` daemon, supervisor, doctor
-  core/settings/       # .oma/settings.json + workspace context
-  core/plugins/        # plugin loading/trust
-  core/memory/         # autonomous memory
+    acp/acp-mode.ts              # ACP session/run lifecycle (stdout is protocol-only)
+    acp/acp-protocol.ts          # ACP wire mapping, MCP-over-ACP, approvals
+    tui/                         # interactive TUI (ask-panel + ask-panel-model, ...)
+  core/tools/                    # native tools (bash, grep, todo, eval, browser, ...)
+  core/session/                  # CLI-owned session files (JSONL): paths, file, fork, markers
+  core/loops/                    # loop mode: limits, condition, ralph
+  core/goals/                    # goal mode state machine + tool
+  core/plans/                    # plan mode state machine + prompts
+  core/gateway/                  # `oma gateway` daemon, supervisor, doctor, artifact
+  core/settings/                 # .oma/settings.json + workspace context
+  core/plugins/                  # plugin loading/trust
+  core/memory/                   # autonomous memory + vector memory bridge
 ```
 
 ## Cross-file imports
@@ -63,32 +71,36 @@ src/
 - **Workspace packages are imported by package name**
   (`@chengchenccc/message`, `@chengchenccc/ai`, `@chengchenccc/sandbox`, ...).
   Never use monorepo paths like `../../packages/...`.
+- **One-way runtime boundary (enforced by `bun run audit`):**
+  `src/core/runtime/` must never import `modes/`, `core/gateway/`, or `core/update/`.
 - Example cross-file doc entry point to read first:
   [docs/README.md](../../docs/README.md).
 
 ## Rules and invariants
 
 - `backend` is the source of truth for product state; `oma` is the runtime
-  only. RPC mode must never write product DB.
-- In `rpc` mode, **stdout is protocol-only** JSONL. No logs or debug text on
+  only. ACP mode must never write product DB.
+- In `acp` mode, **stdout is protocol-only** JSON-RPC. No logs or debug text on
   stdout; logs go to stderr.
 - Tool filtering happens at the final tool table (native + MCP + plugins)
   in run-runtime. The model never sees a filtered tool.
-- Product-injected tools mount via MCP and take priority over native tools
-  (e.g. MCP `todo_write` suppresses native todo).
+- Product-injected tools mount via MCP-over-ACP and take priority over native
+  tools (e.g. MCP `todo_write` suppresses native todo).
 - Plugin hooks receive a `runtime` (rt) parameter with stream/model/store
   abilities — no `pi`/jiti dynamic loading.
-- `RunRuntimeDeps` carries env/test knobs; backend forwards
-  `OMA_FAKE_*` through the adapter for in-process smoke tests.
+- `RunRuntimeDeps` carries env/test knobs; backend forwards allowlisted
+  `OMA_FAKE_*` through the ACP transport for in-process smoke tests.
+- No `postinstall` script: gateway artifacts are fetched explicitly via
+  `oma gateway fetch` (or `scripts/install.sh`). `puppeteer-core` is an
+  optional dependency loaded lazily by the `browser` tool.
 
 ## Known pitfalls
 
 - **Bun timers in `Promise.race` must be cleared** or the process lingers
   after the race settles (15s hang).
 - **Bun.spawn throws ENOENT on a missing cwd.**
-- **RPC acceptance ordering:** record `execute` finished BEFORE responding
-  success; the reader must not await the full run outcome or steer/abort
-  never arrive.
+- **ACP cancellation/eof discipline:** `runPrompt` holds a single-flight lock
+  and settles on `cancel` / stream EOF so parked approvals fail closed.
 - **`StdioClientTransport` does not inherit process env.** Custom test knobs
   (`MCP_ECHO_*`) must travel via `.mcp.json` `env`, not via the parent
   process environment.
@@ -99,8 +111,7 @@ src/
 
 - [docs/README.md](../../docs/README.md) — repo wiki front door
 - [docs/architecture/runtime/oma.md](../../docs/architecture/runtime/oma.md) — the oma runtime wiki
-- [docs/architecture/runtime/compaction.md](../../docs/architecture/runtime/compaction.md)
-- [docs/architecture/plugins/oma-plugins.md](../../docs/architecture/plugins/oma-plugins.md)
+- [docs/architecture/plugins/oma-plugins.md](../../docs/architecture/plugins/oma-plugins.md) — plugin system
 - [docs/architecture/backend/overview.md](../../docs/architecture/backend/overview.md)
 
 ## Review checklist
@@ -108,7 +119,7 @@ src/
 1. `bun run typecheck` passes.
 2. `bun run lint` passes.
 3. `bun run test` passes.
-4. RPC stdout remains protocol-only; no stray `console.log`.
+4. ACP stdout remains protocol-only; no stray `console.log`.
 5. Changes don't touch the backend DB or product truth.
 
 ## Directory naming (core/)

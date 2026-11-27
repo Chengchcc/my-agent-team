@@ -2,7 +2,11 @@ import type { StreamRule } from "./agent-loop-types.js";
 
 export function safeParseJson(json: string): Record<string, unknown> {
   try {
-    return JSON.parse(json);
+    const parsed: unknown = JSON.parse(json);
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return {};
   } catch {
     return {};
   }

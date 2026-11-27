@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { PASSWORD_RESET_MARKER, updateGatewaySecrets } from "@chengchenccc/config";
 import {
   currentVersion,
   fetchGatewayArtifact,
@@ -75,19 +75,12 @@ export interface GatewayCommandOptions {
 }
 
 /** A source checkout runs the gateway from the repo, so the release artifact it
- *  would download is unused. Only stay quiet there: an explicit CLI call still
- *  fetches. */
+ *  would download is unused. Kept as a helper for doctor/diagnostics. */
 export function inMonorepoCheckout(): boolean {
   // src/cli (dist/cli) is TWO levels under the package root — unlike
-  // core/gateway/*, which sits three. Getting this wrong made the guard a no-op.
+  // core/gateway/*, which sits three.
   const packageRoot = resolve(import.meta.dirname, "../..");
   return existsSync(join(packageRoot, "..", "..", "turbo.json"));
-}
-
-/** `npm_lifecycle_event` is set while a package's postinstall runs. */
-function inMonorepoCheckoutPostinstall(): boolean {
-  if (process.env.npm_lifecycle_event !== "postinstall") return false;
-  return inMonorepoCheckout();
 }
 
 function loggerFor(
@@ -106,10 +99,6 @@ function loggerFor(
  *  version (default: oma's own) so `up` can start it. Idempotent. */
 export async function runGatewayFetch(opts: GatewayCommandOptions = {}): Promise<number> {
   const log = loggerFor(opts, "stderr");
-  if (inMonorepoCheckoutPostinstall()) {
-    log("gateway fetch skipped: source checkout (the gateway runs from the repo here)");
-    return 0;
-  }
   try {
     const result = await fetchGatewayArtifact({
       log,
@@ -246,8 +235,14 @@ export async function runGatewayPasswd(opts: GatewayCommandOptions = {}): Promis
     return 1;
   }
   const password = generatePassword();
-  const secrets = { ...readSecrets(home), MOCK_PASSWORD: password };
-  await writeFile(secretsPath, `${JSON.stringify(secrets, null, 2)}\n`, { mode: 0o600 });
+  const updated = updateGatewaySecrets(secretsPath, (existing) => ({
+    ...existing,
+    MOCK_PASSWORD: password,
+  }));
+  const secrets: Record<string, string> = {};
+  for (const [k, v] of Object.entries(updated)) {
+    if (typeof v === "string") secrets[k] = v;
+  }
   log(`login password replaced: user-001 / ${password}`);
 
   // A password set in the console is stored as a hash in the stack's settings
@@ -269,12 +264,6 @@ export async function runGatewayPasswd(opts: GatewayCommandOptions = {}): Promis
   }
   return 0;
 }
-
-/** Marker filename. Owned by the backend
- *  (`apps/backend/src/features/auth/password.ts` PASSWORD_RESET_MARKER); oma
- *  cannot import a backend module, so the literal is repeated here on purpose —
- *  change both together. */
-const PASSWORD_RESET_MARKER = "password-reset";
 
 /** Ask the backend to drop its stored password by leaving the reset marker in
  *  the gateway data dir; the backend consumes it on the next boot and the

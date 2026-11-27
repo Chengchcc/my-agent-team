@@ -1,5 +1,6 @@
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { PASSWORD_RESET_MARKER } from "@chengchenccc/config";
 import { ValidationError } from "../../infra/domain-errors.js";
 import type { SettingsService } from "../settings/index.js";
 
@@ -8,11 +9,7 @@ import type { SettingsService } from "../settings/index.js";
  *  refuses it. */
 export const PASSWORD_HASH_KEY = "auth.password_hash";
 
-/** Operator-requested reset marker, relative to the data dir. Whoever owns the
- *  deployment (a human, `oma gateway passwd`, scripts/reset-login-password.sh)
- *  drops this file to ask for the stored password to be dropped, and only the
- *  backend acts on it — so the database keeps exactly one writer. */
-export const PASSWORD_RESET_MARKER = "password-reset";
+export { PASSWORD_RESET_MARKER };
 
 /** Floor for a password typed in the UI; the generator ships 22 characters. */
 export const MIN_PASSWORD_LENGTH = 8;

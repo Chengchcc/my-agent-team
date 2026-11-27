@@ -315,6 +315,25 @@ export async function executeTools(
       result = { error: `Unknown tool: ${call.name}` };
       isError = true;
     }
+    // afterTool: collect plugin events and apply result patches BEFORE emitting
+    // `tool_execution_end` so downstream surfaces see patched content/isError.
+    const afterToolEvents: OmaLoopEvent[] = [];
+    for (const p of opts.plugins) {
+      try {
+        const ret = p.hooks?.afterTool?.(call.name, result, rt);
+        if (ret) {
+          if ("type" in ret) {
+            afterToolEvents.push(ret);
+          } else {
+            if (ret.content !== undefined) result = ret.content;
+            if (ret.isError !== undefined) isError = ret.isError;
+            if (ret.terminate !== undefined) terminate = ret.terminate;
+          }
+        }
+      } catch {
+        /* plugin errors never affect the loop */
+      }
+    }
     debugLog(
       "oma",
       `tool_end runId=${state.debugRunId} name=${call.name} callId=${call.id} error=${isError}`,
@@ -342,24 +361,8 @@ export async function executeTools(
       }
     }
     await emit(endEvent);
-    // afterTool: observe (emit event) or patch (override result fields).
-    for (const p of opts.plugins) {
-      try {
-        const ret = p.hooks?.afterTool?.(call.name, result, rt);
-        if (ret) {
-          // OmaLoopEvent (has `type`) → emit; patch object →
-          // override result fields field-by-field.
-          if ("type" in ret) {
-            await emit(ret);
-          } else {
-            if (ret.content !== undefined) result = ret.content;
-            if (ret.isError !== undefined) isError = ret.isError;
-            if (ret.terminate !== undefined) terminate = ret.terminate;
-          }
-        }
-      } catch {
-        /* plugin errors never affect the loop */
-      }
+    for (const pluginEvent of afterToolEvents) {
+      await emit(pluginEvent);
     }
     return { id: call.id, result, isError, terminate };
   }

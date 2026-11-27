@@ -8,105 +8,45 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  agentDir,
+  assertSafeSessionId,
+  newSessionId,
+  sessionDir,
+  sessionDirFor,
+  sessionFilePath,
+  sessionPath,
+  sessionsRoot,
+} from "./session-paths.js";
 
-/** The oma's own session store (ADR 0003 decision 6): parentId-
- *  chained JSONL, same shape family as pi/omp. The CLI owns its session;
- *  the product stores only the session id (branch.cliSessionRef).
- *
- *  Typing: the wire contract (agent-backend transport) deliberately models
- *  messages as `Record<string, unknown>` - the durable file keeps that same
- *  wire-loose shape. Strict `Message` typing is the runtime's job, applied
- *  where the loop consumes them, so this module performs no type bypass. */
+export {
+  forkSession,
+  forkSessionAtEvent,
+  loadSessionBranchNodes,
+  type SessionBranchNode,
+} from "./session-fork.js";
+export {
+  appendParkedTurnMarker,
+  appendSessionGoalCompletion,
+  appendSessionGoalEvent,
+  appendSessionPlanEvent,
+  findInterruptedSession,
+  loadLastParkedTurn,
+  loadSessionGoalState,
+  loadSessionPlanState,
+} from "./session-markers.js";
+export {
+  agentDir,
+  assertSafeSessionId,
+  newSessionId,
+  sessionDir,
+  sessionDirFor,
+  sessionPath,
+  sessionsRoot,
+};
 
-/** Oma agent root (pi's getAgentDir): ~/.oma by default, overridable with
- *  OMA_CODING_AGENT_DIR (pi's PI_CODING_AGENT_DIR). Everything under it —
- *  sessions today — follows the override. */
-export function agentDir(): string {
-  return process.env.OMA_CODING_AGENT_DIR ?? join(process.env.HOME || homedir(), ".oma");
-}
-
-/** Sessions root: <agentDir>/sessions. */
-export function sessionsRoot(): string {
-  return join(agentDir(), "sessions");
-}
-
-/** Session directory for a specific workspace root (pi's per-cwd dir). */
-export function sessionDirFor(workspaceRoot: string): string {
-  const safePath = `--${workspaceRoot.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
-  return join(sessionsRoot(), safePath);
-}
-
-/** Default session store, isolated per workspace (pi's model): sessions
- *  live under <agentDir>/sessions/--<cwd-encoded>--/ so different
- *  workspaces never see each other's sessions. OMA_SESSION_DIR overrides
- *  the WHOLE store as a flat directory (pi's PI_CODING_AGENT_SESSION_DIR). */
-export function sessionDir(): string {
-  return process.env.OMA_SESSION_DIR ?? sessionDirFor(process.cwd());
-}
-
-/** Session ids reach the FILESYSTEM, and callers supply them (RPC resume,
- *  TUI rename/delete): validate at this boundary. A path-shaped id
- *  ("../x", "/abs", "a\\b", "..", trailing dots) would otherwise escape the
- *  session directory and read/append/rename/delete outside it. Legit ids
- *  are newSessionId() UUIDs (hex + dashes). */
-export function assertSafeSessionId(id: string): string {
-  if (!/^[A-Za-z0-9_-]+$/.test(id)) {
-    throw new Error(`invalid session id: ${JSON.stringify(id.slice(0, 40))}`);
-  }
-  return id;
-}
-
-/** The single place a session id becomes a path. */
-function sessionFilePath(id: string, dir: string): string {
-  return join(dir, `${assertSafeSessionId(id)}.jsonl`);
-}
-
-export function sessionPath(id: string): string {
-  return sessionFilePath(id, sessionDir());
-}
-
-export function newSessionId(): string {
-  return crypto.randomUUID();
-}
-
-/** Load the transcript messages of a session file (wire-loose shape).
- *  Missing/corrupt files yield [] (the caller falls back to a fresh session).
- *
- *  A compaction event carries `replacesEarlierMessages`: whether its summary
- *  describes everything written before it. Only then is folding lossless —
- *  the summary becomes one context message and later turns stay live.
- *
- *  Why a flag and not a count: the count would have to be expressed in THIS
- *  file's message-event space, but the run that produces the summary counts
- *  coverage over its own session branch, and the two spaces do not align —
- *  the branch also holds entries that never reach the file (re-seeded
- *  `product_history`, the `meta` entry) and folds a prior summary into a
- *  single entry. A count in the wrong space lands past the real boundary and
- *  DELETES messages the summary never described. The flag cannot be
- *  mis-indexed: when the summary does not describe the whole file, the
- *  transcript is simply left intact (a resume may re-summarize, never lose).
- *
- *  Events without the field (files written before it existed) keep the
- *  historical behavior: the summary replaces everything before it.
- *
- *  The LAST event that says "replaces" decides the fold, and a later event
- *  saying otherwise does NOT cancel it. That distinction is what makes manual
- *  /compact stick: /compact folds the transcript to one summary, a later
- *  automatic compaction covers only part of what follows, and "latest event
- *  wins" would resurrect every message the user deliberately compacted away.
- *  Ignoring a partial summary is always safe — its content is either already
- *  summarized or still present as messages. */
-/** Drop tool_result blocks whose tool_use is nowhere in the log. A resumed
- *  turn's assistant(tool_use) used to live only in the parked_turn marker, so
- *  the log (and the ledger) could carry a tool message with no partner - and
- *  OpenAI-style providers reject the whole request outright ("Messages with
- *  role 'tool' must be a response to a preceding message with 'tool_calls'",
- *  live 2026-09-28: every following turn in that conversation died with 400).
- *  The dispatch now persists that message itself; this keeps logs written
- *  before the fix loadable. Assistant tool_use blocks are left alone: an
- *  unanswered tool_use is a resume point, not an inconsistency. */
+/** Drop tool_result blocks whose tool_use is nowhere in the log. */
 export function withoutOrphanToolResults(
   messages: readonly Record<string, unknown>[],
 ): Record<string, unknown>[] {
@@ -141,11 +81,11 @@ export function withoutOrphanToolResults(
     });
     if (kept.length === blocks.length) out.push(message);
     else if (kept.length > 0) out.push({ ...message, blocks: kept });
-    // Everything was orphaned: the message itself carries no meaning.
   }
   return out;
 }
 
+/** Load the transcript messages of a session file (wire-loose shape). */
 export function loadSessionMessages(
   id: string,
   dir: string = sessionDir(),
@@ -153,15 +93,11 @@ export function loadSessionMessages(
   const path = sessionFilePath(id, dir);
   if (!existsSync(path)) return [];
   const messages: Record<string, unknown>[] = [];
-  /** The latest summary that MAY fold, with the index it folds from. A later
-   *  non-folding summary must not overwrite these. */
   let foldSummary: string | undefined;
   let foldFrom: number | undefined;
   for (const line of readFileSync(path, "utf8").split("\n")) {
     if (!line.trim()) continue;
     try {
-      // The one unavoidable boundary: JSON.parse yields unknown; the typed
-      // cast pins OUR durable format's event shape.
       const evt = JSON.parse(line) as {
         type?: string;
         message?: Record<string, unknown>;
@@ -170,9 +106,6 @@ export function loadSessionMessages(
       };
       if (evt.type === "message" && evt.message?.role) messages.push(evt.message);
       else if (evt.type === "compaction" && typeof evt.summary === "string") {
-        // Evaluated in this file's own index space: everything parsed before
-        // it. Only a replacing event re-points the fold; a partial summary
-        // leaves an earlier fold in place (see the header note on /compact).
         if (evt.replacesEarlierMessages !== false) {
           foldSummary = evt.summary;
           foldFrom = messages.length;
@@ -187,9 +120,6 @@ export function loadSessionMessages(
     {
       role: "user",
       text: `<previous_session_summary>\n${foldSummary}\n</previous_session_summary>`,
-      // Marks this as the compaction fold, not a user turn: the seeding trim
-      // (answeredPrefixLength) must keep it — a fully compacted session has
-      // nothing else, and dropping it would erase the run's entire past.
       synthetic: "session-summary",
     },
     ...messages.slice(foldFrom),
@@ -199,17 +129,10 @@ export function loadSessionMessages(
 export interface SessionSummary {
   readonly id: string;
   readonly modifiedAt: number;
-  /** Auto title from the last completed run's title event, when present. */
   readonly title?: string;
-  /** One-sentence content summary (the `summary` event), when present. */
   readonly summary?: string;
-  /** First user message text (truncated), fallback when no title exists. */
   readonly preview: string;
-  /** Workspace root the session was created in (from the file header's
-   *  cwd field); present for cross-workspace listings. */
   readonly workspace?: string;
-  /** Present when this session was forked from another: the parent id
-   *  (pi's fork dot in the session selector). */
   readonly forkOf?: string;
 }
 
@@ -229,7 +152,14 @@ function scanSessionDir(dir: string, workspace?: string): SessionSummary[] {
   for (const entry of readdirSync(dir)) {
     if (!entry.endsWith(".jsonl")) continue;
     const id = entry.slice(0, -".jsonl".length);
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) continue;
     const path = join(dir, entry);
+    let mtimeMs: number;
+    try {
+      mtimeMs = statSync(path).mtimeMs;
+    } catch {
+      continue;
+    }
     let preview = "";
     let title: string | undefined;
     let summaryText: string | undefined;
@@ -238,7 +168,6 @@ function scanSessionDir(dir: string, workspace?: string): SessionSummary[] {
     try {
       for (const line of readFileSync(path, "utf8").split("\n")) {
         if (!line.trim()) continue;
-        // Durable-format boundary: JSON lines are our own event shape.
         const evt = JSON.parse(line) as SessionFileEvent;
         if (evt.type === "session" && typeof evt.cwd === "string") {
           headerCwd = evt.cwd;
@@ -273,7 +202,7 @@ function scanSessionDir(dir: string, workspace?: string): SessionSummary[] {
       summary?: string;
       workspace?: string;
       forkOf?: string;
-    } = { id, modifiedAt: statSync(path).mtimeMs, preview };
+    } = { id, modifiedAt: mtimeMs, preview };
     if (title !== undefined) summary.title = title;
     if (summaryText !== undefined) summary.summary = summaryText;
     if (workspace !== undefined) summary.workspace = workspace;
@@ -286,32 +215,23 @@ function scanSessionDir(dir: string, workspace?: string): SessionSummary[] {
 
 /** Session files of the current workspace, newest first. */
 export function listSessions(): SessionSummary[] {
-  // Newest first. readdir order is filesystem order, so leaving this unsorted
-  // made the resume picker's order arbitrary — and made its slice(0, 20) cut
-  // an arbitrary subset rather than the 20 most recent.
   return scanSessionDir(sessionDir()).sort((a, b) => b.modifiedAt - a.modifiedAt);
 }
 
-/** Session files across EVERY workspace, newest first. Covers both the
- *  default layout (<agentDir>/sessions/--<cwd>--/*.jsonl) and an explicit
- *  flat OMA_SESSION_DIR. Each summary carries the workspace it belongs to
- *  (pi's session selector "all" scope). */
+/** Session files across every workspace, newest first. */
 export function listAllSessions(): SessionSummary[] {
-  // Explicit flat OMA_SESSION_DIR: sessions live at the root itself.
   if (process.env.OMA_SESSION_DIR) return scanSessionDir(process.env.OMA_SESSION_DIR);
   const root = sessionsRoot();
   if (!existsSync(root)) return [];
   const summaries: SessionSummary[] = [];
   for (const entry of readdirSync(root)) {
-    if (!entry.startsWith("--")) continue; // per-workspace dirs only
+    if (!entry.startsWith("--")) continue;
     summaries.push(...scanSessionDir(join(root, entry)));
   }
   return summaries.sort((a, b) => b.modifiedAt - a.modifiedAt);
 }
 
-/** The session's current display title (last `title` event), if any. Used by
- *  the TUI to mark a session titled so the loop stops re-generating one on
- *  every completed turn. */
+/** The session's current display title (last `title` event), if any. */
 export function readSessionTitle(id: string, dir: string = sessionDir()): string | undefined {
   const path = sessionFilePath(id, dir);
   let raw: string;
@@ -322,7 +242,6 @@ export function readSessionTitle(id: string, dir: string = sessionDir()): string
   }
   let title: string | undefined;
   for (const line of raw.split("\n")) {
-    // Cheap prefix filter before the JSON parse: title events are rare.
     if (!line.startsWith('{"type":"title"')) continue;
     try {
       const ev = JSON.parse(line) as { type?: string; title?: unknown };
@@ -334,9 +253,6 @@ export function readSessionTitle(id: string, dir: string = sessionDir()): string
   return title;
 }
 
-/** Append a title event: the session's display title, auto-generated by the
- *  loop after each completed run. Last one wins in listings. Also the
- *  primitive for /rename: appending a new title overrides the display. */
 export function appendSessionTitle(id: string, title: string, dir: string = sessionDir()): void {
   const path = sessionFilePath(id, dir);
   if (!existsSync(path)) return;
@@ -350,9 +266,6 @@ export function appendSessionTitle(id: string, title: string, dir: string = sess
   );
 }
 
-/** Append a summary event: a one-sentence description of what the session is
- *  about, produced by the same ephemeral call as the title. Last one wins in
- *  listings (the resume list shows it next to the title). */
 export function appendSessionSummary(
   id: string,
   summary: string,
@@ -375,11 +288,11 @@ export function deleteSession(id: string, dir: string = sessionDir()): boolean {
   const path = sessionFilePath(id, dir);
   if (!existsSync(path)) return false;
   rmSync(path, { force: true });
+  lastIdBySession.delete(`${dir}:${id}`);
   return true;
 }
 
-/** Rename a session's display title (last-wins title event). Returns false
- *  when the session file does not exist. */
+/** Rename a session's display title (last-wins title event). */
 export function renameSession(id: string, title: string, dir: string = sessionDir()): boolean {
   const path = sessionFilePath(id, dir);
   if (!existsSync(path)) return false;
@@ -387,175 +300,11 @@ export function renameSession(id: string, title: string, dir: string = sessionDi
   return true;
 }
 
-/** Append a goal-mode event (omp mode-change analogue): the latest goal
- *  state transition for the session. Replay reconstructs the current goal
- *  (active/paused/complete/dropped); a goal:null event means dropped. */
-export function appendSessionGoalEvent(
-  id: string,
-  state: {
-    enabled: boolean;
-    mode: "active" | "exiting";
-    reason?: "completed";
-    goal: unknown;
-  } | null,
-  dir: string = sessionDir(),
-): void {
-  const path = sessionFilePath(id, dir);
-  if (!existsSync(path)) return;
-  appendFileSync(
-    path,
-    `${JSON.stringify({
-      type: "goal",
-      timestamp: new Date().toISOString(),
-      goalMode: state,
-    })}\n`,
-  );
-}
-
-/** Append a goal COMPLETION record: the objective and the tracked usage at the
- *  moment the model declared the goal done. Separate from the mode-change
- *  events so a completed goal reads as a durable achievement rather than a
- *  status flip (and so resumed sessions can report what was finished). */
-export function appendSessionGoalCompletion(
-  id: string,
-  record: { objective: string; tokensUsed: number; tokenBudget?: number; timeUsedSeconds: number },
-  dir: string = sessionDir(),
-): void {
-  const path = sessionFilePath(id, dir);
-  if (!existsSync(path)) return;
-  appendFileSync(
-    path,
-    `${JSON.stringify({
-      type: "goal_completed",
-      timestamp: new Date().toISOString(),
-      ...record,
-    })}
-`,
-  );
-}
-
-/** Append a plan-mode event (same mode-change shape as the goal one): the
- *  mode plus whether it is paused. The draft itself is a FILE, so the journal
- *  only needs the mode; resume restores "planning, paused" and never
- *  re-enters a read-only planning turn on its own. */
-export function appendSessionPlanEvent(
-  id: string,
-  state: { planPath: string } | null,
-  paused: boolean,
-  dir: string = sessionDir(),
-): void {
-  const path = sessionFilePath(id, dir);
-  if (!existsSync(path)) return;
-  appendFileSync(
-    path,
-    `${JSON.stringify({
-      type: "plan",
-      timestamp: new Date().toISOString(),
-      planMode: state ? { planPath: state.planPath, paused } : null,
-    })}\n`,
-  );
-}
-
-/** Replay plan-mode events: the latest one wins (null = plan mode off). */
-export function loadSessionPlanState(
-  id: string,
-  dir: string = sessionDir(),
-): { planPath: string; paused: boolean } | null {
-  const path = sessionFilePath(id, dir);
-  if (!existsSync(path)) return null;
-  let latest: { planPath: string; paused: boolean } | null = null;
-  for (const line of readFileSync(path, "utf8").split("\n")) {
-    if (!line.trim() || !line.includes('"plan"')) continue;
-    try {
-      const evt = JSON.parse(line) as {
-        type?: string;
-        planMode?: { planPath?: unknown; paused?: unknown } | null;
-      };
-      if (evt.type !== "plan") continue;
-      const mode = evt.planMode;
-      if (mode === null || mode === undefined || typeof mode.planPath !== "string") {
-        latest = null;
-        continue;
-      }
-      latest = { planPath: mode.planPath, paused: mode.paused === true };
-    } catch {
-      /* skip malformed line */
-    }
-  }
-  return latest;
-}
-
-/** Reconstruct the current goal-mode state by replaying goal events (last
- *  one wins; malformed entries are skipped like every other scan here). */
-export function loadSessionGoalState(
-  id: string,
-  dir: string = sessionDir(),
-): {
-  enabled: boolean;
-  mode: "active" | "exiting";
-  reason?: "completed";
-  goal: {
-    id: string;
-    objective: string;
-    status: "active" | "paused" | "budget-limited" | "complete" | "dropped";
-    tokenBudget?: number;
-    tokensUsed: number;
-    timeUsedSeconds: number;
-    createdAt: number;
-    updatedAt: number;
-  };
-} | null {
-  const path = sessionFilePath(id, dir);
-  if (!existsSync(path)) return null;
-  let latest: {
-    enabled: boolean;
-    mode: "active" | "exiting";
-    reason?: "completed";
-    goal: never;
-  } | null = null;
-  for (const line of readFileSync(path, "utf8").split("\n")) {
-    if (!line.trim() || !line.includes('"goal"')) continue;
-    try {
-      const evt = JSON.parse(line) as {
-        type?: string;
-        goalMode?: { enabled?: boolean; mode?: string; reason?: string; goal?: unknown } | null;
-      };
-      if (evt.type !== "goal") continue;
-      const mode = evt.goalMode;
-      if (mode === null || mode === undefined || mode.goal == null) {
-        latest = null; // explicit drop/clear wins from here on
-        continue;
-      }
-      const g = mode.goal as Record<string, unknown>;
-      if (
-        typeof g.objective !== "string" ||
-        typeof g.status !== "string" ||
-        typeof g.id !== "string"
-      ) {
-        continue;
-      }
-      latest = {
-        enabled: mode.enabled === true,
-        mode: mode.mode === "exiting" ? "exiting" : "active",
-        ...(mode.reason === "completed" ? { reason: "completed" as const } : {}),
-        goal: g as never,
-      };
-    } catch {
-      /* skip malformed line */
-    }
-  }
-  return latest;
-}
-/** Append a compaction event: records that the run compacted everything
- *  recorded so far in this file into `summary`. Must be called AFTER the
- *  turn's messages are appended. */
+/** Append a compaction event after the turn's messages are appended. */
 export function appendSessionCompaction(
   id: string,
   summary: string,
   dir: string = sessionDir(),
-  /** Whether this summary describes EVERYTHING already in the file, which is
-   *  what makes folding on load lossless. Omit when unknown: the load path
-   *  then keeps the transcript intact instead of folding it. */
   replacesEarlierMessages?: boolean,
 ): void {
   const path = sessionFilePath(id, dir);
@@ -571,183 +320,6 @@ export function appendSessionCompaction(
   );
 }
 
-export interface SessionBranchNode {
-  readonly id: string;
-  readonly parentId: string | null;
-  readonly role: string;
-  readonly text: string;
-  readonly depth: number;
-  /** 1-based user-message ordinal when this node is a user message (fork anchor). */
-  readonly ordinal?: number;
-}
-
-/** Read the durable event tree of one session as parentId-chained message
- *  nodes (used by the TUI branch-tree fork overlay). Only message events
- *  carry an id; corrupt lines are skipped. */
-export function loadSessionBranchNodes(
-  id: string,
-  dir: string = sessionDir(),
-): SessionBranchNode[] {
-  const path = sessionFilePath(id, dir);
-  if (!existsSync(path)) return [];
-  const lines = readFileSync(path, "utf8")
-    .split("\n")
-    .filter((l) => l.trim());
-  const parents = new Map<string, string | null>();
-  const nodes: Array<{
-    id: string;
-    parentId: string | null;
-    role: string;
-    text: string;
-    ordinal?: number;
-  }> = [];
-  let userOrdinal = 0;
-  for (const line of lines) {
-    let evt: {
-      type?: string;
-      id?: string;
-      parentId?: string | null;
-      message?: { role?: string; text?: string };
-    };
-    try {
-      evt = JSON.parse(line) as typeof evt;
-    } catch {
-      continue;
-    }
-    if (evt.type !== "message" || !evt.id || !evt.message?.role) continue;
-    const role = evt.message.role;
-    const parentId = evt.parentId ?? null;
-    parents.set(evt.id, parentId);
-    if (role === "user") userOrdinal += 1;
-    const node: {
-      id: string;
-      parentId: string | null;
-      role: string;
-      text: string;
-      ordinal?: number;
-    } = {
-      id: evt.id,
-      parentId,
-      role,
-      text: typeof evt.message.text === "string" ? evt.message.text : "",
-    };
-    if (role === "user") node.ordinal = userOrdinal;
-    nodes.push(node);
-  }
-  const depthOf = (id: string): number => {
-    let depth = 0;
-    let cur: string | null | undefined = id;
-    const seen = new Set<string>();
-    while (cur) {
-      if (seen.has(cur)) break;
-      seen.add(cur);
-      const parent: string | null = parents.get(cur) ?? null;
-      if (parent === null) break;
-      depth += 1;
-      cur = parent;
-    }
-    return depth;
-  };
-  return nodes.map((n) => ({ ...n, depth: depthOf(n.id) }));
-}
-
-/** Copy a session file through the line at `cutIndex` into a NEW file with a
- *  fork_of marker. Shared by the ordinal and event-id fork paths. */
-function copySessionThrough(
-  id: string,
-  cutIndex: number,
-  dir: string,
-  markerFields: Record<string, unknown>,
-): string | null {
-  const path = sessionFilePath(id, dir);
-  if (!existsSync(path)) return null;
-  const lines = readFileSync(path, "utf8")
-    .split("\n")
-    .filter((l) => l.trim());
-  if (cutIndex < 0 || cutIndex >= lines.length) return null;
-  const newId = newSessionId();
-  const kept = lines.slice(0, cutIndex + 1);
-  // Rewrite the copied header's id so the new file is self-consistent.
-  try {
-    const header = JSON.parse(kept[0]!) as { type?: string; id?: string };
-    if (header.type === "session") {
-      header.id = newId;
-      kept[0] = JSON.stringify(header);
-    }
-  } catch {
-    /* keep the original header line */
-  }
-  const marker = JSON.stringify({ type: "fork_of", parentId: id, ...markerFields });
-  writeFileSync(sessionFilePath(newId, dir), `${[...kept, marker].join("\n")}\n`);
-  return newId;
-}
-
-/** Fork a session at the Nth user message (1-based) — the existing /fork
- *  semantics. */
-export function forkSession(
-  id: string,
-  ordinal: number,
-  dir: string = sessionDir(),
-): string | null {
-  const path = sessionFilePath(id, dir);
-  if (!existsSync(path)) return null;
-  const lines = readFileSync(path, "utf8")
-    .split("\n")
-    .filter((l) => l.trim());
-  let seen = 0;
-  let cutIndex = -1;
-  for (let i = 0; i < lines.length; i++) {
-    let evt: SessionFileEvent;
-    try {
-      evt = JSON.parse(lines[i]!) as SessionFileEvent;
-    } catch {
-      continue; // corrupt line: not a fork anchor
-    }
-    if (evt.type === "message" && evt.message?.role === "user") {
-      seen += 1;
-      if (seen === ordinal) {
-        cutIndex = i;
-        break;
-      }
-    }
-  }
-  if (cutIndex === -1) return null;
-  return copySessionThrough(id, cutIndex, dir, { atMessage: ordinal });
-}
-
-/** Fork a session through a specific branch node (message event id). The new
- *  session contains every event up to and INCLUDING that node. */
-export function forkSessionAtEvent(
-  id: string,
-  eventId: string,
-  dir: string = sessionDir(),
-): string | null {
-  const path = sessionFilePath(id, dir);
-  if (!existsSync(path)) return null;
-  const lines = readFileSync(path, "utf8")
-    .split("\n")
-    .filter((l) => l.trim());
-  let cutIndex = -1;
-  for (let i = 0; i < lines.length; i++) {
-    let evt: { id?: string };
-    try {
-      evt = JSON.parse(lines[i]!) as { id?: string };
-    } catch {
-      continue;
-    }
-    if (evt.id === eventId) {
-      cutIndex = i;
-      break;
-    }
-  }
-  if (cutIndex === -1) return null;
-  return copySessionThrough(id, cutIndex, dir, { atEvent: eventId });
-}
-
-/** Append message events to the session file (header written on create;
- *  parentId chains to the file's last message id). The tail scan keeps a
- *  per-process lastId cache — resume reads the file once, steady-state
- *  appends are O(1) instead of re-reading the whole transcript. */
 const lastIdBySession = new Map<string, string | null>();
 
 function readLastMessageId(path: string): string | null {
@@ -788,8 +360,6 @@ export function appendSessionMessages(
       })}\n`,
     );
   }
-  // First append this process: scan the tail once. Later appends reuse the
-  // cached leaf id (one Runtime appends at most once per turn, sequentially).
   if (!lastIdBySession.has(cacheKey)) {
     lastIdBySession.set(cacheKey, readLastMessageId(path));
   }
@@ -808,114 +378,6 @@ export function appendSessionMessages(
     );
     prevId = eventId;
   }
-  lastIdBySession.set(cacheKey, prevId);
   appendFileSync(path, `${lines.join("\n")}\n`);
-}
-
-// ─── Parked-turn markers (ADR 0038) ──────────────────────────────────
-
-/** Append a parked-turn marker: the assistant(tool_use) message of a turn
- * whose tools are ABOUT to execute. The loop's atomic discipline keeps a
- * dangling tool_use out of the store, so the marker is the only durable
- * trace of an interrupted turn. Invisible to loadSessionMessages (it reads
- * `message` events only). Self-invalidating: the turn's atomic batch
- * (assistant + tool_results) lands after the marker when the tools finish,
- * and loadLastParkedTurn pairs the tool_use ids against message events
- * FOLLOWING the marker. */
-export function appendParkedTurnMarker(
-  id: string,
-  message: unknown,
-  dir: string = sessionDir(),
-): void {
-  mkdirSync(dir, { recursive: true });
-  const path = sessionFilePath(id, dir);
-  if (!existsSync(path)) return; // no session yet: nothing to resume into
-  appendFileSync(
-    path,
-    `${JSON.stringify({
-      type: "parked_turn",
-      timestamp: new Date().toISOString(),
-      message,
-    })}\n`,
-  );
-}
-
-/** The last parked-turn marker, and whether every tool_use it carries has a
- * paired tool_result among the message events AFTER it (completed turn —
- * the marker is stale). `interrupted: true` means a turn died mid-execution
- * and resume must complete it. */
-export function loadLastParkedTurn(
-  id: string,
-  dir: string = sessionDir(),
-): { message: Record<string, unknown>; interrupted: boolean } | null {
-  const path = sessionFilePath(id, dir);
-  if (!existsSync(path)) return null;
-  const lines = readFileSync(path, "utf8").split("\n");
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (!line?.trim()) continue;
-    try {
-      const evt = JSON.parse(line) as {
-        type?: string;
-        message?: Record<string, unknown>;
-      };
-      if (evt.type !== "parked_turn" || !evt.message) continue;
-      const toolUseIds = new Set(
-        ((evt.message.blocks as Array<{ type?: string; id?: string }> | undefined) ?? [])
-          .filter((b) => b.type === "tool_use" && typeof b.id === "string")
-          .map((b) => b.id as string),
-      );
-      const answered = new Set<string>();
-      for (const later of lines.slice(i + 1)) {
-        if (!later.trim()) continue;
-        try {
-          const m = JSON.parse(later) as {
-            type?: string;
-            message?: { blocks?: Array<{ type?: string; tool_use_id?: string }> };
-          };
-          if (m.type !== "message") continue;
-          for (const b of m.message?.blocks ?? []) {
-            if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
-              answered.add(b.tool_use_id);
-            }
-          }
-        } catch {
-          /* skip malformed line */
-        }
-      }
-      return {
-        message: evt.message,
-        interrupted: [...toolUseIds].some((t) => !answered.has(t)),
-      };
-    } catch {
-      /* skip malformed line */
-    }
-  }
-  return null;
-}
-
-/** Find the most recent INTERRUPTED session in ONE session directory
- *  (ADR 0038): a run killed mid-flight never settles, so the branch holds
- *  no cliSessionRef and the resume dispatch arrives with none. Runs
- *  serialize under the workspace lock, so the newest session file with an
- *  unresolved parked_turn marker is unambiguously the predecessor to
- *  adopt. Null when nothing is interrupted.
- *
- *  The DIRECTORY is a parameter, never derived here: the caller must pass
- *  the same directory it writes to (rpc-mode honours the flat
- *  OMA_SESSION_DIR override, and a flat directory mixes every workspace's
- *  sessions - scanning the wrong one either misses the predecessor or
- *  adopts an unrelated run's). */
-export function findInterruptedSession(dir: string): string | null {
-  if (!existsSync(dir)) return null;
-  const files = readdirSync(dir)
-    .filter((f) => f.endsWith(".jsonl"))
-    .map((f) => ({ f, mtime: statSync(join(dir, f)).mtimeMs }))
-    .sort((a, b) => b.mtime - a.mtime);
-  for (const { f } of files) {
-    const id = f.slice(0, -".jsonl".length);
-    const marker = loadLastParkedTurn(id, dir);
-    if (marker?.interrupted) return id;
-  }
-  return null;
+  lastIdBySession.set(cacheKey, prevId);
 }

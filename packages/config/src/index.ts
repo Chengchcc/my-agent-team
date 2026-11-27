@@ -11,6 +11,7 @@ export type { GatewaySecretsRecord } from "./gateway-secrets.js";
 export {
   GatewaySecretsError,
   gatewaySecretsPath,
+  PASSWORD_RESET_MARKER,
   readGatewaySecrets,
   updateGatewaySecrets,
 } from "./gateway-secrets.js";

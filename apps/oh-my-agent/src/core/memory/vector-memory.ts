@@ -32,6 +32,27 @@ export interface VectorMemory {
 }
 
 const instances = new Map<string, VectorMemory | null>();
+let exitHookRegistered = false;
+
+/** Close every cached SQLite vector store handle cleanly. */
+export function closeAllVectorMemories(): void {
+  for (const inst of instances.values()) {
+    try {
+      inst?.store.close();
+    } catch {
+      /* already closed */
+    }
+  }
+  instances.clear();
+}
+
+function ensureExitHook(): void {
+  if (exitHookRegistered) return;
+  exitHookRegistered = true;
+  process.once("beforeExit", () => {
+    closeAllVectorMemories();
+  });
+}
 
 export function memoryDbPath(workspaceRoot: string): string {
   return join(workspaceRoot, ".oma", "memory", "memory.db");
@@ -56,6 +77,7 @@ export function getVectorMemory(workspaceRoot: string): VectorMemory | null {
       ...(model ? { model } : {}),
     });
     instance = { store, provider };
+    ensureExitHook();
   } catch {
     instance = null;
   }
@@ -73,9 +95,10 @@ export function vectorMemoryEnabled(workspaceRoot: string): boolean {
   return true;
 }
 
-/** Test seam: drop the cached instance so a new DB path/model is honored. */
+/** Test seam: close and drop cached instances so a new DB path/model is honored
+ *  without leaking SQLite file descriptors. */
 export function resetVectorMemoryForTests(): void {
-  instances.clear();
+  closeAllVectorMemories();
 }
 
 /** In-flight backfill guard: the TUI assembles a Runtime per message, so a

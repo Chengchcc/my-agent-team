@@ -3,11 +3,11 @@
 Oma 是本仓库自研的 Agent 执行引擎：既可**独立交互式 TUI**（默认 `oma` 进入终端界面），也可经自己的 **ACP 面**（`--mode acp`）被 Product Backend 按**每个 Agent Run** spawn 一次（ADR 0039/0040）。
 
 ```text
-Product Backend → Agent Run → Adapter → spawn oma --mode rpc
-→ per-Run Runtime → BackendRunOutcome → stdout → child 退出
+Product Backend → Agent Run → ACP Client → spawn oma --mode acp
+→ per-Run Runtime → ACP prompt response & updates → child 退出
 ```
 
-**不是 daemon**（就 Run 执行模型而言）：一个 Run = 一个子进程 = 一个 Runtime = 一个 outcome。没有常驻的 session supervisor，没有 worker pool。同一个包里的 `core/gateway/` 是另一回事——`oma gateway up -d` 确实会起一个 detached daemon，那是它自己的 pidfile 加 supervisor，与 Run 无关。
+**不是 daemon**（就 Run 执行模型而言）：一个 Run = 一个子进程 = 一个 Runtime = 一个 outcome。没有常驻的 session supervisor，没有 worker pool。同一个包里的 `core/gateway/` 是另一回事——`oma gateway up -d` 确实会起一个 detached daemon，那是它自己的 pidfile 加 supervisor，与 Run 无关（且 `main.ts` 按模式懒加载，Run 进程不会加载 gateway/update 或 TUI 代码）。
 
 ## TUI
 
@@ -32,9 +32,9 @@ Product Backend → Agent Run → Adapter → spawn oma --mode rpc
 | `tui` | 默认；交互式终端会话（一个进程 = N 个 Run 共享一个 session 文件） |
 | `print` | 一次 Run；stdout 只有 final assistant text；stderr 日志；非零退出码表示失败 |
 | `json` | 一次 Run；stdout 全部事件 JSONL + 恰好一个 terminal outcome 行 |
-| `rpc` | 每 Run 一次 `execute` + 可选的 `steer`/`abort`；命令走 stdin，`event`/`outcome`/`response` 走 stdout（严格 LF JSONL，stdout 只承载协议） |
+| `acp` | Product Backend 与外部 ACP 客户端使用的协议面（Agent Client Protocol over stdio；stdout 仅承载 JSON-RPC 协议，支持 MCP-over-ACP、审批卡片与 `_session/steering`） |
 
-`--mode acp` 是 Product Backend 使用的模式（协议由 ACP SDK 定义，本 app 只实现服务端；曾经的 `--mode rpc` JSONL 面与它的双份 wire schema 已随原生 adapter 一起退役，ADR 0040）。
+曾经的 `--mode rpc` JSONL 面与双份 wire schema 已随原生 adapter 一起退役（ADR 0040）。
 
 ## Runtime
 
@@ -44,7 +44,7 @@ Product Backend → Agent Run → Adapter → spawn oma --mode rpc
 - `steer(input)` 注入 live loop；`stop()` 中止；
 - `close()` 拆除 MCP clients 与 SessionStore。
 
-Runtime 主体就在本 app 的 `src/core/`：OmaSession（model/tool loop、retry、compaction、插件、todo、tool-result pruning）与 in-memory SessionStore（`core/store/`）。in-memory store 随 Run 销毁，但子进程会把本轮写进自己的 session 文件（`core/session/` 的 JSONL），并通过 outcome 回传 `cliSessionRef`；下一个 Run 用它 resume 那个文件，扁平的历史桥只在没有引用时才用。
+Runtime 主体在 `src/core/runtime/`：OmaSession（model/tool loop、retry、compaction、插件、todo、tool-result pruning）与 in-memory SessionStore（`core/store/`）。in-memory store 随 Run 销毁，但子进程会把本轮写进自己的 session 文件（`core/session/` 的 JSONL），并通过 session id 跨 Run 恢复。
 
 ## 运行
 
@@ -56,8 +56,8 @@ bun run --cwd apps/oh-my-agent build                # → dist/cli.js (executabl
 ./dist/cli.js -p "hello"                            # built binary (inside apps/oh-my-agent)
 
 cd apps/oh-my-agent && bun link                     # optional local install
-oma -p "hello"                              # then run from anywhere
-oma                                     # standalone interactive TUI
+oma -p "hello"                                      # then run from anywhere
+oma                                                 # standalone interactive TUI
 ```
 
 - 正常由 Backend 通过 `OMA_BIN` spawn（生产：构建后的 `dist/cli.js` 绝对路径；未配置时 Backend 自动用 Bun + 源码入口，dev 无需全局安装或 `bun link`）。
@@ -68,12 +68,13 @@ oma                                     # standalone interactive TUI
 ```
 src/
   cli.ts                可执行入口（shebang + runCli()）
-  main.ts               main()/runCli()：参数解析、模式分发、退出码（无 process.exit）
-  cli/                  参数解析、初始输入构建、gateway 子命令
-  modes/                tui / print / json / rpc 模式
+  main.ts               main()/runCli()：参数解析、按模式懒加载分发、退出码（无 process.exit）
+  version.ts            零依赖包版本读取
+  cli/                  参数解析、初始输入构建、gateway/update 子命令
+  modes/                tui / print / json / acp 模式
   core/
-    runtime/            create-runtime.ts（per-Run Runtime 装配）
-    session/            session 文件（JSONL）：/resume、--continue 与跨 Run resume 的持久侧
+    runtime/            create-runtime、run-runtime（tools/permissions/delegation）、agent-loop
+    session/            session 文件（JSONL）：paths、file、fork、markers
     settings/           project-settings.ts（.oma/settings.json）
     loops/ goals/ plans/  三种持续模式的状态机与工具面
     gateway/            `oma gateway` 的 daemon、supervisor、doctor、artifact

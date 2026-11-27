@@ -160,11 +160,23 @@ function chromeLaunchArgs(): string[] {
   return args;
 }
 
+async function loadPuppeteer() {
+  try {
+    return await import("puppeteer-core");
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `puppeteer-core is an optional dependency and is not installed (${detail}). Install it (e.g. bun add puppeteer-core) to enable the browser tool.`,
+      { cause: err },
+    );
+  }
+}
+
 async function getSharedBrowser(): Promise<Browser> {
   if (sharedBrowser?.connected) return sharedBrowser;
   if (launching) return launching;
   launching = (async () => {
-    const puppeteer = await import("puppeteer-core");
+    const puppeteer = await loadPuppeteer();
     const browser = await puppeteer.launch({
       executablePath: resolveChromeExecutable(),
       headless: true,
@@ -186,7 +198,7 @@ export async function canLaunchChromium(boundMs = 8_000): Promise<boolean> {
   let browser: Browser | undefined;
   let timer: Timer | undefined;
   try {
-    const puppeteer = await import("puppeteer-core");
+    const puppeteer = await loadPuppeteer();
     const launched = await Promise.race([
       puppeteer.launch({
         executablePath: resolveChromeExecutable(),

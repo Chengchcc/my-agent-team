@@ -25,6 +25,11 @@ export class GatewaySecretsError extends Error {
 
 export type GatewaySecretsRecord = Record<string, unknown>;
 
+/** Operator-requested login password reset marker filename (relative to the
+ *  backend data dir). Shared between `apps/backend` (consumer) and
+ *  `apps/oh-my-agent` (`oma gateway passwd` producer). */
+export const PASSWORD_RESET_MARKER = "password-reset";
+
 /** Canonical path to `<OMA_HOME|~/.oma>/gateway-secrets.json` shared by both
  *  `apps/oh-my-agent` (gateway launcher) and `apps/backend` (MCP secrets). */
 export function gatewaySecretsPath(env: NodeJS.ProcessEnv = process.env): string {

@@ -277,6 +277,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       // model gets the whole window instead of the planning discussion.
       session = resolveSession();
       sessionTitle = planTitle(markdown);
+      reloadSessionDrivers();
       hydrateTranscript(state, session.messages);
       state.todoItems = readTodoFile(opts.workspaceRoot, session.sessionId);
       io.setHeader?.({ model: modelId, sessionId: session.sessionId, title: sessionTitle });

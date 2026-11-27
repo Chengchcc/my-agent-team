@@ -13,7 +13,6 @@
     }
   },
   "scripts": {
-    "postinstall": "bun dist/cli.js gateway fetch >/dev/null 2>&1 || true",
     "build": "tsc -p tsconfig.json && mkdir -p dist/prompts && cp -r src/prompts/. dist/prompts/ && chmod +x dist/cli.js",
     "dev": "bun src/cli.ts",
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
@@ -31,8 +30,10 @@
     "@chengchenccc/source-fetch": "workspace:*",
     "@chengchenccc/tui": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
-    "puppeteer-core": "25.10.0",
     "zod": "^3.23.0"
+  },
+  "optionalDependencies": {
+    "puppeteer-core": "25.10.0"
   },
   "devDependencies": {
     "@chengchenccc/test-helpers": "workspace:*",
