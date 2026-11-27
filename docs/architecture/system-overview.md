@@ -26,23 +26,31 @@ CrewDesk (`my-agent-team`) is a single-node, Bun + SQLite control plane that coo
 ## Container & Process Topology
 
 ```text
+CrewDesk Control Plane
+───────────────────────────────────────────────────────────────────────────────
 Web Console (Next.js 15, :3001) ──HTTP BFF + /ws/ahp + /ws/coding──┐
-Lark Bot (per-PA process, SDK WS) ──HTTP + /ws/ahp─────────────────┼─→ Product Backend (Elysia, :3000)
-Oma TUI / CLI (standalone or PTY) ─────────────────────────────────┘      │
-                                                                          ├── SQLite backend.db (32 tables)
-                                                                          ├── Filesystem: workspaces/, projects/*.git,
-                                                                          │               artifacts/, wiki/ (Git), skill-packs/,
-                                                                          │               workflows/, mcp-servers.json
-                                                                          └── 1 ephemeral ACP child per Agent Run:
-                                                                                ├─ oma     (oma --mode acp)
-                                                                                ├─ claude  (claude-agent-acp)
-                                                                                ├─ pi      (pi-acp)
-                                                                                └─ omp     (omp acp)
+                                                                   ├─→ Product Backend (Elysia, :3000)
+Lark Bot (per-PA process, SDK WS) ──HTTP + /ws/ahp─────────────────┘     │
+                                                                         ├── SQLite backend.db (32 tables)
+                                                                         ├── Disk: workspaces/, projects/*.git,
+                                                                         │         artifacts/, wiki/ (Git), skill-packs/,
+                                                                         │         workflows/, mcp-servers.json
+                                                                         ├── Coding PTY (bun-pty): shell or `oma` TUI
+                                                                         └── 1 ephemeral ACP child per Agent Run:
+                                                                               ├─ oma     (oma --mode acp)
+                                                                               ├─ claude  (claude-agent-acp)
+                                                                               ├─ pi      (pi-acp)
+                                                                               └─ omp     (omp acp)
+
+Standalone Oma CLI / TUI (independent — no Product Backend)
+───────────────────────────────────────────────────────────────────────────────
+User Terminal ──→ oma (tui / print / json) ──→ @chengchenccc/ai (LLM APIs) + local workspace / JSONL sessions
 ```
 
-- **Web** never talks to the backend with browser credentials; `/api/bff/[...path]` validates the `maw_session` cookie and injects `x-auth-token` server-side. Real-time updates travel over `/ws/ahp` and `/ws/coding/:id` using 60-second single-use tickets; there are no SSE routes left in the backend.
-- **Lark bots** run one process per PA agent (supervised by `DevLarkBotRegistry` in dev or `systemd` template `my-agent-team-lark-bot@<agent>` in production), speak directly to Feishu OpenAPI for streaming CardKit cards, and subscribe to backend state over `/ws/ahp`.
-- **Standalone `oma`** runs independently (`print`, `json`, `tui` modes) with no backend dependency; inside CrewDesk it is invoked via `oma --mode acp` like any other harness.
+- **Surfaces over Product Backend** are **Web** and **Lark Bot**:
+  - **Web** never holds backend credentials in the browser; `/api/bff/[...path]` validates the `maw_session` cookie and injects `x-auth-token` server-side. Real-time updates travel over `/ws/ahp` and `/ws/coding/:id` using 60-second single-use tickets; there are no SSE routes left in the backend.
+  - **Lark bots** run one process per PA agent (supervised by `DevLarkBotRegistry` in dev or `systemd` template `my-agent-team-lark-bot@<agent>` in production), speak directly to Feishu OpenAPI for streaming CardKit cards, and subscribe to backend state over `/ws/ahp`.
+- **Oma (`apps/oh-my-agent`) is NOT a surface client of Product Backend.** In `tui` / `print` / `json` modes it is a self-contained runtime talking directly to LLM providers (`@chengchenccc/ai`) and local workspace/JSONL session files. Inside CrewDesk it runs strictly as a child process — either as an ephemeral ACP harness (`oma --mode acp`) per Agent Run or inside a Coding `bun-pty` terminal pane.
 
 ## PA + Worker Team Model
 

@@ -26,23 +26,31 @@ CrewDesk（`my-agent-team`）是一套单机 Bun + SQLite 的 AI 工程团队控
 ## 容器与进程视图
 
 ```text
+CrewDesk 控制面
+───────────────────────────────────────────────────────────────────────────────
 Web 控制台 (Next.js 15, :3001) ──HTTP BFF + /ws/ahp + /ws/coding──┐
-飞书 Bot (每 PA 独立进程, SDK WS) ──HTTP + /ws/ahp────────────────┼─→ Product Backend (Elysia, :3000)
-Oma TUI / CLI (独立运行或 PTY) ───────────────────────────────────┘      │
-                                                                         ├── SQLite backend.db（32 张表）
-                                                                         ├── 文件系统：workspaces/、projects/*.git、
-                                                                         │            artifacts/、wiki/（Git）、skill-packs/、
-                                                                         │            workflows/、mcp-servers.json
-                                                                         └── 每次 Agent Run 启动 1 个一次性 ACP 子进程：
-                                                                               ├─ oma     (oma --mode acp)
-                                                                               ├─ claude  (claude-agent-acp)
-                                                                               ├─ pi      (pi-acp)
-                                                                               └─ omp     (omp acp)
+                                                                  ├─→ Product Backend (Elysia, :3000)
+飞书 Bot (每 PA 独立进程, SDK WS) ──HTTP + /ws/ahp────────────────┘     │
+                                                                        ├── SQLite backend.db（32 张表）
+                                                                        ├── 文件系统：workspaces/、projects/*.git、
+                                                                        │            artifacts/、wiki/（Git）、skill-packs/、
+                                                                        │            workflows/、mcp-servers.json
+                                                                        ├── Coding 终端 (bun-pty)：shell 或 `oma` TUI
+                                                                        └── 每次 Agent Run 启动 1 个一次性 ACP 子进程：
+                                                                              ├─ oma     (oma --mode acp)
+                                                                              ├─ claude  (claude-agent-acp)
+                                                                              ├─ pi      (pi-acp)
+                                                                              └─ omp     (omp acp)
+
+独立 Oma CLI / TUI（无 Product Backend 依赖）
+───────────────────────────────────────────────────────────────────────────────
+用户终端 ──→ oma (tui / print / json) ──→ @chengchenccc/ai (直连模型 API) + 本地工作区 / JSONL 会话
 ```
 
-- **Web 端**不持后端 token，所有 API 经 `/api/bff/[...path]` 校验 `maw_session` 后在服务端注入 `x-auth-token`；实时更新全部走 `/ws/ahp` 与 `/ws/coding/:id`（60 秒一次性票据），后端已无活跃 SSE 端点。
-- **飞书 Bot**按 PA 成员独立运行（开发态由后端拉起，生产态由 `systemd` 模板 `my-agent-team-lark-bot@<agent>` 托管），直接对接飞书 OpenAPI 渲染 CardKit 流式卡片，经 `/ws/ahp` 订阅会话状态。
-- **独立 `oma`** 可脱离后端在 `print` / `json` / `tui` 模式下独立运行；接入 CrewDesk 时以 `oma --mode acp` 运行，与其余三个引擎完全同构。
+- **Product Backend 之上的端（Surface）只有 Web 与飞书 Bot**：
+  - **Web 端**不持后端 token，所有 API 经 `/api/bff/[...path]` 校验 `maw_session` 后在服务端注入 `x-auth-token`；实时更新全部走 `/ws/ahp` 与 `/ws/coding/:id`（60 秒一次性票据），后端已无活跃 SSE 端点。
+  - **飞书 Bot**按 PA 成员独立运行（开发态由后端拉起，生产态由 `systemd` 模板 `my-agent-team-lark-bot@<agent>` 托管），直接对接飞书 OpenAPI 渲染 CardKit 流式卡片，经 `/ws/ahp` 订阅会话状态。
+- **`oma`（`apps/oh-my-agent`）不是 Product Backend 的客户端端侧**：在 `tui` / `print` / `json` 模式下它是完全独立的自包含运行时，直接调用模型 API（`@chengchenccc/ai`）并读写本地工作区与 JSONL 会话文件；接入 CrewDesk 时只作为后端拉起的**子进程**存在——要么是按 Run 启动的 ACP 引擎（`oma --mode acp`），要么跑在 Coding 的 `bun-pty` 终端面板里。
 
 ## PA + Worker 团队协作模型
 

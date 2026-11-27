@@ -35,10 +35,10 @@ Every response has two parts:
 ## Architecture & Data Flow
 
 ```
-Surfaces        Web app / Lark bot / oma TUI - talk HTTP/SSE to the backend
+Surfaces        Web app (Next.js) / Lark bot - talk HTTP + AHP WebSocket (/ws/ahp) to the backend
 Backend         Product facts + execution control plane (apps/backend)
-Adapter         packages/adapter-* - child process boundary (spawn / JSONL / steer / stop / approval)
-Runtime         apps/oh-my-agent/src/core - model+tool loop, plugins, compaction, todo
+ACP Client      apps/backend/src/features/agent-run/acp/ - stdio ACP child-process boundary (oma / claude / pi / omp)
+Runtime         apps/oh-my-agent/src/core - standalone oma CLI/TUI & ACP harness runtime (direct LLM APIs, no backend)
 Protocols       Message / ChatModel / Tool / ContentBlock / WorkflowDefinition (packages/{message,api-contract,workflow})
 ```
 
@@ -54,7 +54,7 @@ missing from this list; `@chengchenccc/` is the scope of every name below):
 - Plugins: 0 plugins as standalone packages; oma-native todo/progressive-skill live in `apps/oh-my-agent/src/core`
 - Apps: `@chengchenccc/backend` (consumes all), `@chengchenccc/oh-my-agent` (oma CLI + runtime), `@chengchenccc/web` (Next.js), `@chengchenccc/lark-bot`
 
-**Data flow:** Backend is the single truth source. Frontend uses Eden Treaty typed client to call BFF proxy (`/api/bff/[...path]`) which forwards to backend with auth headers. SSE events from backend flow through Next.js BFF to React Query subscriptions.
+**Data flow:** Backend is the single truth source. Web uses Eden Treaty typed client through the BFF proxy (`/api/bff/[...path]`) with server-side auth headers, and subscribes to live state over `/ws/ahp` (and `/ws/coding/:id` for PTY terminals) using one-time tickets. Standalone `oma` CLI/TUI talks directly to LLM providers (`@chengchenccc/ai`) and local workspace files without Product Backend.
 
 ## Key Directories
 
