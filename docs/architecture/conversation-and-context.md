@@ -13,8 +13,6 @@ CrewDesk strictly separates **shared conversation facts** (`conversation_ledger`
 - `apps/backend/src/features/conversation/service.ts` — `ConversationService` (`postMessage`, `undoMessages`, `forkConversation`, `replayFromMessage`, `compactConversation`, `dispatchRoom`, `startNewConversationForSurface`)
 - `apps/backend/src/features/conversation/adapter-sqlite.ts` — Ledger persistence, search, bookmarks, and cascade deletes
 - `apps/backend/src/features/conversation/ledger-codec.ts` — `LedgerKind` (`message | surface.control | undo`) and visibility rules
-- `apps/backend/src/features/conversation/members.ts` — `createConversationMembers` (`list`, `add`, `remove`)
-- `apps/backend/src/features/conversation/routing.ts` — `resolveTrigger()` derived from member count
 - `apps/backend/src/features/conversation/session-model.ts` — `buildTurns()` read projection consumed by AHP and HTTP
 - `apps/backend/src/features/conversation/http.ts` — `/api/conversations/*` and `/api/saved` routes
 - `apps/backend/src/features/agent-context/domain.ts` — `AgentContextTree`, `AgentContextEntry`, `ContextBranch`
@@ -30,7 +28,7 @@ CrewDesk strictly separates **shared conversation facts** (`conversation_ledger`
   - `surface.control`: continuity markers emitted by `startNewConversationForSurface` (`{ newConversationId, requestedByRunId }`), idempotent per `requestedByRunId`.
   - `undo`: audit entry `{ undoneSeqs }` written when messages are soft-deleted (`undone = 1`).
 - **Visibility filtering:** messages with `visibility === "internal"` are excluded from context sync (`enqueueAndAcquire`) and `history_*` product tools.
-- **Author attribution:** human inputs from `"user"` or `"human:*"` carry no `authorAgentId`; agent-posted messages stamp `_meta.authorAgentId`, and `directToWorker: true` stamps `_meta.floorFor = { agentId, agentName }`.
+- **Author attribution:** human inputs from `"user"` or `"human:*"` carry no `authorAgentId`; agent-posted ledger-only messages (such as dispatch summaries) stamp `_meta.authorAgentId`.
 - **Operations:**
   - `undoMessages(cid, count = 1)`: soft-deletes the latest `count` live `message` rows (`undone = 1`), appends an `undo` entry, and notifies AHP (`onMessagesUndone`) to invalidate cached state.
   - `forkConversation(cid, fromSeq)`: creates a new conversation (`origin: "fork"`, `forkSource`, `forkFromSeq`) and copies all non-undone ledger rows with `seq <= fromSeq`.
@@ -39,22 +37,16 @@ CrewDesk strictly separates **shared conversation facts** (`conversation_ledger`
   - `searchLedger(keyword, limit = 20)`: tokenizes with `@chengchenccc/embedding`'s `needleSegments()` and AND-matches `LIKE %needle%`.
   - `deleteConversation(id)`: rejects with `409 ConflictError` if any active Run exists; recursively removes child rooms (`parent_conversation_id`), iteratively deletes `agent_context_entry` leaves (satisfying self-FK `RESTRICT`), clears `conversation_requirement`, and deletes the room.
 
-## Multi-Member Rooms, Routing & Child Conversations
+## 1:1 Rooms & Child Dispatch Conversations
 
-`conversation_member` is the authoritative roster (`1..N` agents per room; `conversation.agent_id` is the default front-desk agent). Creating a conversation immediately inserts `agentId` into `conversation_member`, and `POST /api/conversations` rejects creating a room directly with a `worker` agent unless `direct: true` (ADR 0049). `conversationMembers.remove()` refuses to remove the last remaining member (`MemberRuleError`).
+Each conversation belongs to **one** owning agent (`conversation.agent_id`). `POST /api/conversations` rejects creating a room directly with a `worker` agent unless `direct: true` (ADR 0049).
 
-Every `postMessage` resolves trigger targets in strict order:
+Every `postMessage` follows a single deterministic pipeline:
 
-1. **Count-derived routing (`routing.ts` → `resolveTrigger`):**
-   - `0` members → `[]`.
-   - `1` member → `[only]` if `addressedTo` is omitted or includes `only`; otherwise `[]`.
-   - `>= 2` members → `members.filter(m => addressedTo?.includes(m))` (unaddressed messages are ledger-only unless caught by step 2).
-2. **Room front-desk fallback (ADR 0066):** if `targets` is empty, `addressedTo === undefined`, `source === undefined`, and `conversation.agentId` is in `members`, routes to `[agentId]` so human messages are never silently dropped after a worker joins a room. Explicit `addressedTo: []` or observed `source` stays empty.
-3. **Front-desk invariant (ADR 0049):** when `authorization === undefined` (human HTTP/surface input) and `directToWorker !== true`, any target where `isWorkerAgent(target)` is true is rerouted to the room's `agentId` (front desk).
-4. **Ambient observe seam (ADR 0046):** if `targets` is empty, `source !== undefined`, `members.length === 1`, and content is string, evaluates `proactiveSvc.evaluate()`. An `act` match joins the target agent if needed, frames the input, sets `authorization = "ambient:<ruleId>"`, and triggers that agent.
-5. **Ledger commit before enqueue:** persists the canonical `MessageRevision` to `conversation_ledger` first.
-6. **Parked-ask interception:** for each target, `answerPendingTextAsk()` checks whether a text/allowOther `ask_question` is parked in this room; if so, consumes the pending action directly instead of enqueueing a new Run.
-7. **Child dispatch rooms (ADR 0070):** `dispatchRoom({ parentConversationId, workerAgentId, reuse })` creates (or reuses the newest when `reuse: true`) a child conversation with `origin: "dispatch"`, `parentConversationId`, and copied `projectId`, keeping worker transcripts out of the human's main room. `listConversations()` returns origins `["user", "fork", "dispatch"]` and hides `"workflow"` rooms.
+1. **Trigger decision:** if `trigger !== false` and `conversation.agentId !== null`, the owning agent is the target; `trigger: false` records a ledger-only note (dispatch summaries, progress reports, unmentioned Lark group observations).
+2. **Ledger commit before enqueue:** persists the canonical `MessageRevision` to `conversation_ledger` first.
+3. **Parked-ask interception:** when triggering, `answerPendingTextAsk()` checks whether a text/allowOther `ask_question` is parked in this room; if so, consumes the pending action directly instead of enqueueing a new Run.
+4. **Child dispatch rooms (ADR 0070):** `dispatchRoom({ parentConversationId, workerAgentId, reuse })` creates (or reuses the newest when `reuse: true`) a child conversation with `origin: "dispatch"`, `parentConversationId`, and copied `projectId`, keeping worker transcripts out of the human's main room. `listConversations()` returns origins `["user", "fork", "dispatch"]` and hides `"workflow"` rooms.
 
 ## Agent Context Trees, Branches & Projection
 

@@ -4,7 +4,6 @@ import { Search } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useMemo, useState } from "react";
 import { type AskPaRequest, AskPaSheet } from "@/components/AskPaSheet";
-import { AssessmentSection } from "@/components/AssessmentSection";
 import { CustomProviderKeys } from "@/components/CustomProviderKeys";
 import { DispatchSettingsSection } from "@/components/DispatchSettingsSection";
 import { LoginPasswordSection } from "@/components/LoginPasswordSection";
@@ -279,14 +278,9 @@ export default function SettingsPage() {
                     </>
                   )}
                   {section.id === "execution" && (
-                    <>
-                      <div hidden={!field("reuseRoom")}>
-                        <DispatchSettingsSection />
-                      </div>
-                      <div hidden={!field("assessment")}>
-                        <AssessmentSection />
-                      </div>
-                    </>
+                    <div hidden={!field("reuseRoom")}>
+                      <DispatchSettingsSection />
+                    </div>
                   )}
                   {section.id === "system" && field("systemInfo") && <SystemInfoSection />}
                 </div>

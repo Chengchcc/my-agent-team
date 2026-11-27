@@ -136,7 +136,7 @@ export default function ProjectDetailPage() {
           ) : (
             <div className="space-y-3">
               {worktrees.map((w) => (
-                <WorktreeCard key={w.agentId} projectId={projectId} row={w} />
+                <WorktreeCard key={w.workspaceId} projectId={projectId} row={w} />
               ))}
             </div>
           )}

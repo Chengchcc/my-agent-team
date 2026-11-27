@@ -34,7 +34,6 @@ export type AgentRuntimeStatus = ApiReturn<typeof api.getAgentRuntime>;
 export type SurfaceOpsItem = ApiReturn<typeof api.listSurfaces>[number];
 export type ConversationSnapshot = ApiReturn<typeof api.listConversations>[number];
 export type SavedItem = ApiReturn<typeof api.listSaved>["saved"][number];
-export type TaskCard = ApiReturn<typeof api.listTasks>["tasks"][number];
 export type ReminderRow = ApiReturn<typeof api.listReminders>["reminders"][number];
 export type SettingsMap = ApiReturn<typeof api.getSettings>["settings"];
 export type ProviderInfo = {
@@ -45,11 +44,6 @@ export type ProviderInfo = {
 };
 export type McpServerRow = ApiReturn<typeof api.listMcpServers>["mcpServers"][number];
 export type PendingInput = ApiReturn<typeof api.listConversationInputs>["inputs"][number];
-export type AgentMemory = {
-  memories: Array<{ file: string; content: string }>;
-  memSummary: string | null;
-  memoryMd: string | null;
-};
 export type TelemetrySummary = {
   since: number;
   runs: number;
@@ -189,9 +183,6 @@ export const api = {
         }),
     ),
   listSaved: () => unwrap(client.api.saved.get()),
-  // Task cards (raft #3): the input queue made visible
-  listTasks: (limit?: number) =>
-    unwrap(client.api.tasks.get({ query: limit ? { limit } : undefined })),
   // Reminders
   listReminders: (conversationId?: string) =>
     unwrap(
@@ -230,29 +221,19 @@ export const api = {
   }) => unwrap(client.api.conversations.post(body)),
   getConversation: (id: string, signal?: AbortSignal) =>
     unwrap(client.api.conversations({ id }).get(signal ? { fetch: { signal } } : undefined)),
-  listConversationMembers: (id: string) => unwrap(client.api.conversations({ id }).members.get()),
-  addConversationMember: (id: string, agentId: string) =>
-    unwrap(client.api.conversations({ id }).members.post({ agentId })),
-  removeConversationMember: (id: string, agentId: string) =>
-    unwrap(client.api.conversations({ id }).members({ agentId }).delete()),
   /** Anchored comment (raft absorption): posts into the conversation with
    *  the readable prefix baked server-side. */
-  postArtifactComment: (
-    id: string,
-    body: { url: string; anchor: unknown; text: string; addressedTo?: string[] },
-  ) => unwrap(client.api.conversations({ id })["artifact-comments"].post(body)),
+  postArtifactComment: (id: string, body: { url: string; anchor: unknown; text: string }) =>
+    unwrap(client.api.conversations({ id })["artifact-comments"].post(body)),
   postConversationMessage: (
     id: string,
     body: {
       /** The two shapes the writer understands: plain text, or ContentBlock
-       *  objects (text + image attachments). `unknown` here used to hide a
-       *  genuinely wrong payload — the Lark bot sent an envelope object and the
-       *  message was stored with no text at all — so the wire type is stated. */
+       *  objects (text + image attachments). */
       content: string | Array<Record<string, unknown>>;
       mode?: "normal" | "steer" | "follow_up";
       model?: ChatModelOverride;
-      /** ADR 0041: @mention targets (agent ids). Absent = auto routing. */
-      addressedTo?: string[];
+      trigger?: boolean;
     },
   ) => unwrap(client.api.conversations({ id }).messages.post(body)),
   listConversationInputs: (id: string) => unwrap(client.api.conversations({ id }).inputs.get()),
@@ -274,17 +255,6 @@ export const api = {
     return resp.text();
   },
   // Ops — Agent Run is the only execution identity
-  /** ADR 0066 D4: say something to a worker directly (a floor visit). The
-   *  server still writes the authorization basis; the room records the
-   *  addressee so the front desk learns the boss was on the floor. */
-  postFloorMessage: (input: { conversationId: string; agentId: string; text: string }) =>
-    unwrap(
-      client.api.conversations({ id: input.conversationId }).messages.post({
-        content: input.text,
-        addressedTo: [input.agentId],
-        directToWorker: true,
-      }),
-    ),
   /** ADR 0075 P4b: correct a machine answer to a request. */
   correctAttention: (actionId: string, response: unknown) =>
     unwrap(client.api.attention({ actionId }).correct.post({ response } as never)),
@@ -344,8 +314,6 @@ export const api = {
         decision,
       }),
     ),
-  listPendingActions: (signal?: AbortSignal) =>
-    unwrap(client.api["pending-actions"].get(signal ? { fetch: { signal } } : undefined)),
   // ADR 0061: the attention axis. Reading is free; `seen` only advances read
   // marks, and drafts never touch execution state.
   attention: (signal?: AbortSignal) =>
@@ -383,18 +351,8 @@ export const api = {
   listProjects: () => unwrap(client.api.projects.get()),
   getProject: (id: string) => unwrap(client.api.projects({ id }).get()),
   listProjectWorktrees: (id: string) => unwrap(client.api.projects({ id }).worktrees.get()),
-  projectWorktreeDiff: (id: string, agentId: string, opts?: { slug?: string }) => {
-    const query: { slug?: string } = {};
-    if (opts?.slug !== undefined) query.slug = opts.slug;
-    return unwrap(client.api.projects({ id }).worktrees({ agentId }).diff.get({ query }));
-  },
-  projectWorktreeFastForward: (
-    id: string,
-    agentId: string,
-    opts: { push: boolean; slug?: string },
-  ) => unwrap(client.api.projects({ id }).worktrees({ agentId })["fast-forward"].post(opts)),
-  projectWorktreeMerge: (id: string, agentId: string, opts: { push: boolean; slug?: string }) =>
-    unwrap(client.api.projects({ id }).worktrees({ agentId }).merge.post(opts)),
+  projectWorktreeDiff: (id: string, workspaceId: string) =>
+    unwrap(client.api.projects({ id }).worktrees({ workspaceId }).diff.get()),
   createProject: (body: { name: string; repoUrl?: string; defaultBranch?: string }) =>
     unwrap(client.api.projects.post(body)),
   updateProject: (
@@ -416,16 +374,6 @@ export const api = {
   launchOmaInTerminal: (id: string) =>
     unwrap(client.api.coding.terminals({ id })["launch-oma"].post()),
   codingWsTicket: () => unwrap(client.api.coding["ws-ticket"].post()),
-  listCodingTaskWorktrees: (projectId: string) =>
-    unwrap(client.api.coding.worktrees.get({ query: { projectId } })),
-  createCodingTaskWorktree: (body: { projectId: string; agentId: string; slug: string }) =>
-    unwrap(client.api.coding.worktrees.post(body)),
-  removeCodingTaskWorktree: (body: {
-    projectId: string;
-    agentId: string;
-    slug: string;
-    force?: boolean;
-  }) => unwrap(client.api.coding.worktrees.remove.post(body)),
   // Skill packs
   listSkillPacks: () => unwrap(client.api["skill-packs"].get()),
   getSkillPackSkills: (id: string) => unwrap(client.api["skill-packs"]({ id }).skills.get()),
@@ -444,17 +392,6 @@ export const api = {
     unwrap(client.api.agents({ id: agentId })["skill-packs"].get()),
   setAgentSkillPacks: (agentId: string, body: { packIds: string[] }) =>
     unwrap(client.api.agents({ id: agentId })["skill-packs"].put(body)),
-  // Authority ledger (ADR 0046/0048/0051): the durable "what the agent
-  // would have done / did do" rows behind rules and assessment.
-  listProactiveEvents: (params?: { agentId?: string; limit?: number }) =>
-    unwrap(
-      client.api.proactive.events.get({
-        query: {
-          agentId: params?.agentId,
-          limit: params?.limit,
-        },
-      }),
-    ),
   // Settings
   getSettings: () => unwrap(client.api.settings.get()),
   getSystemInfo: () => unwrap(client.api.settings.system.get()),
@@ -534,24 +471,6 @@ export const api = {
       method: "DELETE",
       credentials: "include",
     }).then((r) => r.ok),
-  // Memory
-  getAgentMemory: (agentId: string) =>
-    fetch(`/api/bff/agents/${agentId}/memory`, { credentials: "include" }).then((r) => r.json()),
-  updateAgentMemory: (
-    agentId: string,
-    body: {
-      memSummary?: string;
-      memoryMd?: string;
-      facts?: Array<{ file: string; content: string }>;
-      deleteFacts?: string[];
-    },
-  ) =>
-    fetch(`/api/bff/agents/${agentId}/memory`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-      credentials: "include",
-    }).then((r) => r.json()),
   // Workspace (read-only file browser, ADR 0003)
   listWorkspaceEntries: (agentId: string, path: string) =>
     fetch(`/api/bff/agents/${agentId}/workspace/entries?path=${encodeURIComponent(path)}`, {

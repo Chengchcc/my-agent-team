@@ -368,26 +368,7 @@ export const boolToInt = (v: boolean): number => (v ? 1 : 0);
 // ─── Phase 1: Agent Context, Branches, Runs, Queue, PendingAction ──────────
 // DESTRUCTIVE CLEAN CUTOVER - old session/checkpoint state is intentionally discarded.
 
-// Agent Context Tree: one per (conversation, agent) — ADR 0041. Each member
-// agent of a room owns an isolated context line; the shared ledger is the room's truth.
-/** ADR 0041: the conversation's agent members (1..N). Routing semantics are
- *  DERIVED from the count (1 = auto-respond e2e, N = mention-only); this
- *  table is the truth, conversation.agentId stays as the default member. */
-export const conversationMember = sqliteTable(
-  "conversation_member",
-  {
-    conversationId: text("conversation_id")
-      .notNull()
-      .references(() => conversation.conversationId, { onDelete: "cascade" }),
-    agentId: text("agent_id").notNull(),
-    addedAt: integer("added_at", { mode: "number" }).notNull(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.conversationId, table.agentId] }),
-    index("idx_conversation_member_agent").on(table.agentId),
-  ],
-);
-
+// Agent Context Tree: one per (conversation, agent).
 export const agentContextTree = sqliteTable(
   "agent_context_tree",
   {
@@ -493,15 +474,8 @@ export const agentRun = sqliteTable(
     /** JSON: the run's latest task list snapshot (todo_write product tool).
      *  Re-injected into the next run's prompt as the Current Tasks section. */
     todoSnapshot: text("todo_snapshot"),
-    /** Optional workflow budget (tokens): the Loop freezes the remaining
-     *  daily budget at dispatch; the child gates subagent spawns on it. */
-    workflowBudgetTokens: integer("workflow_budget_tokens"),
-    /** JSON: oma workflow-mode input ({ script, args? }); the child executes
-     *  the script directly instead of an interactive loop. Loop items only. */
-    workflow: text("workflow"),
-    /** ADR 0047: why this run may run — `user`, `ambient:<ruleId>`,
-     *  `dispatch:<fromAgentId>`, `system`. Frozen at acquire time (the cheap
-     *  Mandate: every run can answer "on whose authority"). */
+    /** ADR 0047: why this run may run — `user`, `dispatch:<fromAgentId>`,
+     *  `system`. Frozen at acquire time. */
     authorization: text("authorization"),
     /** ADR 0080: risk the DISPATCHER declared for this run's work (JSON:
      *  `{irreversible?: boolean}`). An approval raised by a run carrying
@@ -592,9 +566,6 @@ export const branchInputQueue = sqliteTable(
     /** JSON {deny,allow,denyCommands,disabledTools}: frozen tool policy
      *  so queued inputs promoted by acquireNextRun keep the same boundaries. */
     toolPolicy: text("write_path_policy"),
-    /** Optional workflow budget (tokens), frozen at enqueue; the child
-     *  gates workflow subagent spawns on it. */
-    workflowBudgetTokens: integer("workflow_budget_tokens"),
     /** ADR 0047 authorization basis, frozen with the rest of the request
      *  snapshot: a QUEUED dispatch/ambient input must promote with its
      *  authority intact, not lose it at the run boundary. */
@@ -792,27 +763,6 @@ export const reminder = sqliteTable(
     index("idx_reminder_due").on(table.firedAt, table.fireAt),
     index("idx_reminder_conversation").on(table.conversationId, table.createdAt),
   ],
-);
-
-/** ADR 0046: ambient-rule evaluation ledger. One row per rule MATCH (not
-  per observed message): record mode = "what the agent would have done",
-  act mode = the audit trail of the promotion. Append-only; no FK to
-  conversation on purpose — audit facts outlive the conversation. */
-export const proactiveEvent = sqliteTable(
-  "proactive_event",
-  {
-    id: text().primaryKey(),
-    ts: integer({ mode: "number" }).notNull(),
-    agentId: text("agent_id").notNull(),
-    conversationId: text("conversation_id").notNull(),
-    ruleId: text("rule_id").notNull(),
-    mode: text().notNull(), // record | act
-    outcome: text().notNull(), // recorded | triggered
-    chatId: text("chat_id"),
-    senderMemberId: text("sender_member_id"),
-    snippet: text().notNull(),
-  },
-  (table) => [index("idx_proactive_event_agent").on(table.agentId, table.ts)],
 );
 
 /** ADR 0082 D1: Artifact metadata & cross-entity provenance index. File bytes

@@ -1,14 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { ChatModelOverride } from "@/components/ModelPicker";
-import { useAgentList } from "@/features/agents/hooks";
 import {
-  useConversationMembers,
   useConversationSnapshot,
   usePostConversationMessage,
 } from "@/features/conversations/hooks";
-import { parseMentions } from "@/features/conversations/mentions";
 import { connectAhpChat } from "@/lib/ahp";
 import type { ConversationSnapshot } from "@/lib/api";
 import { api } from "@/lib/api";
@@ -174,12 +171,6 @@ export function useConversation(
   //    The AHP chat channel delivers the committed turn, whose message carries the
   //    ledger's messageId, so the optimistic item collapses onto it.
   const sendMut = usePostConversationMessage(conversationId);
-  // ADR 0041: @mentions in the composed text direct routing in rooms; in a
-  // 1:1 conversation they are inert (auto-routing already targets the member).
-  const { data: memberData } = useConversationMembers(conversationId);
-  const memberIds = useMemo(() => memberData?.members ?? [], [memberData]);
-  const { data: agentsData } = useAgentList();
-  const agentsRoster = useMemo(() => agentsData ?? [], [agentsData]);
 
   const send = useCallback(
     (
@@ -202,15 +193,6 @@ export function useConversation(
           mode: queued ? "follow_up" : undefined,
           model,
           attachments,
-          addressedTo:
-            memberIds.length > 1 && agentsRoster.length > 0
-              ? parseMentions(
-                  text,
-                  agentsRoster
-                    .filter((a) => memberIds.includes(a.id))
-                    .map((a) => ({ agentId: a.id, displayName: a.name })),
-                )
-              : undefined,
         },
         {
           onSettled: () => {
@@ -222,7 +204,7 @@ export function useConversation(
         },
       );
     },
-    [sendMut, state, activeRunId, memberIds, agentsRoster],
+    [sendMut, state, activeRunId],
   );
 
   const busy = isBusy(state) || activeRunId !== null;

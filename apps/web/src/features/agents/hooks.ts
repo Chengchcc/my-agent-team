@@ -3,7 +3,6 @@ import {
   agentDetailQuery,
   agentIdentityQuery,
   agentListQuery,
-  agentMemoryQuery,
   agentWorkspaceEntriesQuery,
 } from "./queries";
 
@@ -17,10 +16,6 @@ export function useAgentDetail(id: string) {
 
 export function useAgentIdentity(id: string) {
   return useQuery(agentIdentityQuery(id));
-}
-
-export function useAgentMemory(id: string) {
-  return useQuery(agentMemoryQuery(id));
 }
 
 export function useAgentWorkspaceEntries(id: string, path: string) {

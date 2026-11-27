@@ -129,6 +129,7 @@ beforeAll(async () => {
     commands: { oma: [process.execPath, OMA_ENTRY, "--mode", "acp"] },
     env: {
       OMA_FAKE_PROVIDER: "1",
+      OMA_SESSION_DIR: join(dataDir, "oma-sessions"),
       // the child's model calls history_recent ONCE, then produces text
       OMA_FAKE_TOOL: JSON.stringify([{ name: "history_recent", input: { limit: 5 } }]),
       // bound a hanging MCP call so a stuck tool fails fast and the run

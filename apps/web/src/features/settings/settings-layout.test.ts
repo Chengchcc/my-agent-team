@@ -18,12 +18,12 @@ describe("the Settings section list", () => {
 
   test("an empty search matches every field", () => {
     const all = settingsSearch("   ", text);
-    expect(all).toHaveLength(7);
+    expect(all).toHaveLength(6);
   });
 
   test("a search matches a title, a search word or the translated title, word by word", () => {
     expect(settingsSearch("password", text)).toEqual(["password"]);
-    expect(settingsSearch("MODEL", text)).toEqual(["providers", "customKeys", "assessment"]);
+    expect(settingsSearch("MODEL", text)).toEqual(["providers", "customKeys"]);
     expect(settingsSearch("api key", text)).toEqual(["providers", "customKeys"]);
     expect(settingsSearch("\u8bed\u8a00", text)).toEqual(["language"]);
     expect(settingsSearch("password model", text)).toEqual([]);

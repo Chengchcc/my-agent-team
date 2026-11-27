@@ -1,14 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { Elysia } from "elysia";
 import type { AgentRow } from "./domain.js";
 import { agentRoutes } from "./http.js";
 import type { AgentPort } from "./ports.js";
 import { createAgentService } from "./service.js";
 
-function makeSvc(
-  modelKnown?: (backendKind: string, provider: string, modelId: string) => Promise<boolean>,
-) {
+function makeSvc(isKnownHarness?: (harness: string) => boolean) {
   const rows = new Map<string, AgentRow>();
   const port: AgentPort = {
     async create(input) {
@@ -70,7 +68,7 @@ function makeSvc(
       undefined,
       undefined,
       undefined,
-      modelKnown,
+      isKnownHarness,
     ),
   );
 }
@@ -242,71 +240,11 @@ describe("agent HTTP routes", () => {
     );
     expect(escapeResp.status).toBe(403);
   });
-
-  test("POST /api/agents/:id/memory writes summary and facts; traversal rejected", async () => {
-    const app = makeSvc();
-    const createResp = await app.handle(
-      new Request("http://localhost/api/agents", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: "mem", harness: "oma", model: "anthropic/claude" }),
-      }),
-    );
-    const created = (await readJson(createResp)) as { id: string };
-
-    const writeResp = await app.handle(
-      new Request(`http://localhost/api/agents/${created.id}/memory`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          memSummary: "## Key Decisions\n- JWT expiry 15m",
-          facts: [{ file: "run-1.md", content: "- JWT expiry is 15m" }],
-        }),
-      }),
-    );
-    expect(writeResp.status).toBe(200);
-
-    const readResp = await app.handle(
-      new Request(`http://localhost/api/agents/${created.id}/memory`),
-    );
-    const body = (await readJson(readResp)) as {
-      memories: Array<{ file: string; content: string }>;
-      memSummary: string | null;
-    };
-    expect(body.memSummary).toContain("JWT expiry 15m");
-    expect(body.memories).toHaveLength(1);
-    expect(body.memories[0]!.file).toBe("run-1.md");
-
-    // Where it lands matters: the agent reads .oma/memory (its memory
-    // pipeline and the learn tool write there), so the panel must use the
-    // same directory. A round-trip through the API alone passes either way.
-    const ws = `/tmp/ws/${created.id}`;
-    expect(existsSync(`${ws}/.oma/memory/memory_summary.md`)).toBe(true);
-    expect(existsSync(`${ws}/.oma/memory/facts/run-1.md`)).toBe(true);
-    expect(existsSync(`${ws}/memory`)).toBe(false);
-
-    // Path traversal in a fact filename is rejected.
-    const evilResp = await app.handle(
-      new Request(`http://localhost/api/agents/${created.id}/memory`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ facts: [{ file: "../evil.md", content: "x" }] }),
-      }),
-    );
-    expect(evilResp.status).toBe(400);
-  });
 });
 
 describe("agent harness consistency gate", () => {
-  // One adapter drives every harness, so the check receives the constant kind
-  // and provider with the harness key: `acp/oma` is the one id this fixture
-  // serves. A harness the registry does not know would run a different agent.
-  const KNOWN = new Set(["acp/oma"]);
-  const modelKnown = async (
-    backendKind: string,
-    provider: string,
-    modelId: string,
-  ): Promise<boolean> => backendKind === "acp" && KNOWN.has(`${provider}/${modelId}`);
+  const KNOWN = new Set(["oma"]);
+  const knownHarness = (harness: string): boolean => KNOWN.has(harness);
 
   const post = (app: { handle: (req: Request) => Promise<Response> }, payload: unknown) =>
     app.handle(
@@ -331,7 +269,7 @@ describe("agent harness consistency gate", () => {
     );
 
   test("POST refuses a harness the registry doesn't know", async () => {
-    const app = makeSvc(modelKnown);
+    const app = makeSvc(knownHarness);
     const resp = await post(app, { name: "a", harness: "ghost" });
     expect(resp.status).toBe(400);
     const body = (await resp.json()) as { error: string };
@@ -339,19 +277,19 @@ describe("agent harness consistency gate", () => {
   });
 
   test("POST accepts a registered harness", async () => {
-    const app = makeSvc(modelKnown);
+    const app = makeSvc(knownHarness);
     const resp = await post(app, { name: "a", harness: "oma", model: "anthropic/claude" });
     expect(resp.status).toBe(201);
   });
 
-  test("routes without the check keep accepting any harness", async () => {
+  test("default routes enforce the built-in ACP_AGENTS registry", async () => {
     const app = makeSvc();
     const resp = await post(app, { name: "a", harness: "ghost" });
-    expect(resp.status).toBe(201);
+    expect(resp.status).toBe(400);
   });
 
   test("PATCH switching harness refuses an unregistered one", async () => {
-    const app = makeSvc(modelKnown);
+    const app = makeSvc(knownHarness);
     const created = await post(app, { name: "a", harness: "oma" });
     const { id } = (await created.json()) as { id: string };
     const resp = await patch(app, id, { harness: "ghost" });
@@ -361,7 +299,7 @@ describe("agent harness consistency gate", () => {
   });
 
   test("PATCH harness + model together passes when the registry knows it", async () => {
-    const app = makeSvc(modelKnown);
+    const app = makeSvc(knownHarness);
     const created = await post(app, { name: "a", harness: "oma" });
     const { id } = (await created.json()) as { id: string };
     const resp = await patch(app, id, { harness: "oma", model: "deepseek/deepseek-v4-pro" });

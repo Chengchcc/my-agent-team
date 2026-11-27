@@ -1,17 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { AGENT_DRAFT_ID } from "@chengchenccc/api-contract";
 import {
-  type AgentProxyCreateInput,
   callAgentConfigTool,
   createCreateBudget,
   readAgentCreateInput,
 } from "./agent-config-mcp.js";
 
 /** The agent-config MCP surface the edit page's chat drives: propose config
- *  changes for an EXISTING agent (agent_write) and create a real one
- *  (agent_create). A false success here — a proposal with no page to adopt
- *  it, or a "created" agent that has no row — is what makes "let the agent
- *  manage agents" look alive while nothing can land. */
+ *  changes for an EXISTING agent (agent_write) and propose a new member
+ *  (agent_create). */
 
 const config = { id: "reviewer", name: "Reviewer" };
 
@@ -23,20 +20,14 @@ function deps(known: readonly string[] = ["reviewer"]) {
       proposals.push({ kind, targetId, payload });
     },
   };
-  const created: AgentProxyCreateInput[] = [];
   return {
     proposals,
-    created,
     d: {
       readConfig: async (agentId: string) => {
         if (!known.includes(agentId)) throw new Error(`Agent not found: ${agentId}`);
         return config;
       },
       agentExists: async (agentId: string) => known.includes(agentId),
-      createAgent: async (input: AgentProxyCreateInput) => {
-        created.push(input);
-        return { id: "ag-new" };
-      },
       reserveCreate: () => {},
       proposals: recorder,
     },
@@ -92,7 +83,7 @@ describe("agent-config MCP tools", () => {
   });
 
   test("agent_create proposes a new member instead of creating one", async () => {
-    const { d, created, proposals } = deps();
+    const { d, proposals } = deps();
     const text = await callAgentConfigTool(d, "agent_create", {
       name: "Code Reviewer",
       harness: "oma",
@@ -101,7 +92,6 @@ describe("agent-config MCP tools", () => {
       reasoningEffort: "high",
     });
     // Operator decision 2026-11-24: creating a member is a human's click.
-    expect(created).toEqual([]);
     expect(text).toContain("proposed");
     expect(text).toContain("NOT created");
     expect(proposals).toHaveLength(1);
@@ -114,7 +104,7 @@ describe("agent-config MCP tools", () => {
     // run unattended workflow nodes (HTTP route + zod + runtime all accept it)
     // but NOT from a tool an agent can call: otherwise one prompt injection is
     // enough to mint an ungated agent and run anything through it.
-    const { d, created } = deps();
+    const { d, proposals } = deps();
     await expect(
       callAgentConfigTool(d, "agent_create", {
         name: "Unattended",
@@ -122,19 +112,19 @@ describe("agent-config MCP tools", () => {
         permissionMode: "yolo",
       }),
     ).rejects.toThrow(/permissionMode must be one of ask, auto, deny$/);
-    expect(created).toEqual([]);
+    expect(proposals).toEqual([]);
   });
 
   test("agent_create rejects a missing model before creating anything", async () => {
-    const { d, created } = deps();
+    const { d, proposals } = deps();
     await expect(callAgentConfigTool(d, "agent_create", { name: "Nameless" })).rejects.toThrow(
       /harness required/,
     );
-    expect(created).toEqual([]);
+    expect(proposals).toEqual([]);
   });
 
   test("agent_create rejects an unknown harness before creating anything", async () => {
-    const { d, created } = deps();
+    const { d, proposals } = deps();
     await expect(
       callAgentConfigTool(d, "agent_create", {
         name: "Ghost",
@@ -142,7 +132,7 @@ describe("agent-config MCP tools", () => {
         model: "anthropic/claude-sonnet-4-6",
       }),
     ).rejects.toThrow(/unknown harness ghost/);
-    expect(created).toEqual([]);
+    expect(proposals).toEqual([]);
   });
 
   test("the create budget stops a runaway loop and refills next window", () => {

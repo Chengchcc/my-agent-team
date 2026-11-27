@@ -5,7 +5,6 @@ import type { EntityLabelResolver } from "../../infra/entity-labels.js";
 import { type AgentRunExecutionService, ApprovalNotApplicableError } from "./execution.js";
 import type { BackendRunOutcome } from "./protocol/index.js";
 import type { AgentRunService } from "./service.js";
-import { taskCardOf } from "./tasks.js";
 
 const ACTIVE_STATUSES = ["running", "waiting", "commit_failed"];
 const TERMINAL_STATUSES = ["completed", "failed", "aborted", "timeout"];
@@ -297,96 +296,6 @@ export function agentRunRoutes(input: {
           }),
         },
       )
-      .get("/api/tasks", ({ query }) => {
-        // Raft #3 task cards: the input queue's semantics, made visible. A
-        // task IS a queued input plus its run — read-only projection, no new
-        // execution semantics; statuses are derived (tasks.ts) so the run
-        // state machine stays the only truth.
-        const limit = Math.min(Number(query.limit ?? 100) || 100, 300);
-        const rows = db
-          .query(
-            `SELECT q.input_id, q.status AS queue_status, q.run_id, q.created_at, q.message,
-                  ar.status AS run_status, ar.agent_id, ar.conversation_id,
-                  c.title AS conversation_title,
-                  json_extract(a.config, '$.name') AS agent_name
-             FROM branch_input_queue q
-             LEFT JOIN agent_run ar ON ar.run_id = q.run_id
-             LEFT JOIN conversation c ON c.conversation_id = ar.conversation_id
-             LEFT JOIN agents a ON a.id = ar.agent_id
-            ORDER BY q.created_at DESC
-            LIMIT ?`,
-          )
-          .all(limit) as Array<{
-          input_id: string;
-          queue_status: string;
-          run_id: string | null;
-          created_at: number;
-          message: string;
-          run_status: string | null;
-          agent_id: string | null;
-          agent_name: string | null;
-          conversation_id: string | null;
-          conversation_title: string | null;
-        }>;
-        const tasks = rows.map((r) =>
-          taskCardOf({
-            queue: {
-              inputId: r.input_id,
-              status: r.queue_status,
-              runId: r.run_id,
-              createdAt: r.created_at,
-              message: r.message,
-            },
-            run:
-              r.run_status === null
-                ? null
-                : { status: r.run_status, agentId: r.agent_id, conversationId: r.conversation_id },
-            conversationTitle: r.conversation_title,
-            ownerName: r.agent_name,
-          }),
-        );
-        return { tasks };
-      })
-      .get("/api/pending-actions", () => {
-        // Global HITL read model: one row per thing a human can still answer.
-        // Terminal settles cancel their actions, so the active-run join is
-        // belt-and-suspenders against a cancelled row racing the sweep. The
-        // Today page and the TopBar bell read this instead of fan-out run
-        // detail calls.
-        const rows = db
-          .query(
-            `SELECT pa.action_id, pa.run_id, pa.kind, pa.payload, pa.created_at,
-                  ar.conversation_id, ar.agent_id, ar.status AS run_status
-             FROM pending_action pa
-             JOIN agent_run ar ON ar.run_id = pa.run_id
-            WHERE pa.status = 'pending'
-              AND ar.status IN ('running', 'waiting', 'commit_failed')
-            ORDER BY pa.created_at DESC
-            LIMIT 200`,
-          )
-          .all() as Array<{
-          action_id: string;
-          run_id: string;
-          kind: string;
-          payload: string;
-          created_at: number;
-          conversation_id: string;
-          agent_id: string;
-          run_status: string;
-        }>;
-        return {
-          actions: rows.map((r) => ({
-            actionId: r.action_id,
-            runId: r.run_id,
-            conversationId: r.conversation_id,
-            agentId: r.agent_id,
-            runStatus: r.run_status,
-            kind: r.kind,
-            payload: JSON.parse(r.payload) as Record<string, unknown>,
-            createdAt: r.created_at,
-          })),
-        };
-      })
       // ─── ADR 0061: the attention axis (derived, read-only) ───
       // Three debts, all computed from rows that already exist:
       //   awaitingYou  a pending question the human owes an answer

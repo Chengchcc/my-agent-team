@@ -427,7 +427,6 @@ describe("ledger turns (ADR 0040: a message that belongs to no Run still happene
             updatedAt: 1,
             authorAgentId: "default",
             dispatchTo: { conversationId: "child-room-1" },
-            floorFor: { agentId: "coder", agentName: "Coder" },
             anchor: { url: "artifacts://doc.md", anchor: { line: 1 } },
           }),
           agentRunId: null,
@@ -441,7 +440,6 @@ describe("ledger turns (ADR 0040: a message that belongs to no Run still happene
     expect(turns).toHaveLength(1);
     expect(turns[0]?.input?.authorAgentId).toBe("default");
     expect(turns[0]?.input?.dispatchTo).toEqual({ conversationId: "child-room-1" });
-    expect(turns[0]?.input?.floorFor).toEqual({ agentId: "coder", agentName: "Coder" });
     expect(turns[0]?.input?.anchor).toEqual({ url: "artifacts://doc.md", anchor: { line: 1 } });
   });
 

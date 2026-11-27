@@ -24,7 +24,7 @@ function run(overrides: Partial<AgentRun> & { runId: string }): AgentRun {
 interface Harness {
   deps: NotifyDispatcherDeps;
   steered: Array<{ branchId: string; inputId: string; text: string }>;
-  posted: Array<{ addressedTo: readonly string[]; authorization: string; content: string }>;
+  posted: Array<{ trigger: boolean; authorization: string; content: string }>;
   /** ADR 0060 D6: runIds the notice was confirmed delivered for. */
   notified: string[];
   enqueued: number;
@@ -56,7 +56,7 @@ function harness(options: {
     },
     postMessage: async (input) => {
       posted.push({
-        addressedTo: input.addressedTo,
+        trigger: input.trigger,
         authorization: input.authorization,
         content: input.content,
       });
@@ -111,7 +111,7 @@ describe("ADR 0059 notifyDispatcher", () => {
       wake: true,
     });
     expect(result.delivered).toBe("queued");
-    expect(h.posted[0]?.addressedTo).toEqual(["front"]);
+    expect(h.posted[0]?.trigger).toBe(true);
     expect(h.posted[0]?.authorization).toBe("result:worker");
     expect(h.notified).toEqual(["worker-run"]);
   });
@@ -132,7 +132,7 @@ describe("ADR 0059 notifyDispatcher", () => {
     expect(result.delivered).toBe("ledger");
     // Even with a live dispatcher: progress takes the ledger rail only.
     expect(h.steered).toHaveLength(0);
-    expect(h.posted[0]?.addressedTo).toEqual([]);
+    expect(h.posted[0]?.trigger).toBe(false);
     // A ledger note is NOT a delivery: recovery must still be able to send the
     // real terminal notice.
     expect(h.notified).toEqual([]);
@@ -162,7 +162,7 @@ describe("ADR 0059 notifyDispatcher", () => {
     expect(result.delivered).toBe("queued");
     expect(MAX_WAKE_DEPTH).toBe(3);
     expect(h.steered).toHaveLength(0);
-    expect(h.posted[0]?.addressedTo).toEqual(["front"]);
+    expect(h.posted[0]?.trigger).toBe(true);
     expect(h.posted[0]?.content).toContain("自动协作链已到上限");
   });
 
@@ -183,7 +183,7 @@ describe("ADR 0059 notifyDispatcher", () => {
       wake: true,
     });
     expect(result.delivered).toBe("ledger");
-    expect(h.posted[0]?.addressedTo).toEqual([]);
+    expect(h.posted[0]?.trigger).toBe(false);
     expect(h.posted[0]?.content).toContain("自动协作链已到上限");
   });
 
@@ -201,7 +201,7 @@ describe("ADR 0059 notifyDispatcher", () => {
       wake: true,
     });
     expect(result.delivered).toBe("queued");
-    expect(h.posted[0]?.addressedTo).toEqual(["front"]);
+    expect(h.posted[0]?.trigger).toBe(true);
   });
 
   test("a run with no parent is a no-op (nothing to travel back to)", async () => {

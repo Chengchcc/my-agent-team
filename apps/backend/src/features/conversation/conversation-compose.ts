@@ -57,16 +57,6 @@ export function createConversationFeature(input: {
   /** Resolves a ledger message for compaction — the same resolver the context
    *  projection uses, so there is exactly one decode path. */
   resolveLedgerMessage?: LedgerMessageResolver["resolveMessage"];
-  /** ADR 0046: ambient-rule evaluator for the observe seam. Absent =
-   *  observed messages stay ledger-only. */
-  evaluateAmbient?: ConversationServiceDeps["evaluateAmbient"];
-  /** ADR 0047: validated member-join for ambient rule targets. Absent =
-   *  rules can only promote within the existing roster. */
-  addConversationMember?: ConversationServiceDeps["addConversationMember"];
-  /** ADR 0049: role lookup for the front desk invariant. */
-  isWorkerAgent?: ConversationServiceDeps["isWorkerAgent"];
-  /** ADR 0066 D4: display name for the room's floor note. */
-  agentNameOf?: ConversationServiceDeps["agentNameOf"];
   /** ADR 0080: the real config revision frozen on each run. */
   configRevisionOf?: ConversationServiceDeps["configRevisionOf"];
 }): ConversationFeature {
@@ -86,10 +76,6 @@ export function createConversationFeature(input: {
     answerPendingTextAsk,
     summarize,
     resolveLedgerMessage,
-    evaluateAmbient,
-    addConversationMember,
-    isWorkerAgent,
-    agentNameOf,
     configRevisionOf,
   } = input;
 
@@ -107,10 +93,6 @@ export function createConversationFeature(input: {
     answerPendingTextAsk,
     summarize,
     resolveLedgerMessage,
-    evaluateAmbient,
-    addConversationMember,
-    isWorkerAgent,
-    agentNameOf,
     idGen: ulid,
     ...(configRevisionOf ? { configRevisionOf } : {}),
     resolveDefaultModel: async (agentId): Promise<BackendModelRef> => {

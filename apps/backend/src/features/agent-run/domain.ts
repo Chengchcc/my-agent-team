@@ -75,17 +75,12 @@ export interface AgentRun {
   } | null;
   /** JSON: latest task list snapshot (todo_write product tool). */
   readonly todoSnapshot: string | null;
-  /** Optional workflow budget (tokens), frozen at Run creation. */
-  readonly workflowBudgetTokens: number | null;
   /** The native session this run bound (schema.agentRun.nativeSessionRef):
    *  this run's own execution identity, distinct from the branch's
    *  next-turn continuation pointer. */
   readonly nativeSessionRef: string | null;
-  /** Oma workflow-mode input ({ script, args? }); Loop items execute a
-   *  script directly instead of an interactive loop. */
-  readonly workflow: { readonly script: string; readonly args?: unknown } | null;
-  /** ADR 0047: why this run may run — `user`, `ambient:<ruleId>`,
-   *  `dispatch:<fromAgentId>`, `system`. Null on rows predating the column. */
+  /** ADR 0047: why this run may run — `user`, `dispatch:<fromAgentId>`,
+   *  `system`. Null on rows predating the column. */
   readonly authorization: string | null;
   /** ADR 0080: risk the dispatcher declared for this run's work. An approval
    *  raised under `irreversible` belongs to the person, not to an agent. */
@@ -144,7 +139,6 @@ export interface BranchInput {
       denyCommands?: string[];
       disabledTools?: string[];
     } | null;
-    readonly workflowBudgetTokens: number | null;
     /** ADR 0047: rides the queue snapshot so a promoted run keeps its
      *  authorization basis. Optional: rows predating the column. */
     readonly authorization?: string | null;
@@ -207,10 +201,6 @@ export interface AcquireAgentRunCommand {
   /** Frozen permission_mode (ADR 0020 decision 7). */
   readonly permissionMode?: string;
   readonly toolPolicy?: string;
-  /** Optional workflow budget (tokens) for this Run; null = no gate. */
-  readonly workflowBudgetTokens?: number;
-  /** Oma workflow-mode input: execute this script instead of a loop. */
-  readonly workflow?: { readonly script: string; readonly args?: unknown };
   /** ADR 0047 authorization basis, frozen onto the run and the queue row. */
   readonly authorization?: string;
   /** ADR 0051: the dispatching run, frozen the same way. */

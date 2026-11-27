@@ -8,7 +8,6 @@ import type { codingRoutes } from "./features/coding/http.js";
 import type { conversationRoutes } from "./features/conversation/http.js";
 import type { mcpRoutes } from "./features/mcp/http.js";
 import type { harnessRoutes, modelRoutes } from "./features/models/http.js";
-import type { proactiveRoutes } from "./features/proactive/http.js";
 import { productToolsRoutes } from "./features/product-tools/http.js";
 import type { ProductToolsService } from "./features/product-tools/service.js";
 import type { projectRoutes } from "./features/project/http.js";
@@ -45,7 +44,6 @@ export interface FeatureSet {
   artifacts: ReturnType<typeof artifactRoutes>;
   requirements: ReturnType<typeof requirementRoutes>;
   wiki: ReturnType<typeof wikiRoutes>;
-  proactive: ReturnType<typeof proactiveRoutes>;
   productTools: ProductToolsService;
 }
 
@@ -77,7 +75,6 @@ export function createApp(token: string, features: FeatureSet) {
     productTools,
     coding,
     ahp,
-    proactive,
   } = features;
   const app = new Elysia()
     .get("/health", () => ({ status: "ok" }))
@@ -155,8 +152,7 @@ export function createApp(token: string, features: FeatureSet) {
     .use(providers)
     .use(mcp)
     .use(models)
-    .use(harnesses)
-    .use(proactive);
+    .use(harnesses);
 }
 
 export type App = ReturnType<typeof createApp>;

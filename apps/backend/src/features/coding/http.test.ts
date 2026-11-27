@@ -3,41 +3,29 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Elysia } from "elysia";
-import { ConflictError, NotFoundError } from "../../infra/domain-errors.js";
+import { NotFoundError } from "../../infra/domain-errors.js";
 import { codingRoutes } from "./http.js";
 import { createTerminalRegistry } from "./terminal-registry.js";
 
 // Real Elysia server on an ephemeral port + real browser-style WebSocket:
 // the ticket mint → WS attach → replay → input → output loop, end to end.
 const dir = mkdtempSync(join(tmpdir(), "coding-http-"));
+const wsDir = join(dir, "ws-req-1");
+mkdirSync(wsDir, { recursive: true });
 const registry = createTerminalRegistry();
 const app = new Elysia().use(
   codingRoutes({
     registry,
-    resolveTarget: async (projectId, _agentId, worktreePath) => {
+    resolveTarget: async (projectId, _agentId, workspaceId) => {
       if (projectId === "ghost") throw new NotFoundError("project", projectId);
       return {
-        cwd: worktreePath ?? dir,
+        cwd: workspaceId === "ws-1" ? wsDir : dir,
         shell: { executable: "/bin/bash", args: ["-c", "echo boot-marker; exec bash"] },
         omaLaunch: "echo oma-launch-line",
         omaPane: { executable: "/bin/bash", args: ["-c", "echo oma-pane-boot; exec bash"] },
       };
     },
     wsBase: "ws://127.0.0.1:1",
-    listTaskWorktrees: async (projectId) =>
-      projectId === "p1" ? [{ agentId: "a1", slug: "feat-x", path: join(dir, "p1.feat-x") }] : [],
-    createTaskWorktree: async (_projectId: string, _agentId: string, slug: string) => ({
-      path: join(dir, `p1.${slug}`),
-    }),
-    removeTaskWorktree: async (
-      _projectId: string,
-      _agentId: string,
-      slug: string,
-      force: boolean,
-    ) => {
-      if (slug === "busy") throw new ConflictError("close this worktree's terminals first");
-      return { path: join(dir, `p1.${slug}${force ? "" : ""}`) };
-    },
   }),
 );
 app.listen(0);
@@ -224,50 +212,10 @@ describe("coding agent status enrichment (P2)", () => {
     const stale = (await listed()).terminals.find((t) => t.terminalId === terminal.terminalId);
     expect(stale?.agentState).toBeUndefined();
   });
-});
-
-describe("coding task worktrees (the task axis)", () => {
-  test("list and create endpoints round-trip", async () => {
-    const listed = (await (await fetch(`${base}/api/coding/worktrees?projectId=p1`)).json()) as {
-      worktrees: Array<{ slug: string }>;
-    };
-    expect(listed.worktrees).toHaveLength(1);
-    expect(listed.worktrees[0]?.slug).toBe("feat-x");
-
-    const created = await fetch(`${base}/api/coding/worktrees`, {
-      method: "POST",
-      body: JSON.stringify({ projectId: "p1", agentId: "a1", slug: "task-two" }),
-      headers: { "content-type": "application/json" },
-    });
-    expect(created.status).toBe(201);
-    const body = (await created.json()) as { path: string };
-    expect(body.path).toContain("p1.task-two");
-  });
-
-  test("remove endpoint maps outcomes and refusals", async () => {
-    const ok = await fetch(`${base}/api/coding/worktrees/remove`, {
-      method: "POST",
-      body: JSON.stringify({ projectId: "p1", agentId: "a1", slug: "task-two" }),
-      headers: { "content-type": "application/json" },
-    });
-    expect(ok.status).toBe(200);
-    const removed = (await ok.json()) as { path: string };
-    expect(removed.path).toContain("p1.task-two");
-
-    const refused = await fetch(`${base}/api/coding/worktrees/remove`, {
-      method: "POST",
-      body: JSON.stringify({ projectId: "p1", agentId: "a1", slug: "busy", force: true }),
-      headers: { "content-type": "application/json" },
-    });
-    expect(refused.status).toBe(409);
-  });
-
-  test("spawn with a valid worktreePath lands in that cwd", async () => {
-    const taskDir = join(dir, "p1.feat-x");
-    mkdirSync(taskDir, { recursive: true });
+  test("spawn with workspaceId lands in the resolved requirement workspace cwd", async () => {
     const res = await fetch(`${base}/api/coding/terminals`, {
       method: "POST",
-      body: JSON.stringify({ projectId: "p1", agentId: "a1", worktreePath: taskDir }),
+      body: JSON.stringify({ projectId: "p1", agentId: "a1", workspaceId: "ws-1" }),
       headers: { "content-type": "application/json" },
     });
     expect(res.status).toBe(201);
@@ -276,6 +224,6 @@ describe("coding task worktrees (the task axis)", () => {
       terminals: Array<{ terminalId: string; cwd: string }>;
     };
     const mine = listed.terminals.find((t) => t.terminalId === terminal.terminalId);
-    expect(mine?.cwd).toBe(taskDir);
+    expect(mine?.cwd).toBe(wsDir);
   });
 });

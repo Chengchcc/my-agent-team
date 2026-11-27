@@ -3,7 +3,6 @@ import { ConflictError, NotFoundError, ValidationError } from "../../infra/domai
 import type { EntityLabelResolver } from "../../infra/entity-labels.js";
 import { createWsTicketRegistry } from "../../infra/ws-ticket.js";
 import { readAgentStatusFor } from "./agent-status.js";
-import type { TaskWorktree } from "./task-worktrees.js";
 import type { TerminalCommand, TerminalInfo, TerminalRegistry } from "./terminal-registry.js";
 
 /** Coding-page surface (Herd-style terminals for project worktrees).
@@ -32,27 +31,15 @@ export interface CodingRoutesDeps {
   registry: TerminalRegistry;
   /** `projectId` null/absent = the agent's OWN workspace (no worktree): the
    *  directory a room's worker runs in, so a conversation links right to it
-   *  (ADR 0073). */
+   *  (ADR 0073). When `workspaceId` is given, resolves the ADR 0077 requirement
+   *  checkout directly. */
   resolveTarget: (
     projectId: string | null | undefined,
     agentId: string,
-    worktreePath?: string,
+    workspaceId?: string,
   ) => Promise<CodingTarget>;
   /** ws://host:port the browser connects terminals to (direct, plan A). */
   wsBase: string;
-  /** Task worktrees (the task axis): list existing, create a new one. */
-  listTaskWorktrees: (projectId: string) => Promise<readonly TaskWorktree[]>;
-  createTaskWorktree: (
-    projectId: string,
-    agentId: string,
-    slug: string,
-  ) => Promise<{ path: string }>;
-  removeTaskWorktree: (
-    projectId: string,
-    agentId: string,
-    slug: string,
-    force: boolean,
-  ) => Promise<{ path: string }>;
   /** ADR 0082 D5: optional batch label resolver for terminal DTOs. */
   labelResolver?: EntityLabelResolver;
   /** ADR 0082 D3: resolve current requirement for a conversation when spawning a terminal. */
@@ -68,14 +55,7 @@ interface WsIn {
 }
 
 export function codingRoutes(deps: CodingRoutesDeps) {
-  const {
-    registry,
-    resolveTarget,
-    wsBase,
-    listTaskWorktrees,
-    createTaskWorktree,
-    removeTaskWorktree,
-  } = deps;
+  const { registry, resolveTarget, wsBase } = deps;
   // Per-socket state stored directly on `ws.data` (not a WeakMap keyed on
   // Elysia's ephemeral wrapper object) so `message()` and `close()` always
   // observe the authenticated state and unsubscribe handle cleanly.
@@ -159,7 +139,7 @@ export function codingRoutes(deps: CodingRoutesDeps) {
           const target = await resolveTarget(
             body.projectId ?? null,
             body.agentId,
-            body.worktreePath,
+            body.workspaceId,
           );
           const inferredRequirementId =
             body.requirementId ??
@@ -204,63 +184,8 @@ export function codingRoutes(deps: CodingRoutesDeps) {
           conversationId: t.Optional(t.String({ minLength: 1 })),
           requirementId: t.Optional(t.String({ minLength: 1 })),
           title: t.Optional(t.String({ minLength: 1 })),
-          worktreePath: t.Optional(t.String({ minLength: 1 })),
           cols: t.Optional(t.Integer({ minimum: 2, maximum: 500 })),
           rows: t.Optional(t.Integer({ minimum: 2, maximum: 300 })),
-        }),
-      },
-    )
-    .get(
-      "/api/coding/worktrees",
-      ({ query: { projectId } }) => listTaskWorktrees(projectId).then((w) => ({ worktrees: w })),
-      { query: t.Object({ projectId: t.String({ minLength: 1 }) }) },
-    )
-    .post(
-      "/api/coding/worktrees",
-      async ({ body, set }) => {
-        try {
-          const created = await createTaskWorktree(body.projectId, body.agentId, body.slug);
-          set.status = 201;
-          return created;
-        } catch (err) {
-          const mapped = mapDomainError(err);
-          if (mapped) return mapped;
-          throw err;
-        }
-      },
-      {
-        body: t.Object({
-          projectId: t.String({ minLength: 1 }),
-          agentId: t.String({ minLength: 1 }),
-          slug: t.String({ minLength: 1, maxLength: 40 }),
-        }),
-      },
-    )
-    .post(
-      "/api/coding/worktrees/remove",
-      async ({ body, set }) => {
-        try {
-          const removed = await removeTaskWorktree(
-            body.projectId,
-            body.agentId,
-            body.slug,
-            body.force ?? false,
-          );
-          set.status = 200;
-          return removed;
-        } catch (err) {
-          const mapped = mapDomainError(err);
-          if (mapped) return mapped;
-          throw err;
-        }
-      },
-      {
-        body: t.Object({
-          projectId: t.String({ minLength: 1 }),
-          agentId: t.String({ minLength: 1 }),
-          slug: t.String({ minLength: 1, maxLength: 40 }),
-          // Discards uncommitted changes; the UI warns before setting it.
-          force: t.Optional(t.Boolean()),
         }),
       },
     )

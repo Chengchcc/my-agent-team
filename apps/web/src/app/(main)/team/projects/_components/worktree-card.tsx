@@ -1,23 +1,18 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
-import { FastForward, GitBranch, GitMerge, Terminal } from "lucide-react";
+import { GitBranch } from "lucide-react";
 import Link from "next/link";
-import { useId, useState } from "react";
-import { toast } from "sonner";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { useConfirm } from "@/components/ui/confirm-dialog";
-import { useAgentList } from "@/features/agents/hooks";
 import { useProjectWorktreeDiff } from "@/features/projects/hooks";
-import { projectKeys } from "@/features/projects/query-keys";
-import { api } from "@/lib/api";
 import { t } from "@/lib/i18n";
 
 export interface WorktreeRow {
-  agentId: string;
+  workspaceId: string;
+  requirementId: string | null;
   branch: string;
+  path: string;
   ahead: number;
   behind: number;
   worktreeReady: boolean;
@@ -25,64 +20,20 @@ export interface WorktreeRow {
 
 const MAX_DIFF_LINES = 200;
 
-/** One agent's worktree card (ADR 0023 P2 / ADR 0081): branch status vs the project base branch,
- *  expandable diff, in-page fast-forward / merge, and direct link into Coding workbench. */
+/** ADR 0076 / ADR 0077: read-only requirement workspace card. Shows branch status vs
+ *  the base branch and an expandable diff; delivery goes through `project_push` + PR. */
 export function WorktreeCard({ projectId, row }: { projectId: string; row: WorktreeRow }) {
-  const qc = useQueryClient();
-  const pushId = useId();
   const [open, setOpen] = useState(false);
-  const [push, setPush] = useState(false);
-  const [acting, setActing] = useState<"fast-forward" | "merge" | null>(null);
-  const { confirm, dialog: confirmDialog } = useConfirm();
-  const { data: agents } = useAgentList();
-  const agentName = agents?.find((a) => a.id === row.agentId)?.name ?? row.agentId;
   const { data: diff, isLoading: diffLoading } = useProjectWorktreeDiff(
     projectId,
-    row.agentId,
+    row.workspaceId,
     open,
   );
-
-  async function act(kind: "fast-forward" | "merge") {
-    if (acting) return;
-    const title =
-      kind === "merge"
-        ? push
-          ? t("Merge {branch} into the base branch and push to origin?", { branch: row.branch })
-          : t("Merge {branch} into the base branch?", { branch: row.branch })
-        : push
-          ? t("Fast-forward {branch} into the base branch and push to origin?", {
-              branch: row.branch,
-            })
-          : t("Fast-forward {branch} into the base branch?", { branch: row.branch });
-    const ok = await confirm({
-      title,
-      confirmText: kind === "merge" ? t("Merge") : t("Fast-forward"),
-    });
-    if (!ok) return;
-    setActing(kind);
-    try {
-      if (kind === "fast-forward") {
-        await api.projectWorktreeFastForward(projectId, row.agentId, { push });
-      } else {
-        await api.projectWorktreeMerge(projectId, row.agentId, { push });
-      }
-      await qc.invalidateQueries({ queryKey: projectKeys.worktrees(projectId) });
-      await qc.invalidateQueries({ queryKey: projectKeys.worktreeDiff(projectId, row.agentId) });
-      toast.success(kind === "merge" ? t("Merged") : t("Fast-forwarded"));
-    } catch (err) {
-      toast.error(kind === "merge" ? t("Failed to merge") : t("Failed to fast-forward"), {
-        description: err instanceof Error ? err.message : t("Unknown error"),
-      });
-    } finally {
-      setActing(null);
-    }
-  }
 
   const rawDiff = diff?.diff ?? "";
   const allLines = rawDiff === "" ? [] : rawDiff.split("\n");
   const clipped = allLines.length > MAX_DIFF_LINES;
   const visibleDiff = allLines.slice(0, MAX_DIFF_LINES).join("\n");
-  const codingHref = `/coding?locate=1&agent=${encodeURIComponent(row.agentId)}&project=${encodeURIComponent(projectId)}`;
 
   return (
     <article
@@ -96,9 +47,18 @@ export function WorktreeCard({ projectId, row }: { projectId: string; row: Workt
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <strong className="truncate text-sm font-[550] text-(--ink-strong)">
-                {agentName}
-              </strong>
+              {row.requirementId ? (
+                <Link
+                  href={`/requirements/${encodeURIComponent(row.requirementId)}`}
+                  className="truncate text-sm font-[550] text-(--ink-strong) hover:text-(--primary)"
+                >
+                  {row.requirementId.slice(0, 12)}
+                </Link>
+              ) : (
+                <strong className="truncate text-sm font-[550] text-(--ink-strong)">
+                  {row.workspaceId.slice(0, 12)}
+                </strong>
+              )}
               <code className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[11px] text-(--mute)">
                 {row.branch}
               </code>
@@ -111,9 +71,7 @@ export function WorktreeCard({ projectId, row }: { projectId: string; row: Workt
               {!row.worktreeReady && (
                 <>
                   <span>·</span>
-                  <span className="font-sans text-(--warn)">
-                    {t("Worktree not materialized — attach to materialize")}
-                  </span>
+                  <span className="font-sans text-(--warn)">{t("Not ready")}</span>
                 </>
               )}
             </div>
@@ -121,46 +79,8 @@ export function WorktreeCard({ projectId, row }: { projectId: string; row: Workt
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 pr-1">
-            <Checkbox
-              id={pushId}
-              checked={push}
-              onCheckedChange={(checked) => setPush(checked === true)}
-            />
-            <label htmlFor={pushId} className="cursor-pointer text-xs text-(--mute) select-none">
-              {t("Push")}
-            </label>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void act("fast-forward")}
-            disabled={row.ahead === 0 || acting !== null}
-            title={row.ahead === 0 ? t("Nothing ahead of the base branch") : undefined}
-          >
-            <FastForward className="size-3.5" /> {t("FF")}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void act("merge")}
-            disabled={row.ahead === 0 || acting !== null}
-            title={row.ahead === 0 ? t("Nothing ahead of the base branch") : undefined}
-          >
-            <GitMerge className="size-3.5" /> {t("Merge")}
-          </Button>
           <Button variant="ghost" size="sm" onClick={() => setOpen((v) => !v)}>
             {open ? t("Hide diff") : t("Diff")}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            nativeButton={false}
-            title={t("Open worktree in Coding")}
-            aria-label={t("Open worktree in Coding")}
-            render={<Link href={codingHref} />}
-          >
-            <Terminal className="size-3.5" />
           </Button>
         </div>
       </div>
@@ -180,7 +100,6 @@ export function WorktreeCard({ projectId, row }: { projectId: string; row: Workt
           </pre>
         </div>
       )}
-      {confirmDialog}
     </article>
   );
 }

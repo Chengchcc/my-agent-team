@@ -10,12 +10,6 @@ export function conversationRoutes(
   svc: ConversationService,
   idGen: () => string,
   projectExists?: (id: string) => boolean,
-  /** ADR 0041 member management; absent = routes 404/empty-list degrade. */
-  members?: {
-    list(conversationId: string): string[];
-    add(conversationId: string, agentId: string): Promise<boolean> | boolean;
-    remove(conversationId: string, agentId: string): boolean;
-  },
   /** ADR 0049: role lookup for the creation guard (front desk invariant).
    * Absent = any agent may own a conversation (today's behaviour). */
   agentRoleOf?: (id: string) => Promise<"front" | "worker" | undefined>,
@@ -173,7 +167,6 @@ export function conversationRoutes(
           const result = await svc.postMessage({
             conversationId: id,
             content: `[${describeAnchor(ref.filename, body.anchor)}] ${body.text}`,
-            addressedTo: body.addressedTo,
             anchor: { url: body.url, anchor: body.anchor },
           });
           set.status = 202;
@@ -184,7 +177,6 @@ export function conversationRoutes(
             url: t.String({ minLength: 1 }),
             anchor: t.Unknown(),
             text: t.String({ minLength: 1 }),
-            addressedTo: t.Optional(t.Array(t.String({ minLength: 1 }))),
           }),
         },
       )
@@ -202,41 +194,6 @@ export function conversationRoutes(
         },
       )
       .get("/api/saved", () => ({ saved: svc.port.listSaved() }))
-      .get("/api/conversations/:id/members", ({ params: { id } }) => ({
-        members: members?.list(id) ?? [],
-      }))
-      .post(
-        "/api/conversations/:id/members",
-        async ({ params: { id }, body, set }) => {
-          try {
-            const added = await members?.add(id, body.agentId);
-            set.status = added ? 201 : 200;
-            return { members: members?.list(id) ?? [] };
-          } catch (err) {
-            return Response.json(
-              { error: err instanceof Error ? err.message : "cannot add member" },
-              { status: 400 },
-            );
-          }
-        },
-        { body: t.Object({ agentId: t.String({ minLength: 1 }) }) },
-      )
-      .delete("/api/conversations/:id/members/:agentId", async ({ params, set }) => {
-        try {
-          const removed = members?.remove(params.id, params.agentId) ?? false;
-          if (!removed) {
-            set.status = 404;
-            return { error: "not a member" };
-          }
-          set.status = 200;
-          return { members: members?.list(params.id) ?? [] };
-        } catch (err) {
-          return Response.json(
-            { error: err instanceof Error ? err.message : "cannot remove member" },
-            { status: 400 },
-          );
-        }
-      })
       .delete("/api/conversations/:id", async ({ params: { id }, set }) => {
         const deleted = await svc.port.deleteConversation(id);
         if (!deleted) return Response.json({ error: "Not found" }, { status: 404 });
@@ -249,15 +206,10 @@ export function conversationRoutes(
           const result = await svc.postMessage({
             conversationId,
             senderMemberId: body.senderMemberId,
-            addressedTo: body.addressedTo,
+            trigger: body.trigger,
             content: body.content,
             mode: body.mode,
             modelOverride: body.model,
-            source: body.source,
-            // ADR 0066 D4: the human is talking to a worker directly. The
-            // surface can only ASK for this; the authorization basis is still
-            // written server-side.
-            ...(body.directToWorker === true ? { directToWorker: true } : {}),
           });
           set.status = 202;
           return result;
@@ -265,21 +217,9 @@ export function conversationRoutes(
         {
           body: t.Object({
             senderMemberId: t.Optional(t.String({ minLength: 1 })),
-            addressedTo: t.Optional(t.Array(t.String())),
-            // The only two shapes the writer understands (service.postMessage):
-            // a plain string, or ContentBlock[] for attachments. `t.Any()`
-            // used to stand here, which silently accepted anything — and since
-            // this schema is the wire type every caller shares through Eden
-            // Treaty, `any` also switched OFF the compile-time check that would
-            // have caught the Lark bot posting `{ text, source, ... }`: the
-            // request validated, the writer matched neither branch, and the
-            // user's message was stored with no text at all. A message that
-            // arrives with text and is stored without it is the worst failure
-            // shape there is, so the shape is now stated.
+            /** False = ledger-only note (no agent run triggered). Default true. */
+            trigger: t.Optional(t.Boolean()),
             content: t.Union([t.String(), t.Array(t.Record(t.String(), t.Any()))]),
-            /** ADR 0066 D4: address a worker directly instead of the front
-             *  desk. The server keeps writing the authorization itself. */
-            directToWorker: t.Optional(t.Boolean()),
             mode: t.Optional(
               t.Union([t.Literal("normal"), t.Literal("steer"), t.Literal("follow_up")]),
             ),
@@ -302,12 +242,6 @@ export function conversationRoutes(
                   ]),
                 ),
               }),
-            ),
-            // ADR 0046: provenance for ambient rules. Only surfaces that can
-            // observe unaddressed messages (lark-bot) send this; the shape is
-            // the wire contract for chat scoping.
-            source: t.Optional(
-              t.Object({ kind: t.Literal("lark"), chatId: t.String({ minLength: 1 }) }),
             ),
           }),
         },
@@ -451,7 +385,6 @@ export function conversationRoutes(
             fromSeq: t.Number(),
             editedContent: t.String(),
             senderMemberId: t.Optional(t.String()),
-            addressedTo: t.Optional(t.Array(t.String())),
           }),
         },
       )

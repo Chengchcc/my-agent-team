@@ -308,7 +308,6 @@ describe("Wave 1 security regressions", () => {
     const acMcp = await createAgentConfigMcpServer({
       readConfig: async () => ({}),
       agentExists: async () => true,
-      createAgent: async () => ({ id: "x" }),
       tokenRegistry: registry,
     });
     try {
@@ -329,7 +328,6 @@ describe("Wave 1 security regressions", () => {
     const deps = {
       readConfig: async () => ({}),
       agentExists: async () => true,
-      createAgent: async () => ({ id: "x" }),
       reserveCreate: createCreateBudget({ max: 1, windowMs: 60_000 }),
     };
     await expect(

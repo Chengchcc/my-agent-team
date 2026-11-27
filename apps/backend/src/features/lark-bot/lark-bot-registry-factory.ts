@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { parseEnv } from "@chengchenccc/config";
 import type { BackendConfig } from "../../config.js";
 import type { LarkBotRegistry } from "./index.js";
-import { DevLarkBotRegistry, ProdLarkBotRegistry } from "./index.js";
+import { DevLarkBotRegistry } from "./index.js";
 import { SystemdLarkBotRegistry } from "./systemd-registry.js";
 
 const _env = parseEnv(process.env);
@@ -38,13 +38,10 @@ export function createLarkBotRegistry(
       ...(opts?.heartbeatOf ? { heartbeatOf: opts.heartbeatOf } : {}),
     });
   }
-  const runnerEnv = _env.RUNNER_ENV ?? "dev";
-  if (runnerEnv === "prod") {
-    return new ProdLarkBotRegistry();
-  }
   return new DevLarkBotRegistry({
     dataDir: config.dataDir,
     larkBotBin: LARK_BOT_DEV_ENTRY,
     backendUrl: `http://${config.host}:${config.port}`,
+    ...(opts?.heartbeatOf ? { heartbeatOf: opts.heartbeatOf } : {}),
   });
 }

@@ -6,30 +6,16 @@ tags: [backend, proactive, wiki, recall, requirements]
 
 # Proactive & Knowledge
 
-This document covers the six backend capabilities that keep CrewDesk stateful across turns and rooms: **Proactive ambient rules & assessment**, **Reminders**, **Requirements**, the **Git-backed Wiki**, **Unified Recall & Cross-Process Memory**, and **Attention Debt**.
+This document covers the five backend capabilities that keep CrewDesk stateful across turns and rooms: **Reminders**, **Requirements**, the **Git-backed Wiki**, **Unified Recall & Cross-Process Memory**, and **Attention Debt**. (Legacy `features/proactive/` ambient rules & semantic assessment were retired.)
 
 ## Authoritative files
 
-- `apps/backend/src/features/proactive/domain.ts` & `service.ts` & `assessment.ts` & `http.ts` — Ambient rule matching, async semantic assessment, `proactive_event` audit log
 - `apps/backend/src/features/reminder/service.ts` & `cron.ts` & `http.ts` — One-shot & 5-field cron reminders
 - `apps/backend/src/features/requirement/domain.ts` & `service.ts` & `http.ts` — Requirement lifecycle & derived view status
 - `apps/backend/src/features/wiki/domain.ts` & `adapter-fs.ts` & `service.ts` & `http.ts` — Git-backed Markdown Wiki, CAS revisions, lint
 - `apps/backend/src/features/recall/domain.ts` & `cues.ts` & `recall.ts` & `memory-recall.ts` — Unified recall across 6 sources & cross-process memory reader
 - `apps/backend/src/features/agent-run/recall.ts` — Turn-start recall fan-out, prompt rendering, slot evidence
 - `apps/backend/src/features/agent-run/http.ts` — `GET /api/attention`, `POST /api/attention/seen`, `POST /api/attention/:actionId/correct`, `/api/attention/draft`
-
-## Ambient Rules & Semantic Assessment (`features/proactive/`)
-
-Unaddressed messages observed from external surfaces (currently `source: { kind: "lark", chatId }` in single-member rooms) enter `proactiveSvc.evaluate()` at `ConversationService.postMessage`'s observe seam (ADRs 0046, 0048):
-
-1. **Deterministic rules first (`agent.yml` → `lark.ambient.rules[]`):**
-   - Fields: `id`, `chats[]`, `senders[]` (matches both `human:lark:<open_id>` and bare `<open_id>`), `keyword` (case-insensitive substring), optional `agent` target, `mode: "record" | "act"`, and `instruction` (required for `"act"`).
-   - First-match-wins. **Audit writes before acting:** inserts a `proactive_event` row (`snippet <= 200 chars`) before returning; an insert error cancels promotion. `"act"` joins the target agent if needed and promotes with `authorization: "ambient:<ruleId>"`.
-2. **Background semantic assessment (on rule miss):**
-   - Configured per message via settings KV `"proactiveAssessment"`: `{ mode: "off" | "observe" | "auto", model?: "<provider>/<model>" }`.
-   - Runs fire-and-forget (tracked for graceful `drain()`) with `ASSESSMENT_TIMEOUT_MS = 25_000`, giving the model the enabled roster cards (`rosterCards()`).
-   - Outcomes: `accept: false` is **not** recorded; timeouts/parse errors record `outcome: "error"`; `observe` records `outcome: "recorded"`; `auto` records `outcome: "triggered"` first, then promotes via `authorization: "ambient:assessment"`.
-- **Audit route:** `GET /api/proactive/events?agentId=&limit=` (default 50, max 200). `proactive_event` intentionally has no FK to `conversation` so audit history survives room deletion.
 
 ## Reminders (`features/reminder/`)
 
@@ -76,9 +62,9 @@ One uniform entry point (`recall/recall.ts`) serves both turn-start context enri
 - **6 Sources (`RecallSource`):** `history`, `qa`, `capability`, `memory`, `requirement`, `skill`. Every response returns `{ hits, searched, skipped }` — unavailable sources are **never silently dropped** (e.g., `skill` always reports skipped: `"lives in the run's process (skill packs)"`).
 - **Cue-gated activation (`recall/cues.ts`):** `extractCues(text)` checks 23 CN/EN back-reference cues (`这个`, `刚才`, `上次`, `this`, `earlier`, etc.) and 5 identifier regexes (`#123`, `seq:N`, file paths, `ALL_CAPS_CONST`, semver; query capped at `200 chars`). If `needsRecall(cues)` is false, turn recall skips DB lookups completely.
 - **Turn-start fan-out (`agent-run/recall.ts`):** fans out over `["qa", "history", "memory", "requirement"]` (`MAX_HITS = 6`, `MAX_PINNED_QA = 3`, `MAX_HISTORY = 6`, `HIT_CHARS = 300`), rendering `## Recall (this turn)` with timestamps and provenance refs (capped at 8 in dispatch briefs).
-- **Cross-process long-term memory (`recall/memory-recall.ts` + `remember` tool):**
-  - **Producer (`remember` tool):** permitted **only** when `run.authorization === "user"`. Appends deduplicated `- [YYYY-MM-DD] <text>` entries to `<workspace>/.oma/memory/product.md`.
-  - **Reader (`createMemoryRecall`):** reads `<workspace>/.oma/memory/product.md` first (CJK bigram + ASCII term matching), then opens `<workspace>/.oma/memory/memory.db` **strictly read-only** if it already exists (never creates it; hybrid vector + FTS when `BACKEND_EMBEDDING_MODEL` is configured, else keyword-only; swallows lock/corrupt errors gracefully).
+- **Long-term memory (`remember` tool → Wiki & `recall/memory-recall.ts`):**
+  - **Producer (`remember` tool):** permitted **only** when `run.authorization === "user"`. Appends deduplicated `- [YYYY-MM-DD] <text>` entries directly to `personal/<agentId>/memories.md` in the Git-backed Wiki (with `conversation:<id>` source citation and CAS retry), unifying backend memory on the Wiki surface.
+  - **Reader (`createMemoryRecall`):** opens `<workspace>/.oma/memory/memory.db` **strictly read-only** if it already exists for standalone `oma` runs (never creates it; hybrid vector + FTS when `BACKEND_EMBEDDING_MODEL` is configured, else keyword-only; swallows lock/corrupt errors gracefully).
 
 ## Attention Debt (`GET /api/attention`, ADR 0061)
 

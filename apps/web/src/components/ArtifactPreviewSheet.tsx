@@ -118,15 +118,11 @@ export function ArtifactPreviewSheet({
   async function send(): Promise<void> {
     if (artifact === null || conversationId === undefined || selection === null) return;
     const end = selection.start === selection.end ? undefined : selection.end;
-    const base = {
+    const body = {
       url: artifact.url,
       anchor: { kind: "lines", start: selection.start, end },
       text: comment.trim(),
     };
-    // Rooms route comments to the producing agent; 1:1 leaves routing to the
-    // derived default.
-    const agentId = artifact.source?.agentId;
-    const body = agentId === undefined ? base : { ...base, addressedTo: [agentId] };
     setSending("sending");
     try {
       await api.postArtifactComment(conversationId, body);

@@ -336,9 +336,6 @@ function revisionToMessage(revision: ReturnType<typeof deserializeLedgerContent>
     ...(revision.visibility !== undefined ? { visibility: revision.visibility } : {}),
     ...(revision.error !== undefined ? { error: revision.error } : {}),
     ...(isAnchorMeta(revision.anchor) ? { anchor: revision.anchor } : {}),
-    ...(revision.floorFor !== undefined && revision.floorFor !== null
-      ? { floorFor: revision.floorFor }
-      : {}),
     ...(revision.dispatchTo !== undefined && revision.dispatchTo !== null
       ? { dispatchTo: revision.dispatchTo }
       : {}),

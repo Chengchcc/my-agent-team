@@ -13,7 +13,7 @@
  *  pointer, requirement/conversation M:N would make every message ambiguous.
  */
 import type { Database } from "bun:sqlite";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../../infra/db/schema.js";
 import {
@@ -44,9 +44,40 @@ export interface WorkspaceRecord {
   status: "open" | "released";
 }
 
+export interface ProjectWorkspaceRecord extends WorkspaceRecord {
+  requirementId: string | null;
+}
+
 export function createWorkspaceService(deps: WorkspaceDeps) {
   const db = drizzle(deps.db, { schema, casing: "snake_case" });
   return {
+    getById(workspaceId: string): WorkspaceRecord | null {
+      const row = db.select().from(workspace).where(eq(workspace.workspaceId, workspaceId)).get();
+      return row ? toRecord(row) : null;
+    },
+
+    /** ADR 0077: all OPEN requirement checkouts for a project, newest first. */
+    listForProject(projectId: string): ProjectWorkspaceRecord[] {
+      const rows = db
+        .select({
+          workspace,
+          requirementId: requirementWorkspace.requirementId,
+        })
+        .from(workspace)
+        .leftJoin(requirementWorkspace, eq(requirementWorkspace.workspaceId, workspace.workspaceId))
+        .where(and(eq(workspace.projectId, projectId), eq(workspace.status, "open")))
+        .orderBy(desc(workspace.updatedAt))
+        .all();
+      const seen = new Set<string>();
+      const out: ProjectWorkspaceRecord[] = [];
+      for (const row of rows) {
+        if (seen.has(row.workspace.workspaceId)) continue;
+        seen.add(row.workspace.workspaceId);
+        out.push({ ...toRecord(row.workspace), requirementId: row.requirementId ?? null });
+      }
+      return out;
+    },
+
     /** The requirement's OPEN checkout for a project, or null. Read-only: a
      *  guard asks this ("is this run working in a checkout of that project?"),
      *  and a guard must never create anything. */

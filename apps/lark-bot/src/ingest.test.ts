@@ -259,12 +259,9 @@ describe("ingest", () => {
     expect(result.triggered).toBe(true);
     expect(result.ledgerSeq).toBe(1);
 
-    // A 1:1 message names its addressee EXPLICITLY. Leaving it undefined made
-    // routing depend on "the room has one member" — a room that gains a worker
-    // member (after one dispatch) then swallowed every later direct message
-    // with no run and no reply. Live 2026-11-21.
+    // 1:1 room model: DM always posts with trigger=true (no multi-member addressedTo).
     const posted = calls.find((call) => call.url.includes("/messages"));
-    expect(JSON.parse(posted!.body!).addressedTo).toEqual(["agent_123"]);
+    expect(JSON.parse(posted!.body!).trigger).toBe(true);
 
     db.close();
   });
@@ -400,7 +397,6 @@ describe("ingest", () => {
     mockFetch([
       AGENT_CONFIG,
       { body: { conversationId: "conv_topic" } },
-      { body: { members: ["agent_123"] } },
       { body: { seq: 1, triggeredRuns: [{ agentId: "agent_123", runId: "run-1" }] } },
     ]);
     // A topic-chat top-level message carries its own thread id (measured).
@@ -416,7 +412,7 @@ describe("ingest", () => {
       .get("conv_topic") as { topic_root_message_id: string | null };
     expect(binding.topic_root_message_id).toBe("om_t1");
 
-    mockFetch([AGENT_CONFIG, { body: { members: ["agent_123"] } }, { body: { seq: 2 } }]);
+    mockFetch([AGENT_CONFIG, { body: { seq: 2 } }]);
     const inside = await ingest(
       {
         ...groupBase,
@@ -431,12 +427,7 @@ describe("ingest", () => {
     expect(inside.conversationId).toBe("conv_topic");
 
     // And a DIFFERENT topic in the same chat is a different conversation.
-    mockFetch([
-      AGENT_CONFIG,
-      { body: { conversationId: "conv_topic_2" } },
-      { body: { members: [] } },
-      { body: { seq: 3 } },
-    ]);
+    mockFetch([AGENT_CONFIG, { body: { conversationId: "conv_topic_2" } }, { body: { seq: 3 } }]);
     const other = await ingest(
       { ...groupBase, event_id: "evt_t3", message_id: "om_t3", thread_id: "omt_other" },
       ctx,
@@ -444,13 +435,12 @@ describe("ingest", () => {
     expect(other.conversationId).toBe("conv_topic_2");
   });
 
-  test("group message without @bot — posts with source, doesn't trigger", async () => {
+  test("group message without @bot — posts ledger-only with trigger=false", async () => {
     const db = makeDb();
 
     const seen = mockFetch([
       AGENT_CONFIG,
       { body: { conversationId: "conv_grp" } },
-      { body: { members: [] } },
       { body: { seq: 2 } },
     ]);
 
@@ -476,16 +466,11 @@ describe("ingest", () => {
     expect(result.action).toBe("consumed");
     expect(result.triggered).toBe(false); // no @mention
 
-    // ADR 0046: the observation carries its chat so the backend's ambient
-    // rules can scope by it. Without this field every observe post is
-    // anonymous and chat-scoped rules are dead on arrival.
     const post = seen.find((r) => r.url.includes("/messages"));
     const body = JSON.parse(String(post?.body)) as {
-      source?: { kind: string; chatId: string };
-      addressedTo?: string[];
+      trigger?: boolean;
     };
-    expect(body.source).toEqual({ kind: "lark", chatId: "oc_grp" });
-    expect(body.addressedTo).toEqual([]);
+    expect(body.trigger).toBe(false);
 
     db.close();
   });
@@ -570,54 +555,12 @@ describe("ingest", () => {
     db.close();
   });
 
-  test("group message in a multi-member room routes @name to that member (ADR 0041)", async () => {
+  test("group message with @bot — triggers agent with trigger=true (no member roster GETs)", async () => {
     const db = makeDb();
+
     const seen = mockFetch([
       AGENT_CONFIG,
-      { body: { conversationId: "conv_room" } },
-      { body: { members: ["agent_123", "agent_data"] } },
-      {
-        body: [
-          { id: "agent_123", name: "TestBot" },
-          { id: "agent_data", name: "Data Analyst" },
-        ],
-      },
-      { body: { seq: 4, triggeredRuns: [] } },
-    ]);
-    const result = await ingest(
-      {
-        ...baseEvent,
-        event_id: "evt_room",
-        message_id: "om_room",
-        chat_id: "oc_room",
-        chat_type: "group",
-        content: "@Data Analyst pull the weekly numbers",
-        mentions: [{ id: "ou_data", key: "@_user_2", name: "Data Analyst" }],
-      },
-      {
-        db,
-        selfAgentId: "agent_123",
-        selfAgentName: "TestBot",
-        botDisplayName: "TestBot",
-        backendUrl: "http://localhost",
-        profile: "test-profile",
-      },
-    );
-    expect(result.action).toBe("consumed");
-    const post = seen.find((r) => r.url.endsWith("/messages") && r.body);
-    expect(post).toBeTruthy();
-    expect(JSON.parse(post!.body!).addressedTo).toEqual(["agent_data"]);
-  });
-
-  test("group message with @bot — triggers agent", async () => {
-    const db = makeDb();
-
-    mockFetch([
-      AGENT_CONFIG,
       { body: { conversationId: "conv_grp2" } },
-      // ADR 0041: the group path now GETs the member roster before posting;
-      // a one-member roster keeps legacy [selfAgentId] routing.
-      { body: { members: ["agent_123"] } },
       { body: { seq: 3 } },
     ]);
 
@@ -643,6 +586,9 @@ describe("ingest", () => {
 
     expect(result.action).toBe("consumed");
     expect(result.triggered).toBe(true);
+    expect(seen).toHaveLength(3);
+    const post = seen.find((r) => r.url.includes("/messages"));
+    expect(JSON.parse(String(post?.body)).trigger).toBe(true);
 
     db.close();
   });
@@ -757,7 +703,6 @@ describe("ingest", () => {
         },
       },
       { body: { conversationId: "conv_grp" } },
-      { body: { members: [] } },
       { body: { seq: 2 } },
     ]);
 
@@ -789,12 +734,7 @@ describe("ingest", () => {
     // `mentions` array is the only thing that distinguishes them: without it
     // any group member could start a run by typing the bot's name.
     const db = makeDb();
-    mockFetch([
-      AGENT_CONFIG,
-      { body: { conversationId: "conv_grp3" } },
-      { body: { members: [] } },
-      { body: { seq: 4 } },
-    ]);
+    mockFetch([AGENT_CONFIG, { body: { conversationId: "conv_grp3" } }, { body: { seq: 4 } }]);
 
     const result = await ingest(
       {
@@ -856,7 +796,6 @@ describe("ingest", () => {
     mockFetch([
       AGENT_CONFIG,
       { body: { conversationId: "conv_empty" } },
-      { body: { members: [] } },
       { body: { seq: 5, triggeredRuns: [] } },
     ]);
 

@@ -340,35 +340,6 @@ describe("agent-run routes over seeded runs", () => {
     expect(body.runs[0]?.parentRunId).toBe(parent.runId);
   });
 
-  test("pending-actions lists only what a human can still answer", async () => {
-    const seeded = await seedRun("completed", false, true); // stays running
-    const actionId = `${seeded.runId}:c1`;
-    await runPort.createPendingAction(seeded.runId, {
-      actionId,
-      kind: "approval",
-      payload: { callId: "c1", toolName: "bash" },
-    });
-
-    const before = (await (await api(harness, "GET", "/api/pending-actions")).json()) as {
-      actions: Array<{ actionId: string; runStatus: string; kind: string }>;
-    };
-    const hit = before.actions.find((a) => a.actionId === actionId);
-    expect(hit?.runStatus).toBe("waiting");
-    expect(hit?.kind).toBe("approval");
-
-    // Resolved actions leave the list: the read model only shows answerable
-    // things, and consumePendingAction CASes the run back to running.
-    await runPort.consumePendingAction(
-      actionId,
-      { actionId, response: { decision: "allow" } },
-      `${actionId}:allow`,
-    );
-    const after = (await (await api(harness, "GET", "/api/pending-actions")).json()) as {
-      actions: Array<{ actionId: string }>;
-    };
-    expect(after.actions.find((a) => a.actionId === actionId)).toBeUndefined();
-  });
-
   test("a duplicate approval click replays the stored decision; an opposite one conflicts", async () => {
     const seeded = await seedRun("completed", false, true); // stays running
     const actionId = `${seeded.runId}:c9`;

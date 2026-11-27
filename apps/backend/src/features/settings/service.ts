@@ -152,7 +152,6 @@ export function createSettingsService(deps: {
         "GROQ_API_KEY",
         "OPENROUTER_API_KEY",
         "NODE_ENV",
-        "RUNNER_ENV",
       ];
       for (const k of envKeys) {
         const v = env[k];

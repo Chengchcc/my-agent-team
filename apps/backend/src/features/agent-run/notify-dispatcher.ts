@@ -59,7 +59,8 @@ export interface NotifyDispatcherDeps {
   postMessage(input: {
     conversationId: string;
     senderMemberId: string;
-    addressedTo: readonly string[];
+    /** False = ledger-only note (no run triggered). Default true. */
+    trigger: boolean;
     content: string;
     authorization: string;
     parentRunId: string;
@@ -108,11 +109,11 @@ export function createNotifyDispatcher(
       // it goes to the human's proxy instead - one hop, and bounded because
       // that run is authorized `result:` (its own terminal never notifies).
       const frontDesk = await deps.getFrontDeskAgent(targetConversationId);
-      const target = frontDesk !== null && frontDesk !== parent.agentId ? frontDesk : null;
+      const wakeFrontDesk = frontDesk !== null && frontDesk !== parent.agentId;
       await deps.postMessage({
         conversationId: targetConversationId,
         senderMemberId: input.fromAgentId,
-        addressedTo: target === null ? [] : [target],
+        trigger: wakeFrontDesk,
         content: `（自动协作链已到上限（深度 ${MAX_WAKE_DEPTH}），下面这条不再继续自动派发，需要人处理）\n${input.text}`,
         authorization,
         parentRunId: input.runId,
@@ -120,7 +121,7 @@ export function createNotifyDispatcher(
       // Marked only for terminal notices: mid-run reports must not suppress
       // terminal recovery.
       if (isTerminal) await deps.markNotified?.(input.runId);
-      return { delivered: target === null ? "ledger" : "queued" };
+      return { delivered: wakeFrontDesk ? "queued" : "ledger" };
     }
     if (input.wake) {
       const active = await deps.getActiveRun(parent.branchId);
@@ -156,7 +157,7 @@ export function createNotifyDispatcher(
     await deps.postMessage({
       conversationId: targetConversationId,
       senderMemberId: input.fromAgentId,
-      addressedTo: input.wake ? [parent.agentId] : [],
+      trigger: input.wake,
       content: input.text,
       authorization,
       parentRunId: input.runId,

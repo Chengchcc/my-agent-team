@@ -22,18 +22,6 @@ export interface ModelsCatalog {
   list(): Promise<WebModel[]>;
 }
 
-/** Per-backend catalog health (GET /api/models/readiness): unlike
- *  /api/models, one failing backend degrades ONLY its own row — the
- *  Promise.all in the aggregate endpoint fails wholesale, which is the
- *  exact blind spot this endpoint exists to expose. */
-export interface BackendReadinessEntry {
-  backendKind: string;
-  catalogOk: boolean;
-  models: number;
-  available: number;
-  error: string | null;
-}
-
 /** The harness axis (ADR 0040 decision 7): which harnesses exist, and the
  *  models each one declares. Separate from /api/models because a harness is not
  *  a model - the two lists feed two different pickers. */
@@ -41,18 +29,11 @@ export function harnessRoutes(catalog: HarnessCatalog) {
   return new Elysia().get("/api/harnesses", async () => ({ harnesses: await catalog.list() }));
 }
 
-export function modelRoutes(
-  catalog: ModelsCatalog,
-  backendReadiness?: () => Promise<BackendReadinessEntry[]>,
-) {
-  return new Elysia()
-    .get("/api/models", async () => {
-      const models = await catalog.list();
-      return { providers: groupByProvider(models) };
-    })
-    .get("/api/models/readiness", async () => ({
-      backends: backendReadiness ? await backendReadiness() : [],
-    }));
+export function modelRoutes(catalog: ModelsCatalog) {
+  return new Elysia().get("/api/models", async () => {
+    const models = await catalog.list();
+    return { providers: groupByProvider(models) };
+  });
 }
 
 /** `/api/models` catalog ids are composite `<provider>/<model>`; the provider

@@ -119,7 +119,7 @@ export function ProjectDetailSheet({
             />
           ) : (
             worktrees.map((w) => (
-              <WorktreeCard key={w.agentId} projectId={project.projectId} row={w} />
+              <WorktreeCard key={w.workspaceId} projectId={project.projectId} row={w} />
             ))
           )}
         </div>

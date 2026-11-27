@@ -68,12 +68,8 @@ export interface AgentRunService {
     systemPrompt?: string;
     skillRoots?: readonly string[];
     permissionMode?: string;
-    /** Optional workflow budget (tokens) frozen on the Run. */
-    workflowBudgetTokens?: number;
-    /** Oma workflow-mode input: execute this script instead of a loop. */
-    workflow?: { script: string; args?: unknown };
-    /** ADR 0047 authorization basis ("user" | "ambient:<id>" |
-     *  "dispatch:<agentId>" | "system"), frozen onto the run. */
+    /** ADR 0047 authorization basis ("user" | "dispatch:<agentId>" | "system"),
+     *  frozen onto the run. */
     authorization?: string;
     /** ADR 0051: the dispatching run, frozen onto the run and the queue. */
     parentRunId?: string;
@@ -209,8 +205,6 @@ export function createAgentRunService(deps: AgentRunServiceDeps): AgentRunServic
         skillRoots,
         permissionMode,
         ...(toolPolicy ? { toolPolicy: JSON.stringify(toolPolicy) } : {}),
-        workflowBudgetTokens: input.workflowBudgetTokens,
-        workflow: input.workflow,
         authorization: input.authorization,
         parentRunId: input.parentRunId,
       });

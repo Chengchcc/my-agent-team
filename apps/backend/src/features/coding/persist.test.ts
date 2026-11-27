@@ -1,17 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadPersistedTerminals, savePersistedTerminals } from "./persist.js";
+import { loadPersistedTerminals } from "./persist.js";
 import type { PersistedTerminal } from "./terminal-registry.js";
 
 const dir = mkdtempSync(join(tmpdir(), "coding-persist-"));
 const file = join(dir, "terminals.json");
-afterEachReset();
-
-function afterEachReset() {
-  // nothing — kept for readability
-}
 
 function entry(over: Partial<PersistedTerminal> = {}): PersistedTerminal {
   return {
@@ -26,11 +21,11 @@ function entry(over: Partial<PersistedTerminal> = {}): PersistedTerminal {
 }
 
 describe("coding persist helpers", () => {
-  test("round-trips entries", () => {
-    savePersistedTerminals(file, [
-      entry(),
-      entry({ terminalId: "t-2", kind: "oma", title: "oma" }),
-    ]);
+  test("loads valid entries from legacy terminals.json", () => {
+    writeFileSync(
+      file,
+      JSON.stringify([entry(), entry({ terminalId: "t-2", kind: "oma", title: "oma" })]),
+    );
     const loaded = loadPersistedTerminals(file);
     expect(loaded).toHaveLength(2);
     expect(loaded[1]).toMatchObject({ terminalId: "t-2", kind: "oma" });
@@ -52,16 +47,6 @@ describe("coding persist helpers", () => {
     const loaded = loadPersistedTerminals(file);
     expect(loaded).toHaveLength(1);
     expect(loaded[0]?.terminalId).toBe("t-1");
-  });
-
-  test("save is atomic (no .tmp leftover)", () => {
-    savePersistedTerminals(file, [entry()]);
-    expect(readFileSync(file, "utf8")).toContain("t-1");
-    const tmp = `${file}.tmp`;
-    writeFileSync(tmp, "stale");
-    savePersistedTerminals(file, [entry({ terminalId: "t-9" })]);
-    expect(readFileSync(file, "utf8")).toContain("t-9");
-    rmSync(tmp, { force: true });
     rmSync(dir, { recursive: true, force: true });
   });
 });

@@ -1,16 +1,8 @@
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join as pathJoin, resolve as pathResolve, sep } from "node:path";
 import { Elysia, t } from "elysia";
 import { ZodError } from "zod";
+import { ACP_AGENTS } from "../agent-run/acp/registry.js";
 import { probeCliSetupCapability } from "../lark-bot/provisioner.js";
 import type { LarkSetupManager } from "../lark-bot/setup-manager.js";
 import type { AgentIdentityStore } from "./agent-identity.js";
@@ -24,20 +16,6 @@ import {
 
 import type { AgentService } from "./service.js";
 import { AgentBusyError, AgentNotFoundError } from "./service.js";
-
-/** Bare memory fact filename: no separators, no traversal (memory write API). */
-const FACT_FILE_RE = /^[A-Za-z0-9._-]+\.md$/;
-
-/** ADR 0046: the ambient-rule wire shape (create/update bodies). */
-const AmbientRuleBody = t.Object({
-  id: t.String({ minLength: 1 }),
-  chats: t.Optional(t.Array(t.String({ minLength: 1 }))),
-  senders: t.Optional(t.Array(t.String({ minLength: 1 }))),
-  keyword: t.String({ minLength: 1 }),
-  agent: t.Optional(t.String({ minLength: 1 })),
-  mode: t.Union([t.Literal("record"), t.Literal("act")]),
-  instruction: t.Optional(t.String()),
-});
 
 /** Config writes (create/update) parse through agentConfigSchema; a ZodError
  *  there is an operator mistake (e.g. ADR 0049 worker+lark), not a 500. */
@@ -95,15 +73,6 @@ function toAgentResponse(row: AgentRow, status: string) {
       })),
       requireMention: lk.require_mention,
       respondToMentionAll: lk.respond_to_mention_all,
-      ambientRules: lk.ambient.rules.map((r) => ({
-        id: r.id,
-        chats: r.chats,
-        senders: r.senders,
-        keyword: r.keyword,
-        agent: r.agent ?? null,
-        mode: r.mode,
-        instruction: r.instruction,
-      })),
       status,
     },
   };
@@ -158,16 +127,9 @@ export function agentRoutes(
     runtime: LarkSurfaceRuntime;
     setup: LarkSetupFacts | null;
   } | null>,
-  /** Config-time (backendKind, model) consistency: a model id the target
-   *  kind's catalog doesn't know would only die at run time, so refuse it
-   *  here. Returning true on catalog trouble keeps configuration possible
-   *  while a child-process catalog is down — the check must not become a
-   *  second thing that can be down. */
-  modelKnownForBackend?: (
-    backendKind: string,
-    provider: string,
-    modelId: string,
-  ) => Promise<boolean>,
+  /** Config-time harness validation: defaults to the built-in ACP registry
+   *  (`h in ACP_AGENTS`). Tests may inject a custom predicate. */
+  isKnownHarness: (harness: string) => boolean = (h) => h in ACP_AGENTS,
 ) {
   const statusOf = (row: AgentRow) => deriveLarkStatus(row, larkStatusOf?.(row.id));
 
@@ -179,14 +141,8 @@ export function agentRoutes(
     .post(
       "/api/agents",
       async ({ body, set }) => {
-        if (body.harness && modelKnownForBackend) {
-          // The ACP catalog's ids are `acp/<key>` and its provider slot is the
-          // constant adapter, so a harness is looked up exactly like a model of
-          // that family. An unknown key would otherwise run a different agent.
-          const known = await modelKnownForBackend("acp", "acp", body.harness);
-          if (!known) {
-            return Response.json({ error: `unknown harness ${body.harness}` }, { status: 400 });
-          }
+        if (body.harness && !isKnownHarness(body.harness)) {
+          return Response.json({ error: `unknown harness ${body.harness}` }, { status: 400 });
         }
         try {
           const row = await svc.create(body);
@@ -260,7 +216,6 @@ export function agentRoutes(
               ),
               requireMention: t.Optional(t.Boolean()),
               respondToMentionAll: t.Optional(t.Boolean()),
-              ambientRules: t.Optional(t.Array(AmbientRuleBody)),
             }),
           ),
         }),
@@ -305,11 +260,8 @@ export function agentRoutes(
           // run a different agent, so it is checked whenever the harness is
           // named. The model is the harness's own business - it fails loudly at
           // run time if that harness does not serve it.
-          if (modelKnownForBackend && body.harness !== undefined) {
-            const known = await modelKnownForBackend("acp", "acp", body.harness);
-            if (!known) {
-              return Response.json({ error: `unknown harness ${body.harness}` }, { status: 400 });
-            }
+          if (body.harness !== undefined && !isKnownHarness(body.harness)) {
+            return Response.json({ error: `unknown harness ${body.harness}` }, { status: 400 });
           }
           const row = await svc.update(id, body);
           return toAgentResponse(row, statusOf(row));
@@ -383,7 +335,6 @@ export function agentRoutes(
               ),
               requireMention: t.Optional(t.Boolean()),
               respondToMentionAll: t.Optional(t.Boolean()),
-              ambientRules: t.Optional(t.Array(AmbientRuleBody)),
             }),
           ),
         }),
@@ -415,76 +366,6 @@ export function agentRoutes(
         throw err;
       }
     })
-    .get("/api/agents/:id/memory", async ({ params: { id } }) => {
-      let root: string;
-      try {
-        root = (await svc.getById(id)).workspacePath;
-      } catch {
-        return { memories: [], memSummary: null, memoryMd: null };
-      }
-      // The agent owns its memory under .oma/memory (its learn tool and
-      // memory pipeline both write there): read and write THAT directory.
-      const memDir = pathJoin(root, ".oma", "memory");
-      const factsDir = pathJoin(memDir, "facts");
-      const factFiles = existsSync(factsDir)
-        ? readdirSync(factsDir).filter((f) => f.endsWith(".md"))
-        : [];
-      const facts = factFiles.map((f) => ({
-        file: f,
-        content: readFileSync(pathJoin(factsDir, f), "utf-8").slice(0, 2000),
-      }));
-      const summaryPath = pathJoin(memDir, "memory_summary.md");
-      const mdPath = pathJoin(memDir, "MEMORY.md");
-      return {
-        memories: facts,
-        memSummary: existsSync(summaryPath) ? readFileSync(summaryPath, "utf-8") : null,
-        memoryMd: existsSync(mdPath) ? readFileSync(mdPath, "utf-8") : null,
-      };
-    })
-    .post(
-      "/api/agents/:id/memory",
-      async ({ params: { id }, body }) => {
-        let root: string;
-        try {
-          root = (await svc.getById(id)).workspacePath;
-        } catch {
-          return Response.json({ error: "Not found" }, { status: 404 });
-        }
-        const memDir = pathJoin(root, ".oma", "memory");
-        mkdirSync(memDir, { recursive: true });
-        if (typeof body.memSummary === "string") {
-          writeFileSync(pathJoin(memDir, "memory_summary.md"), body.memSummary, "utf-8");
-        }
-        if (typeof body.memoryMd === "string") {
-          writeFileSync(pathJoin(memDir, "MEMORY.md"), body.memoryMd, "utf-8");
-        }
-        const factsDir = pathJoin(memDir, "facts");
-        if (body.facts) {
-          mkdirSync(factsDir, { recursive: true });
-          for (const f of body.facts) {
-            if (!FACT_FILE_RE.test(f.file))
-              return Response.json({ error: `invalid fact file: ${f.file}` }, { status: 400 });
-            writeFileSync(pathJoin(factsDir, f.file), f.content, "utf-8");
-          }
-        }
-        if (body.deleteFacts) {
-          for (const file of body.deleteFacts) {
-            if (!FACT_FILE_RE.test(file))
-              return Response.json({ error: `invalid fact file: ${file}` }, { status: 400 });
-            rmSync(pathJoin(factsDir, file), { force: true });
-          }
-        }
-        return { ok: true };
-      },
-      {
-        body: t.Object({
-          memSummary: t.Optional(t.String()),
-          memoryMd: t.Optional(t.String()),
-          facts: t.Optional(t.Array(t.Object({ file: t.String(), content: t.String() }))),
-          deleteFacts: t.Optional(t.Array(t.String())),
-        }),
-      },
-    )
     .get(
       "/api/agents/:id/workspace/entries",
       async ({ params: { id }, query }) => {

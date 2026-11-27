@@ -136,7 +136,6 @@ export function buildRunInput(
     systemPrompt?: string;
     skillRoots?: readonly string[];
     cliSessionRef?: string;
-    workflowBudgetTokens?: number;
   } = {
     runId: run.runId,
     model: run.modelRef,
@@ -174,14 +173,12 @@ export function buildRunInput(
   if (run.permissionMode) {
     runSnapshot.permissionMode = run.permissionMode as "ask" | "auto" | "deny" | "yolo";
   }
-  if (run.workflowBudgetTokens != null) runSnapshot.workflowBudgetTokens = run.workflowBudgetTokens;
   return {
     input: {
       inputId: input.inputId,
       message: bridge ? { ...input.message, text: `${bridge}\n\n${inputText}` } : input.message,
     },
     run: runSnapshot,
-    ...(run.workflow ? { workflow: run.workflow } : {}),
     workspace,
     productToolsToken,
     mcpExpandableVars: mcpBridge?.expandableVars?.length

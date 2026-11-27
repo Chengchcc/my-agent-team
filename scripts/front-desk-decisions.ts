@@ -96,12 +96,13 @@ async function settle(conversationId: string): Promise<string> {
     last = runs[0]?.status ?? "none";
     if (last === "completed" || last === "failed" || last === "aborted" || last === "waiting") {
       if (last !== "waiting") return last;
-      const pending = await api<{ actions?: PendingAction[] }>("/api/pending-actions").catch(
-        () => ({ actions: [] as PendingAction[] }),
-      );
-      const mine = (pending.actions ?? []).filter(
-        (a) => a.runId === runs[0]?.runId && a.status === "pending",
-      );
+      const runId = runs[0]?.runId;
+      const detail = runId
+        ? await api<{ pendingActions?: PendingAction[] }>(`/api/agent-runs/${runId}`).catch(() => ({
+            pendingActions: [] as PendingAction[],
+          }))
+        : { pendingActions: [] as PendingAction[] };
+      const mine = (detail.pendingActions ?? []).filter((a) => a.status === "pending");
       if (mine.length === 0) {
         // The run turns `waiting` a beat before its action row lands; giving up
         // immediately recorded "parked" for a run the operator would have

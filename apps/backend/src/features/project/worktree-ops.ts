@@ -1,69 +1,44 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { ConflictError, ValidationError } from "../../infra/domain-errors.js";
+import { NotFoundError } from "../../infra/domain-errors.js";
 import type { ProjectPort } from "./ports.js";
-import { branchName, ensureMirror, TASK_SLUG_RE } from "./worktree.js";
+import { ensureMirror } from "./worktree.js";
 
+/** ADR 0077: read-only status of one requirement-owned checkout. */
 export interface WorktreeStatus {
-  agentId: string;
+  workspaceId: string;
+  requirementId: string | null;
   branch: string;
+  path: string;
   ahead: number;
   behind: number;
   worktreeReady: boolean;
 }
 
-export interface WorktreeRef {
-  /** Task-worktree slug; absent = the agent's main worktree. */
-  slug?: string;
+export interface ProjectWorkspaceRef {
+  workspaceId: string;
+  requirementId: string | null;
+  branch: string;
+  baseRef: string;
+  path: string;
 }
 
+/** Read-only git inspection over a project's requirement workspaces (ADR 0076 /
+ *  ADR 0077). Delivery goes through `project_push` to an `agent/*` branch + PR;
+ *  direct mirror fast-forward / merge into the default branch is retired. */
 export interface WorktreeOps {
   status(projectId: string): Promise<WorktreeStatus[]>;
-  diff(projectId: string, agentId: string, ref?: WorktreeRef): Promise<string>;
-  fastForward(
-    projectId: string,
-    agentId: string,
-    opts: { push: boolean } & WorktreeRef,
-  ): Promise<void>;
-  merge(projectId: string, agentId: string, opts: { push: boolean } & WorktreeRef): Promise<void>;
+  diff(projectId: string, workspaceId: string): Promise<string>;
 }
 
-/** One guard for every slug the ops accept: an invalid slug must never
- *  reach git (it would be interpolated into a ref name). */
-function assertSlug(slug: string | undefined): void {
-  if (slug !== undefined && !TASK_SLUG_RE.test(slug)) {
-    throw new ValidationError(
-      `invalid worktree slug: ${slug} (lowercase letters, digits, dashes; max 40)`,
-    );
-  }
-}
-
-/** Read/merge operations over a project's agent worktrees. All git runs in
- *  the bare mirror (plumbing) — never in a live worktree (a run may hold
- *  it). Base moves are branch -f only; two-sided merges are refused (the
- *  spec's honest boundary: single-branch-ahead only). */
 export function createWorktreeOps(deps: {
   dataDir: string;
   projectPort: ProjectPort;
-  listAgentConfigs: () => Promise<Array<{ id: string; workspacePath: string; projects: string[] }>>;
+  listWorkspacesForProject: (projectId: string) => readonly ProjectWorkspaceRef[];
 }): WorktreeOps {
   const projectOf = (projectId: string) => {
     const project = deps.projectPort.getProject(projectId);
     if (!project?.repoUrl) throw new Error(`project ${projectId} has no repoUrl`);
     return project;
-  };
-
-  /** diff / fast-forward / merge must refuse an agent that is not attached
-   *  to the project: a leftover branch from before a detach is reachable
-   *  otherwise, and the base branch could even be moved onto it. status()
-   *  filters these agents out; these three operations throw instead. */
-  const assertAgentAttached = async (projectId: string, agentId: string): Promise<void> => {
-    const attached = (await deps.listAgentConfigs()).some(
-      (a) => a.id === agentId && a.projects.includes(projectId),
-    );
-    if (!attached) {
-      throw new ConflictError(`agent ${agentId} is not attached to project ${projectId}`);
-    }
   };
 
   const mirrorOf = async (projectId: string): Promise<string> => {
@@ -75,8 +50,6 @@ export function createWorktreeOps(deps: {
     });
   };
 
-  /** Base branch name; null defaultBranch falls back to the remote HEAD
-   *  the mirror recorded at clone time (resolvable as a raw sha). */
   const baseRef = async (projectId: string, mirror: string): Promise<string> => {
     const named = projectOf(projectId).defaultBranch;
     if (named) return named;
@@ -84,7 +57,6 @@ export function createWorktreeOps(deps: {
     return head.trim() || "main";
   };
 
-  /** rev-list counts [behind ahead] between base and the agent branch. */
   const counts = async (mirror: string, base: string, branch: string) => {
     const out = await Bun.$`git -C ${mirror} rev-list --left-right --count ${base}...${branch}`
       .quiet()
@@ -94,121 +66,42 @@ export function createWorktreeOps(deps: {
     return { behind: behind ?? 0, ahead: ahead ?? 0 };
   };
 
-  /** Push the base branch. A mirror clone forbids refspec pushes
-   *  (remote.origin.mirror=true) — override the config per-invocation. */
-  const pushBase = async (mirror: string, base: string): Promise<void> => {
-    const res = await Bun.$`git -C ${mirror} -c remote.origin.mirror=false push origin ${base}`
-      .quiet()
-      .nothrow();
-    if (res.exitCode !== 0) {
-      throw new Error(`push failed: ${res.stderr.toString().slice(0, 200)}`);
-    }
-  };
-
-  /** Move base to the branch tip after the divergence preflight. Shared by
-   *  fast-forward and merge (they differ only in the preflight). A failed
-   * push rolls the base back to its previous tip (the caller never sees a
-   * half-moved state). */
-  const moveBase = async (
-    projectId: string,
-    agentId: string,
-    opts: { push: boolean } & WorktreeRef,
-    preflight: (mirror: string, base: string, branch: string) => Promise<void>,
-  ): Promise<void> => {
-    assertSlug(opts.slug);
-    const mirror = await mirrorOf(projectId);
-    const base = await baseRef(projectId, mirror);
-    const branch = branchName(agentId, projectId, opts.slug);
-    await assertAgentAttached(projectId, agentId);
-    await preflight(mirror, base, branch);
-    const prevTip = (await Bun.$`git -C ${mirror} rev-parse ${base}`.quiet().text()).trim();
-    await Bun.$`git -C ${mirror} branch -f ${base} ${branch}`.quiet();
-    if (opts.push) {
-      try {
-        await pushBase(mirror, base);
-      } catch (err) {
-        await Bun.$`git -C ${mirror} branch -f ${base} ${prevTip}`.quiet().nothrow();
-        throw err;
-      }
-    }
-  };
-
   return {
     async status(projectId) {
       const mirror = await mirrorOf(projectId);
-      const base = await baseRef(projectId, mirror);
-      const agents = (await deps.listAgentConfigs()).filter((a) => a.projects.includes(projectId));
+      const defaultBase = await baseRef(projectId, mirror);
+      const workspaces = deps.listWorkspacesForProject(projectId);
       const out: WorktreeStatus[] = [];
-      for (const a of agents) {
-        const branch = branchName(a.id, projectId);
+      for (const ws of workspaces) {
         const has =
-          (await Bun.$`git -C ${mirror} show-ref --verify refs/heads/${branch}`.quiet().nothrow())
-            .exitCode === 0;
+          (
+            await Bun.$`git -C ${mirror} show-ref --verify refs/heads/${ws.branch}`
+              .quiet()
+              .nothrow()
+          ).exitCode === 0;
         if (!has) continue;
-        const { behind, ahead } = await counts(mirror, base, branch);
+        const { behind, ahead } = await counts(mirror, ws.baseRef || defaultBase, ws.branch);
         out.push({
-          agentId: a.id,
-          branch,
+          workspaceId: ws.workspaceId,
+          requirementId: ws.requirementId,
+          branch: ws.branch,
+          path: ws.path,
           ahead,
           behind,
-          worktreeReady: existsSync(join(a.workspacePath, "projects", projectId)),
+          worktreeReady: existsSync(ws.path),
         });
       }
       return out;
     },
 
-    async diff(projectId, agentId, ref) {
-      await assertAgentAttached(projectId, agentId);
-      assertSlug(ref?.slug);
+    async diff(projectId, workspaceId) {
+      const ws = deps
+        .listWorkspacesForProject(projectId)
+        .find((row) => row.workspaceId === workspaceId);
+      if (!ws) throw new NotFoundError("workspace", workspaceId);
       const mirror = await mirrorOf(projectId);
-      const base = await baseRef(projectId, mirror);
-      const branch = branchName(agentId, projectId, ref?.slug);
-      return Bun.$`git -C ${mirror} diff ${base}...${branch}`.quiet().text();
-    },
-
-    async fastForward(projectId, agentId, opts) {
-      await moveBase(projectId, agentId, opts, async (mirror, base, branch) => {
-        // Diverged = the branches share no single-base ancestry: the merge
-        // base is neither branch tip.
-        const mb = await Bun.$`git -C ${mirror} merge-base ${base} ${branch}`
-          .quiet()
-          .nothrow()
-          .text();
-        const baseTip = await Bun.$`git -C ${mirror} rev-parse ${base}`.quiet().text();
-        if (mb.trim() !== baseTip.trim()) {
-          throw new ConflictError(`fast-forward refused: ${base} diverged from ${branch}`);
-        }
-      });
-    },
-
-    async merge(projectId, agentId, opts) {
-      await moveBase(projectId, agentId, opts, async (mirror, base, branch) => {
-        // merge-tree preflight in the bare mirror (no worktree needed).
-        // Conflict markers AND the "CONFLICT (...)" summary lines arrive on
-        // stderr; the tree oid lands on stdout.
-        const tree = await Bun.$`git -C ${mirror} merge-tree --write-tree ${base} ${branch} 2>&1`
-          .quiet()
-          .nothrow();
-        const text = tree.text();
-        if (tree.exitCode !== 0 || text.includes("<<<<<<<")) {
-          const files = [...text.matchAll(/CONFLICT \([^)]*\): .* in (.+)/g)]
-            .map((m) => m[1])
-            .slice(0, 10);
-          throw new ConflictError(
-            `merge conflicts: ${files.join(", ") || "see merge-tree output"}`,
-          );
-        }
-        const mb = await Bun.$`git -C ${mirror} merge-base ${base} ${branch}`
-          .quiet()
-          .nothrow()
-          .text();
-        const baseTip = await Bun.$`git -C ${mirror} rev-parse ${base}`.quiet().text();
-        if (mb.trim() !== baseTip.trim()) {
-          throw new ConflictError(
-            `diverged; merge both branches manually (base has commits not on ${branch})`,
-          );
-        }
-      });
+      const base = ws.baseRef || (await baseRef(projectId, mirror));
+      return Bun.$`git -C ${mirror} diff ${base}...${ws.branch}`.quiet().text();
     },
   };
 }

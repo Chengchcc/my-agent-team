@@ -9,13 +9,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-/** BackendKind → project config dir (ADR 0003 decision 2: the four
- *  config dirs each oma reads from its cwd). */
+/** Harness key → project config dir (ADR 0003 decision 2). */
 export const KIND_DIR: Record<string, string> = {
   oma: ".oma",
   pi: ".pi",
   omp: ".omp",
-  claude_code: ".claude",
+  claude: ".claude",
 };
 
 export interface SkillLink {
@@ -316,7 +315,9 @@ export function reconcileAgentResources(input: {
     writeProductToolsManifest(root, input.productTools);
   }
   reconcileSkillLinks(input.workspacePath, input.kind, input.skillPacks);
-  writeClaudeSettings(input.workspacePath);
+  if (input.kind === "claude") {
+    writeClaudeSettings(input.workspacePath);
+  }
 }
 
 /** MCP-only bridge write for EXTRA worktree roots (task worktrees, ADR

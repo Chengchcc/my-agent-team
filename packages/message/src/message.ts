@@ -51,8 +51,6 @@ export interface Message {
   stopReason?: string;
   /** Anchored-comment metadata (raft absorption): surfaces render a jump chip. */
   anchor?: { url: string; anchor: unknown };
-  /** ADR 0066 D4: floor visit addressee metadata for room display. */
-  floorFor?: { agentId: string; agentName: string };
   /** ADR 0070: child conversation opened by a dispatch summary line. */
   dispatchTo?: { conversationId: string };
   /** ADR 0060 D3 / 0070: authoring agent id for ledger-only rows with no run. */

@@ -15,8 +15,7 @@
     "format": "biome check --write .",
     "test": "bun test --pass-with-no-tests",
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
-    "db:migrate:backend": "bun run src/main.ts",
-    "mmt": "bun src/mmt.ts"
+    "db:migrate:backend": "bun run src/main.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.5.1",

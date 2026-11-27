@@ -40,7 +40,7 @@ describe("project worktree endpoints", () => {
       const ops = createWorktreeOps({
         dataDir: dir,
         projectPort: svc.port,
-        listAgentConfigs: async () => [],
+        listWorkspacesForProject: () => [],
       });
       const app = new Elysia().use(projectRoutes(svc, ops));
       const st = await app.handle(

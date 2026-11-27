@@ -43,11 +43,6 @@ export interface BackendConfig {
   browserLocalNetwork: boolean;
   /** Credential for project_push against https remotes (ADR 0076). */
   projectPushToken?: string;
-  ompBin?: string;
-  piBin?: string;
-  piMcpAdapterPath?: string;
-  claudeBin?: string;
-  claudePermissionMode?: string;
   productToolsMcpUrl?: string;
   /** Artifacts older than this are swept; undefined/0 keeps them forever. */
   artifactRetentionDays?: number;
@@ -113,10 +108,6 @@ export function loadConfig(env: Env = parseEnv(process.env)): BackendConfig {
     omaPermissionClassifierModel: env.OMA_PERMISSION_CLASSIFIER_MODEL,
     browserLocalNetwork: env.OMA_BROWSER_LOCAL_NETWORK === "1",
     projectPushToken: env.PROJECT_PUSH_TOKEN,
-    piBin: env.PI_BIN,
-    piMcpAdapterPath: env.PI_MCP_ADAPTER_PATH,
-    claudeBin: env.CLAUDE_BIN,
-    claudePermissionMode: env.CLAUDE_PERMISSION_MODE,
     productToolsMcpUrl: env.PRODUCT_TOOLS_MCP_URL,
     artifactRetentionDays: env.ARTIFACT_RETENTION_DAYS,
     summaryModel: env.BACKEND_SUMMARY_MODEL,

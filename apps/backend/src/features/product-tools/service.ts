@@ -400,10 +400,11 @@ export interface ProductToolsServiceDeps {
      *  must never render as a pass. */
     verification?: "not_configured" | "not_run" | "passed" | "failed";
   }) => Promise<{ delivered: "steer" | "queued" | "ledger" }>;
-  /** ADR 0065: append one lesson to this agent's long-term memory file.
-   *  Absent = the tool rejects explicitly. */
+  /** ADR 0065 / C2-A: append one lesson to this agent's personal Wiki page
+   *  (`personal/<agentId>/memories.md`). Absent = the tool rejects explicitly. */
   remember?: (input: {
     agentId: string;
+    conversationId: string;
     text: string;
   }) => Promise<{ saved: boolean; reason?: string }>;
   /** ADR 0059 D6: redirect a RUNNING worker in this conversation. The
@@ -1573,7 +1574,11 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
       throw new ProductToolRejectedError("remember requires text: the lesson to keep");
     }
     return replayOrRecord(run, input, async () => {
-      const out = await deps.remember!({ agentId: run.agentId, text });
+      const out = await deps.remember!({
+        agentId: run.agentId,
+        conversationId: run.conversationId,
+        text,
+      });
       return JSON.stringify({ saved: out.saved, ...(out.reason ? { reason: out.reason } : {}) });
     });
   }

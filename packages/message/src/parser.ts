@@ -103,13 +103,6 @@ export const MessageRevisionSchema = z.object({
    *  surfaces render a jump chip from it; the readable form lives in text.
    *  Nullable for rows written before the field existed. */
   anchor: z.unknown().nullable().optional(),
-  /** ADR 0066 D4: a floor visit — the worker this human message was said to
-   *  directly. The ledger has no addressee column, so the fact rides the row
-   *  and surfaces render it as a chip. Nullable for rows older than the field. */
-  floorFor: z
-    .object({ agentId: z.string().min(1), agentName: z.string().min(1) })
-    .nullable()
-    .optional(),
   /** ADR 0070: a dispatch summary line - the child conversation it opened. The
    *  room renders a link to that room instead of the worker's process. */
   dispatchTo: z

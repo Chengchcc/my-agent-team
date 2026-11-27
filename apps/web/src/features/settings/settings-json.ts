@@ -21,35 +21,14 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const ASSESSMENT_MODES = ["off", "observe", "auto"];
-
 /** Every key the product reads from the settings store, and how it reads it.
  *  Keep in step with the backend: `budget-gate.ts`, `bootstrap/features.ts`
- *  (dispatch, assessment gate, sandbox allowlist) and the two web sections. */
+ *  (dispatch, sandbox allowlist) and the web settings sections. */
 export const SETTING_SPECS: readonly SettingSpec[] = [
   {
     key: "dispatch.reuseChildConversation",
     label: "Reuse the worker's room across dispatches",
     check: (value) => (typeof value === "boolean" ? null : "must be true or false"),
-  },
-  {
-    key: "proactiveAssessment",
-    label: "Semantic assessment gate",
-    check: (value) => {
-      if (!isPlainObject(value)) return "must be an object";
-      for (const name of Object.keys(value)) {
-        if (name !== "mode" && name !== "model") return `has an unknown field "${name}"`;
-      }
-      const mode = value.mode;
-      if (mode !== undefined) {
-        const modeOk = typeof mode === "string" && ASSESSMENT_MODES.includes(mode);
-        if (!modeOk) return "mode must be off, observe or auto";
-      }
-      if (value.model !== undefined && typeof value.model !== "string") {
-        return "model must be a string";
-      }
-      return null;
-    },
   },
   {
     key: "cost.dailyBudgetUsd",

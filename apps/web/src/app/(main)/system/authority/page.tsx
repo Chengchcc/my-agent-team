@@ -26,15 +26,12 @@ import {
   type LedgerSource,
 } from "@/features/ops/authority-ledger";
 import { useAgentRuns } from "@/features/ops/hooks";
-import { useProactiveEvents } from "@/features/proactive/hooks";
-import type { ApiReturn, api } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { executionStatus } from "@/lib/status";
 
 export const dynamic = "force-dynamic";
 
 type LedgerTab = "all" | LedgerSource;
-type ProactiveEventRow = ApiReturn<typeof api.listProactiveEvents>["events"][number];
 
 const PRIMARY_TABS: readonly LedgerTab[] = ["all", "owner", "human", "dispatch"];
 const EXTRA_TABS: readonly LedgerSource[] = ["result", "handback", "unrecorded"];
@@ -222,72 +219,14 @@ function LedgerList({
   );
 }
 
-function outcomeOf(event: ProactiveEventRow): { word: string; tone: FactTone } {
-  if (event.outcome === "recorded") return { word: t("would have acted"), tone: "warn" };
-  if (event.outcome === "triggered") return { word: t("started a run"), tone: "ok" };
-  if (event.outcome === "error") return { word: t("failed to assess"), tone: "err" };
-  const other: { word: string; tone: FactTone } = { word: event.outcome, tone: "muted" };
-  return other;
-}
-
-/** The ambient ledger: what a rule or the assessment gate would have done,
- *  did, or failed to judge. A record like the one above, with no action. */
-function WouldHaveActed({
-  events,
-  agentName,
-}: {
-  events: readonly ProactiveEventRow[];
-  agentName: (agentId: string) => string;
-}) {
-  return (
-    <PanelTable
-      label={t("Would have acted")}
-      columns={[t("When"), t("Outcome"), t("Message"), t("Rule"), t("Conversation")]}
-    >
-      {events.map((event) => {
-        const outcome = outcomeOf(event);
-        return (
-          <PanelRow key={event.id}>
-            <PanelCell label={t("When")} className="font-mono text-[10px] whitespace-nowrap">
-              {new Date(event.ts).toLocaleString()}
-            </PanelCell>
-            <PanelCell label={t("Outcome")}>
-              <Badge variant={badgeVariantOfTone(outcome.tone)} className="font-mono">
-                {outcome.word}
-              </Badge>
-            </PanelCell>
-            <PanelCell label={t("Message")}>
-              <p className="line-clamp-2 text-xs text-(--ink)">{event.snippet}</p>
-              <Note className="mt-1">{agentName(event.agentId)}</Note>
-            </PanelCell>
-            <PanelCell label={t("Rule")} className="font-mono text-[10px]">
-              {event.ruleId === "" ? event.mode : event.ruleId}
-            </PanelCell>
-            <PanelCell label={t("Conversation")} className="font-mono text-[10px]">
-              <Link
-                href={`/chat/${event.conversationId}`}
-                className="text-(--primary-deep) hover:text-(--primary)"
-              >
-                {event.conversationId.slice(0, 8)}
-              </Link>
-            </PanelCell>
-          </PanelRow>
-        );
-      })}
-    </PanelTable>
-  );
-}
-
 export default function AuthorityPage() {
   const [tab, setTab] = useState<LedgerTab>("all");
   const { data: agents } = useAgentList();
   const runsQuery = useAgentRuns({ limit: 200 });
-  const eventsQuery = useProactiveEvents({ limit: 50 });
   const conversationsQuery = useAllConversations();
 
   const rows = useMemo(() => deriveLedgerRows(runsQuery.data?.runs ?? []), [runsQuery.data]);
   const counts = useMemo(() => countLedgerSources(rows), [rows]);
-  const events = eventsQuery.data?.events ?? [];
   const conversations = conversationsQuery.data ?? [];
 
   const agentName = (agentId: string): string => {
@@ -304,7 +243,6 @@ export default function AuthorityPage() {
     const built = { key, label: t(key), count };
     return built;
   });
-  const recorded = events.filter((event) => event.outcome === "recorded").length;
 
   return (
     <Page>
@@ -355,30 +293,6 @@ export default function AuthorityPage() {
             />
           )}
         </QueryState>
-
-        <section className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-[550] text-(--ink-strong)">{t("Would have acted")}</h2>
-            <span className="font-mono text-[10px] text-(--faint)">
-              {t("{count} recorded · {total} events", { count: recorded, total: events.length })}
-            </span>
-          </div>
-          <Note>
-            {t(
-              "Rules in record mode and the assessment gate in observe mode write here. Nothing in this table ran, and nothing here can be approved from this page.",
-            )}
-          </Note>
-          <QueryState
-            query={eventsQuery}
-            empty={(data) => data.events.length === 0}
-            emptyTitle={t("Nothing recorded yet")}
-            emptyDescription={t(
-              "A rule in record mode or the assessment gate in observe mode writes the first row.",
-            )}
-          >
-            {(data) => <WouldHaveActed events={data.events} agentName={agentName} />}
-          </QueryState>
-        </section>
 
         <Note>
           {t(

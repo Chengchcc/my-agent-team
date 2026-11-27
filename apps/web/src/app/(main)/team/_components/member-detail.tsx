@@ -3,14 +3,12 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { IdentityPanel } from "@/components/IdentityPanel";
-import { MemoryPanel } from "@/components/MemoryPanel";
 import { AgentRunsTable } from "@/components/ops/AgentRunsTable";
 import { QueryState } from "@/components/ops/QueryState";
 import { UsagePanel } from "@/components/UsagePanel";
 import { Button } from "@/components/ui/button";
 import { WorkspaceExplorer } from "@/components/WorkspaceExplorer";
 import { useConversationList } from "@/features/conversations/hooks";
-import { AmbientRulesSection } from "@/features/lark/AmbientRulesSection";
 import { LarkSurfacePanel } from "@/features/lark/LarkSurfacePanel";
 import { useMcpCatalog } from "@/features/mcp/hooks";
 import { useAgentRuns } from "@/features/ops/hooks";
@@ -26,7 +24,6 @@ export type MemberTab =
   | "capability"
   | "workspace"
   | "persona"
-  | "memory"
   | "projects"
   | "lark"
   | "activity"
@@ -38,7 +35,6 @@ const TABS: ReadonlyArray<{ id: MemberTab; label: string }> = [
   { id: "capability", label: "Capability" },
   { id: "workspace", label: "Workspace" },
   { id: "persona", label: "Persona" },
-  { id: "memory", label: "Memory" },
   { id: "projects", label: "Projects" },
   { id: "lark", label: "Lark" },
   { id: "activity", label: "Activity" },
@@ -333,8 +329,6 @@ export function MemberDetail({ agent, tab, onEdit }: MemberDetailProps) {
       return <WorkspaceExplorer agentId={agentId} />;
     case "persona":
       return <IdentityPanel agentId={agentId} />;
-    case "memory":
-      return <MemoryPanel agentId={agentId} />;
     case "projects":
       return <AgentProjectsPanel agent={agent} />;
     case "lark":
@@ -369,7 +363,6 @@ function LarkTab({ agent }: { agent: AgentRow }) {
   return (
     <div className="space-y-4">
       <LarkSurfacePanel agentId={agent.id} />
-      <AmbientRulesSection agentId={agent.id} />
     </div>
   );
 }

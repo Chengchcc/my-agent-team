@@ -1,13 +1,8 @@
 "use client";
 
-import { CornerUpLeftIcon, FileDiffIcon } from "lucide-react";
-import { useState } from "react";
 import { toast } from "sonner";
 import { ProjectForm } from "@/components/ProjectForm";
 import { Button } from "@/components/ui/button";
-import { useConfirm } from "@/components/ui/confirm-dialog";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -15,18 +10,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAgentList } from "@/features/agents/hooks";
 import { useProjectList, useProjectWorktrees } from "@/features/projects/hooks";
 import { api, type CodingTerminalRow, type ProjectRow } from "@/lib/api";
 import { t } from "@/lib/i18n";
-import {
-  useCreateTaskWorktree,
-  usePromoteTaskWorktree,
-  useRemoveTaskWorktree,
-  useSpawnTerminal,
-  useTaskWorktrees,
-} from "../hooks";
+import { useSpawnTerminal } from "../hooks";
 import { isTaskWorktreeCwd } from "../locate";
 
 export interface CodingSelection {
@@ -104,40 +92,31 @@ function ProjectWorktreeRows({
   const spawn = useSpawnTerminal();
   const agentsQuery = useAgentList();
   const agents = agentsQuery.data ?? [];
-  const { data: taskData } = useTaskWorktrees(project.projectId);
-  const taskWorktrees = taskData === undefined ? [] : (taskData.worktrees ?? []);
-  const createTask = useCreateTaskWorktree(project.projectId);
-  const removeTask = useRemoveTaskWorktree(project.projectId);
-  const promoteTask = usePromoteTaskWorktree(project.projectId);
-  const { confirm, dialog: confirmDialog } = useConfirm();
-  const [slug, setSlug] = useState("");
-  const [taskAgent, setTaskAgent] = useState("");
-  const [taskDiff, setTaskDiff] = useState<{ title: string; text: string } | null>(null);
 
-  /** Opens the scope. Clicking a row is the explicit act that starts a terminal there when the
-   *  scope has none. */
-  function open(agentId: string, worktreePath?: string, title?: string) {
-    const selection: CodingSelection = { projectId: project.projectId, agentId };
-    const body: { projectId: string; agentId: string; title: string; worktreePath?: string } = {
+  const defaultAgentId =
+    agents.find((a) => a.enabled !== false && a.projects?.includes(project.projectId))?.id ??
+    agents.find((a) => a.enabled !== false)?.id ??
+    "default";
+
+  /** Opens a terminal in the selected ADR 0077 requirement workspace. */
+  function openWorkspace(workspaceId: string, path: string, title: string) {
+    const selection: CodingSelection = {
       projectId: project.projectId,
-      agentId,
-      title: "bash",
+      agentId: defaultAgentId,
+      worktreePath: path,
     };
-    if (worktreePath !== undefined) {
-      selection.worktreePath = worktreePath;
-      body.worktreePath = worktreePath;
-      if (title !== undefined) body.title = title;
-    }
     onSelect(selection);
-    // Dedup by the pane's actual cwd: a task row matches only its own
-    // path's terminals; the main row matches terminals whose cwd is NOT a
-    // task path (main terminals never carry a worktreePath marker).
-    const isMain = worktreePath === undefined;
-    const has = terminals.some((x) => {
-      if (x.projectId !== project.projectId || x.agentId !== agentId) return false;
-      return isMain ? !isTaskWorktreeCwd(x.cwd) : x.cwd === worktreePath;
-    });
-    if (!has) spawn.mutate(body);
+    const has = terminals.some(
+      (x) => x.projectId === project.projectId && (x.workspaceId === workspaceId || x.cwd === path),
+    );
+    if (!has) {
+      spawn.mutate({
+        projectId: project.projectId,
+        agentId: defaultAgentId,
+        workspaceId,
+        title,
+      });
+    }
   }
 
   async function attachAgent(agentId: string) {
@@ -147,111 +126,37 @@ function ProjectWorktreeRows({
     if (!projects.includes(project.projectId)) {
       try {
         await api.updateAgent(agentId, { projects: [...projects, project.projectId] });
-        toast.success(t("Agent attached — worktree materializing"));
+        toast.success(t("Agent attached"));
       } catch (e) {
         toast.error(t("Attach failed"), { description: String(e) });
       }
     }
   }
 
-  async function createSlugWorktree() {
-    const s = slug.trim();
-    const firstAgent = worktrees.at(0);
-    const agentId = taskAgent || (firstAgent === undefined ? "" : firstAgent.agentId);
-    if (!s || !agentId) return;
-    try {
-      await createTask.mutateAsync({ agentId, slug: s });
-      setSlug("");
-      toast.success(t("Task worktree created"));
-    } catch {
-      /* mutation hook already toasts */
-    }
-  }
-
-  /** Two-step removal: attempt WITHOUT force first, so the server tells us
-   *  what is actually at risk (uncommitted changes, unmerged commits) and
-   *  the second confirmation can name it instead of guessing. */
-  async function removeWorktree(tw: { agentId: string; slug: string }) {
-    const ok = await confirm({
-      title: t(`Remove worktree ${tw.slug}?`),
-      description: t("Deletes the checkout and its branch. Close its terminals first."),
-    });
-    if (!ok) return;
-    try {
-      await removeTask.mutateAsync({ agentId: tw.agentId, slug: tw.slug, force: false });
-      toast.success(t("Worktree removed"));
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err);
-      let detail = raw;
-      try {
-        detail = (JSON.parse(raw) as { error?: string }).error ?? raw;
-      } catch {
-        /* not a JSON body — use the raw message */
-      }
-      const discard = await confirm({
-        title: t(`Discard work in ${tw.slug}?`),
-        description: detail,
-        destructive: true,
-      });
-      if (!discard) return;
-      try {
-        await removeTask.mutateAsync({ agentId: tw.agentId, slug: tw.slug, force: true });
-        toast.success(t("Worktree removed"));
-      } catch (retryErr) {
-        toast.error(t("Removal failed"), {
-          description: retryErr instanceof Error ? retryErr.message : String(retryErr),
-        });
-      }
-    }
-  }
-
-  async function showTaskDiff(tw: { agentId: string; slug: string }) {
-    try {
-      const res = await api.projectWorktreeDiff(project.projectId, tw.agentId, {
-        slug: tw.slug,
-      });
-      setTaskDiff({ title: `${tw.slug} → base`, text: res.diff || t("(no changes)") });
-    } catch (err) {
-      toast.error(t("Diff failed"), { description: String(err) });
-    }
-  }
-
-  /** Promote = the same conflict-preflighted base move the project page
-   *  offers for main worktrees, scoped to the task branch. Local mirror
-   *  only — pushing to origin stays an explicit act on the project page. */
-  async function promoteWorktree(tw: { agentId: string; slug: string }) {
-    const ok = await confirm({
-      title: t(`Promote ${tw.slug} into the base branch?`),
-      description: t(
-        "Moves the base branch to this task branch's tip (conflict-checked, not pushed).",
-      ),
-    });
-    if (!ok) return;
-    promoteTask.mutate({ agentId: tw.agentId, slug: tw.slug });
-  }
-
-  const attached = new Set(worktrees.map((wt) => wt.agentId));
-  const attachable = agents.filter((a) => a.enabled !== false && !attached.has(a.id));
-  const agentNameById = new Map(agents.map((a) => [a.id, a.name] as const));
+  const attachable = agents.filter(
+    (a) => a.enabled !== false && !(a.projects ?? []).includes(project.projectId),
+  );
 
   return (
     <div>
-      {confirmDialog}
       {worktrees.length === 0 ? (
         <div className="px-3 py-1 text-[11px] leading-[1.7] text-(--mute)">
-          {t("No worktrees yet — attach an agent to materialize one.")}
+          {t("No open requirement workspaces yet.")}
         </div>
       ) : null}
       {worktrees.map((wt) => {
-        const dot = dotFor(terminals, project.projectId, wt.agentId);
-        const active = selected?.projectId === project.projectId && selected.agentId === wt.agentId;
-        const memberName = agentNameById.get(wt.agentId) ?? wt.agentId;
+        const dot = dotFor(terminals, project.projectId, defaultAgentId);
+        const active =
+          selected?.projectId === project.projectId && selected.worktreePath === wt.path;
+        const label = wt.requirementId
+          ? wt.requirementId.slice(0, 12)
+          : wt.workspaceId.slice(0, 12);
         return (
           <Button
-            key={wt.agentId}
+            key={wt.workspaceId}
             variant="ghost"
-            onClick={() => open(wt.agentId)}
-            title={`${memberName} (${wt.agentId})`}
+            onClick={() => openWorkspace(wt.workspaceId, wt.path, wt.branch)}
+            title={`${wt.branch} (${wt.path})`}
             className={`h-auto w-full justify-start gap-2 rounded-md px-3 py-1.5 text-left text-xs font-normal hover:bg-(--panel2) ${
               active ? "bg-(--panel2)" : ""
             }`}
@@ -260,7 +165,7 @@ function ProjectWorktreeRows({
               {dot.mark}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-(--ink)">{memberName}</span>
+              <span className="block truncate text-(--ink)">{label}</span>
               <span className="block truncate text-[10px] text-(--mute)">
                 {project.name} · {wt.worktreeReady ? wt.branch : t("not ready")}
                 {wt.ahead > 0 ? ` ↑${wt.ahead}` : ""}
@@ -269,87 +174,11 @@ function ProjectWorktreeRows({
           </Button>
         );
       })}
-      {/* Task worktrees (the task axis): slug-scoped checkouts beside the
-          agent's main worktree. */}
-      {taskWorktrees.map((tw) => {
-        const memberName = agentNameById.get(tw.agentId) ?? tw.agentId;
-        return (
-          <div key={`${tw.agentId}:${tw.slug}`} className="group flex items-center">
-            <Button
-              variant="ghost"
-              onClick={() => open(tw.agentId, tw.path, tw.slug)}
-              title={`${tw.slug} · ${memberName} (${tw.agentId})`}
-              className="h-auto min-w-0 flex-1 justify-start gap-2 rounded-md py-1 pr-1 pl-6 text-left text-[11px] font-normal hover:bg-(--panel2)"
-            >
-              <span className="text-(--faint)">↳</span>
-              <span className="min-w-0 flex-1 truncate text-(--ink)">{tw.slug}</span>
-              <span className="truncate text-[10px] text-(--mute)">{memberName}</span>
-            </Button>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-6 shrink-0 text-(--faint) opacity-0 transition-opacity hover:text-(--info) group-hover:opacity-100"
-                    onClick={() => void showTaskDiff(tw)}
-                  >
-                    <FileDiffIcon className="size-3.5" />
-                  </Button>
-                }
-              />
-              <TooltipContent>{t("Diff vs base")}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-6 shrink-0 text-(--faint) opacity-0 transition-opacity hover:text-(--primary) group-hover:opacity-100"
-                    onClick={() => void promoteWorktree(tw)}
-                  >
-                    <CornerUpLeftIcon className="size-3.5" />
-                  </Button>
-                }
-              />
-              <TooltipContent>{t("Promote into base")}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-6 shrink-0 text-(--faint) opacity-0 transition-opacity hover:text-(--err) group-hover:opacity-100"
-                    onClick={() => void removeWorktree(tw)}
-                  />
-                }
-              />
-              <TooltipContent>{t("Remove worktree")}</TooltipContent>
-            </Tooltip>
-          </div>
-        );
-      })}
-      <Dialog open={taskDiff !== null} onOpenChange={(open) => (!open ? setTaskDiff(null) : null)}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle className="font-mono text-sm">
-              {taskDiff === null ? "" : taskDiff.title}
-            </DialogTitle>
-          </DialogHeader>
-          <pre className="max-h-[60vh] overflow-auto rounded-md bg-(--canvas) p-3 font-mono text-[11px]/relaxed  text-(--ink)">
-            {taskDiff === null ? "" : taskDiff.text}
-          </pre>
-        </DialogContent>
-      </Dialog>
-      {/* A worktree is the (agent × project) attach product — this entry is
-          how you create one; already-attached agents are filtered out. */}
       {attachable.length > 0 ? (
         <div className="px-3 py-1">
           <Select value="" onValueChange={(v) => void attachAgent(v ?? "")}>
             <SelectTrigger className="h-7 w-full text-[11px]">
-              <SelectValue placeholder={t("+ attach agent (new worktree)")} />
+              <SelectValue placeholder={t("+ attach agent")} />
             </SelectTrigger>
             <SelectContent>
               {attachable.map((a) => (
@@ -359,50 +188,6 @@ function ProjectWorktreeRows({
               ))}
             </SelectContent>
           </Select>
-        </div>
-      ) : null}
-      {worktrees.length > 0 ? (
-        <div className="flex items-center gap-1 px-3 py-1">
-          <Input
-            value={slug}
-            onChange={(e) => setSlug(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void createSlugWorktree();
-            }}
-            placeholder={t("task slug")}
-            className="h-7 min-w-0 flex-1 text-[11px]"
-          />
-          {worktrees.length > 1 ? (
-            <Select
-              value={taskAgent || worktrees[0]?.agentId || ""}
-              onValueChange={(v) => setTaskAgent(v ?? "")}
-            >
-              <SelectTrigger className="h-7 w-20 text-[11px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {worktrees.map((wt) => (
-                  <SelectItem key={wt.agentId} value={wt.agentId}>
-                    {wt.agentId}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : null}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 shrink-0"
-                  disabled={!slug.trim() || createTask.isPending}
-                  onClick={() => void createSlugWorktree()}
-                />
-              }
-            />
-            <TooltipContent>{t("git worktree add on a fresh task branch")}</TooltipContent>
-          </Tooltip>
         </div>
       ) : null}
     </div>

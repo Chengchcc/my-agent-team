@@ -122,9 +122,6 @@ export interface AgentConfigMcpDeps {
   /** Required: without it agent_write would report a proposal for an id that
    *  has no edit page to adopt it — a false success. */
   readonly agentExists: (agentId: string) => Promise<boolean>;
-  /** Create through the agent service (row + workspace + onCreate chain).
-   *  Never a file write: a hand-made workspace dir is invisible to list(). */
-  readonly createAgent: (input: AgentProxyCreateInput) => Promise<{ id: string }>;
   /** Spend-guard for agent_create; throws when the budget is exhausted. */
   readonly reserveCreate: () => void;
   /** Record the same proposal where a page can read it later (ADR 0040): a proposal that arrives
@@ -258,7 +255,7 @@ export interface AgentConfigMcpServer {
 export async function createAgentConfigMcpServer(
   opts: AgentConfigMcpServerOptions,
 ): Promise<AgentConfigMcpServer> {
-  const { readConfig, agentExists, createAgent, proposals, tokenRegistry } = opts;
+  const { readConfig, agentExists, proposals, tokenRegistry } = opts;
   const reserveCreate = opts.reserveCreate ?? createCreateBudget();
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 0;
@@ -328,7 +325,7 @@ export async function createAgentConfigMcpServer(
       const args = (req.params.arguments ?? {}) as Record<string, unknown>;
       try {
         const text = await callAgentConfigTool(
-          { readConfig, agentExists, createAgent, reserveCreate, proposals },
+          { readConfig, agentExists, reserveCreate, proposals },
           req.params.name,
           args,
         );

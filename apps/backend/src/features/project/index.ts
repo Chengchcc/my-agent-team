@@ -8,4 +8,3 @@ export {
   type ProjectService,
   ValidationError,
 } from "./service.js";
-export { TASK_SLUG_RE } from "./worktree.js";

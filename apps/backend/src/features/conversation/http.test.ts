@@ -90,24 +90,17 @@ describe("conversation routes", () => {
     expect(text.status).toBe(202);
   });
 
-  test("a message carries its lark source for ambient scoping (ADR 0046)", async () => {
-    await createConversation("c-src");
-    const ok = await api(harness, "POST", `${BASE}/c-src/messages`, {
+  test("trigger=false posts a ledger-only message without starting a run", async () => {
+    await createConversation("c-observe");
+    const ok = await api(harness, "POST", `${BASE}/c-observe/messages`, {
       content: "observe me",
-      addressedTo: [],
+      trigger: false,
       senderMemberId: "human:lark:ou_x",
-      source: { kind: "lark", chatId: "oc_src" },
     });
     expect(ok.status).toBe(202);
-
-    // Only lark exists as a source kind today: an unknown kind is a 422 at
-    // the wire, not a silent fall-through the evaluator has to defend.
-    const foreign = await api(harness, "POST", `${BASE}/c-src/messages`, {
-      content: "observe me",
-      addressedTo: [],
-      source: { kind: "github", chatId: "repo" },
-    });
-    expect(foreign.status).toBe(422);
+    const body = (await ok.json()) as { seq: number; triggeredRuns: unknown[] };
+    expect(body.seq).toBeGreaterThan(0);
+    expect(body.triggeredRuns).toEqual([]);
   });
 
   test("ADR 0049: a worker agent cannot own a conversation (dead-room guard)", async () => {
@@ -261,72 +254,6 @@ describe("conversation routes", () => {
     const compact = await api(harness, "POST", `${BASE}/c-clear/compact`);
     expect(compact.status).toBe(501);
     expect(((await compact.json()) as { error: string }).error).toContain("not configured");
-  });
-});
-
-describe("conversation member routes (ADR 0041)", () => {
-  test("create seeds the first member; add/list/remove round-trips; last member is protected", async () => {
-    // The harness seeds a "default" agent; anchor the conversation to it so
-    // creation writes the first member row (ADR 0041).
-    const agents = (await (await api(harness, "GET", "/api/agents")).json()) as Array<{
-      id: string;
-      name: string;
-    }>;
-    expect(agents.length).toBeGreaterThan(0);
-    const first = agents[0]!.id;
-    const created = await api(harness, "POST", BASE, {
-      conversationId: "c-members",
-      agentId: first,
-    });
-    expect(created.status).toBe(201);
-
-    // Roster after creation: exactly the creating agent.
-    const initial = (await (await api(harness, "GET", `${BASE}/c-members/members`)).json()) as {
-      members: string[];
-    };
-    expect(initial.members).toEqual([first]);
-
-    // Adding an unknown agent is a 400, not a silent member.
-    const bad = await api(harness, "POST", `${BASE}/c-members/members`, {
-      agentId: "ghost-agent",
-    });
-    expect(bad.status).toBe(400);
-
-    // Add a real second member: the roster grows (room mode from here on).
-    const seeded = (await (await api(harness, "GET", "/api/agents")).json()) as Array<{
-      id: string;
-      name: string;
-      harness: string;
-      model: string;
-    }>;
-    const proto = seeded[0]!;
-    const secondRes = await api(harness, "POST", "/api/agents", {
-      name: "member-two",
-      harness: proto.harness,
-      // The seeded row may carry model: null; the create schema wants a
-      // string (Optional≠nullable) — fall back to the harness default.
-      model: proto.model ?? "deepseek/deepseek-flash",
-    });
-    expect(secondRes.status).toBe(201);
-    const second = ((await secondRes.json()) as { id: string }).id;
-    const added = await api(harness, "POST", `${BASE}/c-members/members`, {
-      agentId: second,
-    });
-    expect(added.status).toBe(201);
-    const roster = (await added.json()) as { members: string[] };
-    expect(roster.members.sort()).toEqual([first, second].sort());
-
-    // Removing a member keeps the other; removing the last one is a 400.
-    const removed = await api(harness, "DELETE", `${BASE}/c-members/members/${second}`);
-    expect(removed.status).toBe(200);
-    const afterRemove = (await removed.json()) as { members: string[] };
-    expect(afterRemove.members).toEqual([first]);
-    const lastGuard = await api(harness, "DELETE", `${BASE}/c-members/members/${first}`);
-    expect(lastGuard.status).toBe(400);
-
-    // Removing a non-member is a 404.
-    const notThere = await api(harness, "DELETE", `${BASE}/c-members/members/${second}`);
-    expect(notThere.status).toBe(404);
   });
 });
 

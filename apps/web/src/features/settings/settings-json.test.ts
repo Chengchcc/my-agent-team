@@ -10,7 +10,6 @@ import {
 
 const CURRENT = {
   "dispatch.reuseChildConversation": true,
-  proactiveAssessment: { mode: "observe", model: "deepseek/deepseek-v4-pro" },
   "provider.deepseek": { apiKey: "****3e6e" },
   "auth.password_hash": "****abcd",
   "legacy.flag": "x",
@@ -57,7 +56,6 @@ describe("validateSettings", () => {
       edited(CURRENT, {
         "dispatch.reuseChildConversation": false,
         "cost.dailyBudgetUsd": 12.5,
-        proactiveAssessment: CURRENT.proactiveAssessment,
       }),
     );
     if (!result.ok) throw new Error("expected a valid candidate");
@@ -77,9 +75,6 @@ describe("validateSettings", () => {
       ["cost.dailyBudgetUsd", -1],
       ["sandbox.networkAllowlist", "example.com"],
       ["sandbox.networkAllowlist", ["example.com", ""]],
-      ["proactiveAssessment", { mode: "yolo" }],
-      ["proactiveAssessment", { prompt: "…" }],
-      ["proactiveAssessment", { model: 7 }],
     ];
     for (const [key, value] of cases) {
       const result = check(edited(CURRENT, { [key]: value }));
@@ -92,7 +87,6 @@ describe("validateSettings", () => {
   test("a valid value for every setting the product reads passes its check", () => {
     const good: Record<string, unknown> = {
       "dispatch.reuseChildConversation": false,
-      proactiveAssessment: { mode: "auto", model: "deepseek/deepseek-flash" },
       "cost.dailyBudgetUsd": 3,
       "sandbox.networkAllowlist": ["registry.npmjs.org", "github.com"],
     };
@@ -142,10 +136,7 @@ describe("validateSettings", () => {
     });
     const result = check(document);
     if (result.ok) throw new Error("expected a reason");
-    expect(result.reasons).toEqual([
-      { code: "missing", key: "dispatch.reuseChildConversation" },
-      { code: "missing", key: "proactiveAssessment" },
-    ]);
+    expect(result.reasons).toEqual([{ code: "missing", key: "dispatch.reuseChildConversation" }]);
   });
 
   test("a reason reads as a sentence that names the key", () => {

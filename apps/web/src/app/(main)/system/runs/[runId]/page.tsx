@@ -35,9 +35,9 @@ function Panel({ title, note, children }: { title: string; note?: string; childr
 
 type SendState = "idle" | "sending" | "sent" | "failed";
 
-/** ADR 0066 D4: the shop floor is where a person talks to a worker directly; the room keeps a
- *  one-line note. Only a worker gets this box — the front desk is talked to in the room. */
-function FloorVisit({ conversationId, agentId }: { conversationId: string; agentId: string }) {
+/** ADR 0070 / C1: a dispatched worker runs in its own child conversation.
+ *  Sending a follow-up here posts directly into that worker's conversation. */
+function FloorVisit({ conversationId }: { conversationId: string }) {
   const [text, setText] = useState("");
   const [state, setState] = useState<SendState>("idle");
   const [reply, setReply] = useState("");
@@ -47,9 +47,9 @@ function FloorVisit({ conversationId, agentId }: { conversationId: string; agent
     if (message === "") return;
     setState("sending");
     try {
-      await api.postFloorMessage({ conversationId, agentId, text: message });
+      await api.postConversationMessage(conversationId, { content: message });
       setText("");
-      setReply(t("Sent. The room keeps a one-line note about who you talked to."));
+      setReply(t("Sent to the worker's conversation."));
       setState("sent");
     } catch (error) {
       setReply(error instanceof Error ? error.message : t("Send failed"));
@@ -60,9 +60,7 @@ function FloorVisit({ conversationId, agentId }: { conversationId: string; agent
   return (
     <Panel
       title={t("Talk to this worker")}
-      note={t(
-        "A floor visit: your words reach it directly, and the room gets a one-line note saying who you were talking to.",
-      )}
+      note={t("Posts directly into this worker's own conversation.")}
     >
       <Textarea
         value={text}
@@ -79,6 +77,9 @@ function FloorVisit({ conversationId, agentId }: { conversationId: string; agent
         >
           {state === "sending" ? t("Sending…") : t("Send to worker")}
         </Button>
+        <Link href={`/chat/${conversationId}`} className="text-xs text-(--primary) hover:underline">
+          {t("Open conversation")}
+        </Link>
         {state === "sent" && <Note>{reply}</Note>}
         {state === "failed" && <Note className="text-(--err)">{reply}</Note>}
       </div>
@@ -169,9 +170,7 @@ export default function SystemRunDetailPage() {
           </dl>
         </Panel>
 
-        {isWorker && run !== undefined && (
-          <FloorVisit conversationId={run.conversationId} agentId={run.agentId} />
-        )}
+        {isWorker && run !== undefined && <FloorVisit conversationId={run.conversationId} />}
 
         <Panel
           title={t("Events")}

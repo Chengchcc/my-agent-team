@@ -20,8 +20,8 @@ export function useProjectWorktrees(projectId: string) {
   return useQuery(projectWorktreesQuery(projectId));
 }
 
-export function useProjectWorktreeDiff(projectId: string, agentId: string, enabled: boolean) {
-  return useQuery({ ...projectWorktreeDiffQuery(projectId, agentId), enabled });
+export function useProjectWorktreeDiff(projectId: string, workspaceId: string, enabled: boolean) {
+  return useQuery({ ...projectWorktreeDiffQuery(projectId, workspaceId), enabled });
 }
 
 export function useCreateProject() {

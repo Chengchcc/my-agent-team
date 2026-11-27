@@ -23,10 +23,10 @@ export function projectWorktreesQuery(projectId: string) {
   });
 }
 
-export function projectWorktreeDiffQuery(projectId: string, agentId: string) {
+export function projectWorktreeDiffQuery(projectId: string, workspaceId: string) {
   return queryOptions({
-    queryKey: projectKeys.worktreeDiff(projectId, agentId),
-    queryFn: () => api.projectWorktreeDiff(projectId, agentId),
+    queryKey: projectKeys.worktreeDiff(projectId, workspaceId),
+    queryFn: () => api.projectWorktreeDiff(projectId, workspaceId),
   });
 }
 

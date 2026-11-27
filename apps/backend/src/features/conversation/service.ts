@@ -13,10 +13,7 @@ import type { LedgerMessageEntry, ProductSummaryEntry } from "../agent-context/d
 import type { AgentContextService } from "../agent-context/service.js";
 import type { BranchInputMode } from "../agent-run/domain.js";
 import type { AgentRunService } from "../agent-run/service.js";
-import type { AmbientDecision, AmbientSource } from "../proactive/domain.js";
-import { frameAmbientInput } from "../proactive/domain.js";
 import type { ConversationPort, LedgerKind } from "./ports.js";
-import { resolveTrigger } from "./routing.js";
 import { renderMessageForSummary } from "./summarize.js";
 
 /** The projection carries this many recent entries verbatim; /compact replaces
@@ -80,25 +77,6 @@ export interface ConversationServiceDeps {
   /** Resolves a ledger message for compaction — the projection's own resolver,
    *  so there is exactly one decode path. Required for compaction to work. */
   resolveLedgerMessage?: (conversationId: string, ledgerSeq: number) => Promise<Message | null>;
-  /** ADR 0046: ambient-rule evaluation for OBSERVED (naturally unrouted)
-   *  messages. Called only when member routing produced no target and the
-   *  input carries a source. Absent = observe stays observe. */
-  evaluateAmbient?: (input: {
-    agentId: string;
-    conversationId: string;
-    senderMemberId: string;
-    source: AmbientSource;
-    text: string;
-  }) => Promise<AmbientDecision | null>;
-  /** ADR 0047: ensure an agent is a conversation member (validated, throws
-   *  on unknown agent). Ambient rules name promotion targets this way. */
-  addConversationMember?: (conversationId: string, agentId: string) => Promise<void>;
-  /** ADR 0049: role lookup for the front desk invariant. Absent = no agent
-   *  is a worker (today's behaviour — human input may address anyone). */
-  isWorkerAgent?: (agentId: string) => Promise<boolean>;
-  /** Display name for the room's floor note (ADR 0066 D4). The note is prose
-   *  the human and the front desk read, so an agent id there is unreadable. */
-  agentNameOf?: (agentId: string) => Promise<string | undefined>;
 
   idGen: () => string;
 }
@@ -126,10 +104,13 @@ export interface ConversationService {
   port: ConversationPort;
   postMessage(input: {
     conversationId: string;
-    /** Optional explicit override (lark group mentions). Derived when absent:
-     *  sender = the constant "user", targets = the conversation's agent. */
+    /** Optional explicit sender label (e.g. `human:lark:<openId>` or agent id).
+     *  Defaults to `"user"`. */
     senderMemberId?: string;
-    addressedTo?: string[];
+    /** Whether to trigger a run on the conversation's owning agent. Default
+     *  `true`; pass `false` for ledger-only notes (dispatch summaries,
+     *  unmentioned Lark group observations, progress reports). */
+    trigger?: boolean;
     content: unknown;
     /** Anchored comment (raft absorption): structured anchor stored on the
      *  ledger row for the UI jump chip; readable form baked into content. */
@@ -143,20 +124,12 @@ export interface ConversationService {
     mode?: BranchInputMode;
     /** Per-input model override (same-kind guard applies). */
     modelOverride?: BackendModelRef;
-    /** ADR 0046: where this input came from. Carried by surfaces that can
-     *  observe unaddressed messages (today: lark-bot) so ambient rules can
-     *  scope by chat. Absent = the default trigger semantics are final. */
-    source?: AmbientSource;
     /** ADR 0047: server-side authorization override for the runs this
      *  message triggers; the HTTP surface does not accept it. */
     authorization?: string;
     /** ADR 0051: the run that authored this message, when a dispatch chain
      *  did. Server-side only, same as authorization. */
     parentRunId?: string;
-    /** ADR 0066 D4: "down to the floor" — a human input that addresses a
-     *  worker directly instead of being rerouted to the front desk. The
-     *  surface can only ask for it; the authorization basis stays server-side. */
-    directToWorker?: boolean;
     /** ADR 0070: this message is a dispatch SUMMARY - the room it opened for the
      *  worker. Rides the ledger so the room can link to that conversation
      *  instead of the worker's run. */
@@ -203,9 +176,7 @@ export interface ConversationService {
     conversationId: string;
     fromSeq: number;
     editedContent: string;
-    /** Optional explicit override; derived on the fork when absent. */
     senderMemberId?: string;
-    addressedTo?: string[];
   }): Promise<{ newConversationId: string }>;
 
   // ─── Pending input queue (Composer queue area) ───
@@ -261,10 +232,6 @@ class ConversationServiceImpl implements ConversationService {
   #configRevisionOf?: ConversationServiceDeps["configRevisionOf"];
   #summarize?: (input: { texts: readonly string[] }) => Promise<string>;
   #resolveLedgerMessage?: (conversationId: string, ledgerSeq: number) => Promise<Message | null>;
-  #evaluateAmbient?: ConversationServiceDeps["evaluateAmbient"];
-  #addConversationMember?: ConversationServiceDeps["addConversationMember"];
-  #isWorkerAgent?: ConversationServiceDeps["isWorkerAgent"];
-  #agentNameOf?: ConversationServiceDeps["agentNameOf"];
 
   #idGen: () => string;
 
@@ -284,10 +251,6 @@ class ConversationServiceImpl implements ConversationService {
     this.#configRevisionOf = deps.configRevisionOf;
     this.#summarize = deps.summarize;
     this.#resolveLedgerMessage = deps.resolveLedgerMessage;
-    this.#evaluateAmbient = deps.evaluateAmbient;
-    this.#addConversationMember = deps.addConversationMember;
-    this.#isWorkerAgent = deps.isWorkerAgent;
-    this.#agentNameOf = deps.agentNameOf;
     this.#idGen = deps.idGen;
   }
 
@@ -416,10 +379,8 @@ class ConversationServiceImpl implements ConversationService {
 
   async postMessage(input: {
     conversationId: string;
-    /** Optional explicit override (lark group mentions). Derived when absent:
-     *  sender = the constant "user", targets = the conversation's agent. */
     senderMemberId?: string;
-    addressedTo?: string[];
+    trigger?: boolean;
     content: unknown;
     mode?: BranchInputMode;
     modelOverride?: BackendModelRef;
@@ -428,7 +389,6 @@ class ConversationServiceImpl implements ConversationService {
      *  form into `content` — the agent reads text, the UI reads anchor. */
     anchor?: { url: string; anchor: unknown };
     permissionMode?: "ask" | "auto" | "deny" | "yolo";
-    source?: AmbientSource;
     /** ADR 0047: authorization basis for the runs this message triggers
      *  ("user" by default). Server-side callers override it (`dispatch:` for
      *  the product tool, "system" for workflow/reminder) — the HTTP surface
@@ -436,11 +396,6 @@ class ConversationServiceImpl implements ConversationService {
     authorization?: string;
     /** ADR 0051: the dispatching run (dispatch chains only). */
     parentRunId?: string;
-    /** ADR 0066 D4: "down to the floor" — this human input addresses a worker
-     *  DIRECTLY. The only explicit exception to the front-desk reroute; the
-     *  HTTP surface is the only caller that can set it, and the server still
-     *  writes the authorization basis itself. */
-    directToWorker?: boolean;
     dispatchTo?: { conversationId: string };
   }): Promise<{ seq: number; triggeredRuns: TriggeredRun[] }> {
     const convRow = this.port.getConversation(input.conversationId);
@@ -452,140 +407,27 @@ class ConversationServiceImpl implements ConversationService {
 
     const agentId = convRow.agentId;
     const senderMemberId = input.senderMemberId ?? "user";
-    // ADR 0041: routing derives from the member roster (fallback: the
-    // conversation's legacy single agent). 1 member = e2e auto-trigger;
-    // a room = only @mentioned members run; nobody = ledger-only.
-    const members =
-      this.port.listMembers?.(input.conversationId) ?? (agentId !== null ? [agentId] : []);
-    let targets = resolveTrigger({ members, addressedTo: input.addressedTo });
-    // ── ADR 0066 D5: the room is the human and the front desk ──
-    // A mention-less message in a room is a message to whoever is IN the room,
-    // which is the front desk. Without this, dispatching once (the worker joins
-    // as a member) makes ADR 0041's group rule swallow the human's next line
-    // silently: no run, no answer, nothing to notice. Observed surfaces keep
-    // the group semantic - an unaddressed Lark message is an observation
-    // (ADR 0046), not a command - and an EXPLICIT empty addressing
-    // (`addressedTo: []`) still means "to nobody".
-    if (
-      targets.length === 0 &&
-      input.addressedTo === undefined &&
-      input.source === undefined &&
-      agentId !== null &&
-      members.includes(agentId)
-    ) {
-      targets = [agentId];
-    }
-    // ── ADR 0049: the front desk invariant ──
-    // HUMAN input (authorization "user" — the only value the HTTP surface
-    // can produce) may never command a worker directly: any worker target is
-    // rerouted to the conversation's front (its owner). The raw @ text stays
-    // in the message, so the front can see who the human meant and dispatch.
-    // Inputs carrying a server-side basis (dispatch:/ambient:/system) are the
-    // product itself dispatching — they address workers directly by design.
-    if (
-      this.#isWorkerAgent !== undefined &&
-      input.authorization === undefined &&
-      input.directToWorker !== true
-    ) {
-      const front = agentId;
-      const rerouted: string[] = [];
-      for (const target of targets) {
-        const isWorker = await this.#isWorkerAgent(target);
-        const hasFront = front !== null && front !== target;
-        const destination = isWorker && hasFront ? front : target;
-        if (!rerouted.includes(destination)) rerouted.push(destination);
-      }
-      targets = rerouted;
-    }
-    // ── ADR 0046: the observe seam ──
-    // Routing produced NO target (an admitted but unaddressed group message
-    // posts as ledger-only context). A rule the operator wrote may promote
-    // it: evaluate, and on an act match re-frame the content as the rule's
-    // task and treat the message as addressed. Everything downstream
-    // (enqueue, run, cards, approvals) is the ordinary addressed path.
-    // Scope ceilings: single-member conversations only, plain-text content
-    // only — rooms keep their explicit-mention semantics, and there is no
-    // substring to match on attachments. Any failure = no promotion.
-    let effectiveContent = input.content;
-    let authorization = input.authorization ?? "user";
-    if (
-      targets.length === 0 &&
-      input.source !== undefined &&
-      this.#evaluateAmbient !== undefined &&
-      members.length === 1 &&
-      typeof input.content === "string"
-    ) {
-      const member = members[0]!;
-      const decision = await this.#evaluateAmbient({
-        agentId: member,
-        conversationId: input.conversationId,
-        senderMemberId,
-        source: input.source,
-        text: input.content,
-      }).catch((err: unknown) => {
-        console.error(
-          "[conversation] ambient evaluation failed:",
-          err instanceof Error ? err.message : String(err),
-        );
-        return null;
-      });
-      if (decision?.outcome === "triggered" && decision.rule.mode === "act") {
-        // ADR 0047: the rule may hand the promotion to another agent; routing
-        // is member-based, so a non-member target must join the room first.
-        // A failed join cancels the promotion — the observation stays
-        // ledger-only rather than routing to nobody.
-        const wanted = decision.rule.agent ?? member;
-        let promotable = wanted === member || members.includes(wanted);
-        if (!promotable && this.#addConversationMember !== undefined) {
-          promotable = await this.#addConversationMember(input.conversationId, wanted)
-            .then(() => true)
-            .catch((err: unknown) => {
-              console.error(
-                `[conversation] ambient target ${wanted} could not join; promotion cancelled:`,
-                err instanceof Error ? err.message : String(err),
-              );
-              return false;
-            });
-        } else if (!promotable) {
-          console.error(
-            `[conversation] ambient rule targets non-member ${wanted} with no join path; staying an observation`,
-          );
-        }
-        if (promotable) {
-          effectiveContent = frameAmbientInput(decision.rule, input.content);
-          authorization = `ambient:${decision.rule.id}`;
-          targets = [wanted];
-        }
-      }
-    }
+    const authorization = input.authorization ?? "user";
+    // ADR 0070 1:1 room model: a conversation belongs to ONE agent. When
+    // `trigger` is not explicitly false and the room has an owning agent,
+    // posting a message triggers that agent; `trigger: false` records a
+    // ledger-only note (dispatch summaries, progress reports, unmentioned
+    // Lark group observations).
+    const target = input.trigger !== false && agentId !== null ? agentId : null;
 
-    const floorFor =
-      input.directToWorker === true && targets.length === 1 && targets[0] !== undefined
-        ? {
-            agentId: targets[0],
-            agentName: (await this.#agentNameOf?.(targets[0])) ?? targets[0],
-          }
-        : undefined;
-
-    // ── The human message becomes canonical History FIRST ──
+    // ── The message becomes canonical History FIRST ──
     const userRev = {
       messageId: humanMessageId(input.conversationId, senderMemberId),
       role: "user" as const,
       state: "done" as const,
-      text: typeof effectiveContent === "string" ? effectiveContent : undefined,
-      blocks: Array.isArray(effectiveContent)
-        ? (ContentBlockSchema.array().parse(effectiveContent) as never)
+      text: typeof input.content === "string" ? input.content : undefined,
+      blocks: Array.isArray(input.content)
+        ? (ContentBlockSchema.array().parse(input.content) as never)
         : undefined,
       conversationId: input.conversationId,
       visibility: "conversation" as const,
       updatedAt: Date.now(),
       ...(input.anchor ? { anchor: input.anchor } : {}),
-      // ADR 0066 D4: a floor visit is addressed to a worker, and the ROOM still
-      // has to read who it was for - the ledger row is the human's words, not
-      // their addressee. It rides the message (not a second ledger row: the room
-      // only draws messages that started a run) and reaches surfaces as
-      // `_meta.floorFor`.
-      ...(floorFor === undefined ? {} : { floorFor }),
       ...(input.dispatchTo === undefined ? {} : { dispatchTo: input.dispatchTo }),
       // The sender decides authorship. Run-produced rows are attributed by their
       // run; a ledger-only note (the dispatch summary) has no run, so without
@@ -599,7 +441,7 @@ class ConversationServiceImpl implements ConversationService {
     });
 
     const triggeredRuns: TriggeredRun[] = [];
-    for (const target of targets) {
+    if (target !== null) {
       // Roadmap (自由文本追问): a pending TEXT ask parks this branch's run —
       // enqueueing the reply would make it wait behind the very run that
       // asked, and the ask would time out first. So a reply becomes the
@@ -617,7 +459,7 @@ class ConversationServiceImpl implements ConversationService {
             conversationId: input.conversationId,
             agentId: target,
             message,
-            idempotencyKey: `${input.conversationId}:${seq}:${agentId}`,
+            idempotencyKey: `${input.conversationId}:${seq}:${target}`,
             mode: input.mode,
             modelOverride: input.modelOverride,
             authorization,
@@ -627,7 +469,7 @@ class ConversationServiceImpl implements ConversationService {
       } catch (err) {
         if (err instanceof DomainError) throw err;
         console.error(
-          `[conversation] enqueueAndAcquire failed for ${agentId}:`,
+          `[conversation] enqueueAndAcquire failed for ${target}:`,
           err instanceof Error ? err.message : String(err),
         );
       }
@@ -885,9 +727,7 @@ class ConversationServiceImpl implements ConversationService {
     conversationId: string;
     fromSeq: number;
     editedContent: string;
-    /** Optional explicit override; derived on the fork when absent. */
     senderMemberId?: string;
-    addressedTo?: string[];
   }): Promise<{ newConversationId: string }> {
     const { newConversationId } = await this.forkConversation({
       conversationId: input.conversationId,
@@ -896,7 +736,6 @@ class ConversationServiceImpl implements ConversationService {
     await this.postMessage({
       conversationId: newConversationId,
       senderMemberId: input.senderMemberId,
-      addressedTo: input.addressedTo,
       content: input.editedContent,
     });
     return { newConversationId };

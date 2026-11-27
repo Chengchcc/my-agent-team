@@ -25,9 +25,6 @@ export type UiItem =
       undone?: boolean;
       /** Anchored comment (raft absorption): renders as a jump chip. */
       anchor?: { url: string; anchor: unknown };
-      /** ADR 0066 D4: a floor visit - the human said this to that worker
-       *  directly. The room shows it as a chip on the message. */
-      floorFor?: { agentId: string; agentName: string };
       /** ADR 0070: a dispatch summary - the child room it opened. The room
        *  links there instead of to the worker's run. */
       dispatchTo?: { conversationId: string };

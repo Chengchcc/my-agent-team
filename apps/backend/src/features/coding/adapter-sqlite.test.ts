@@ -1,12 +1,11 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { createSqliteCodingTerminalStore } from "./adapter-sqlite.js";
-import { savePersistedTerminals } from "./persist.js";
 
 const MIGRATIONS = join(import.meta.dir, "../../../drizzle/backend");
 
@@ -67,16 +66,19 @@ describe("createSqliteCodingTerminalStore (ADR 0082 D3)", () => {
     const dir = mkdtempSync(join(tmpdir(), "coding-sql-"));
     dirs.push(dir);
     const jsonFile = join(dir, "terminals.json");
-    savePersistedTerminals(jsonFile, [
-      {
-        terminalId: "legacy-1",
-        projectId: "p1",
-        agentId: "coder",
-        cwd: "/tmp/p1",
-        title: "bash",
-        kind: "shell",
-      },
-    ]);
+    writeFileSync(
+      jsonFile,
+      JSON.stringify([
+        {
+          terminalId: "legacy-1",
+          projectId: "p1",
+          agentId: "coder",
+          cwd: "/tmp/p1",
+          title: "bash",
+          kind: "shell",
+        },
+      ]),
+    );
     const db = makeDb();
     const store = createSqliteCodingTerminalStore(db);
     expect(store.importLegacyJsonIfEmpty(jsonFile)).toBe(1);

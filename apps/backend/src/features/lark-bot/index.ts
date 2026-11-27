@@ -6,7 +6,7 @@ export type {
 } from "./provisioner.js";
 export { CliSetupProvisioner, probeCliSetupCapability } from "./provisioner.js";
 export type { LarkBotRegistry, LarkBotStatus } from "./registry.js";
-export { DevLarkBotRegistry, ProdLarkBotRegistry } from "./registry.js";
+export { DevLarkBotRegistry } from "./registry.js";
 export {
   LARK_REQUIRED_EVENTS,
   LARK_REQUIRED_SCOPES,

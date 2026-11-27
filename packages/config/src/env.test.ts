@@ -28,7 +28,6 @@ describe("parseEnv", () => {
         NODE_ENV: "production",
         MOCK_USER_ID: "user-1",
         MOCK_PASSWORD: "pass",
-        RUNNER_ENV: "prod",
       };
 
       const env = parseEnv(raw);
@@ -41,7 +40,6 @@ describe("parseEnv", () => {
       expect(env.BACKEND_MAX_CONCURRENT).toBe(16);
       expect(env.ANTHROPIC_API_KEY).toBe("sk-ant-xxx");
       expect(env.NODE_ENV).toBe("production");
-      expect(env.RUNNER_ENV).toBe("prod");
     });
   });
 
@@ -67,7 +65,6 @@ describe("parseEnv", () => {
       expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
       expect(env.SESSION_SECRET).toBeUndefined();
       expect(env.NODE_ENV).toBeUndefined();
-      expect(env.RUNNER_ENV).toBeUndefined();
     });
   });
 

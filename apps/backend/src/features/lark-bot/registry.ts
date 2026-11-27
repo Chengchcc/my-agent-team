@@ -54,6 +54,8 @@ interface DesiredConfig {
   larkProfile?: string | null;
 }
 
+const HEARTBEAT_FRESH_MS = 90_000;
+
 export class DevLarkBotRegistry implements LarkBotRegistry {
   #bots = new Map<string, DevBot>();
   #backoff = new Map<string, number>();
@@ -66,6 +68,7 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
       dataDir: string;
       larkBotBin: string;
       backendUrl: string;
+      heartbeatOf?: (agentId: string) => { status: string; lastSeenAt: number | null } | null;
     },
   ) {}
 
@@ -184,6 +187,14 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
   }
 
   statusOf(agentId: string): LarkBotStatus {
+    const beat = this.opts.heartbeatOf?.(agentId) ?? null;
+    if (beat && beat.lastSeenAt !== null && Date.now() - beat.lastSeenAt <= HEARTBEAT_FRESH_MS) {
+      return beat.status === "error"
+        ? "error"
+        : beat.status === "degraded"
+          ? "degraded"
+          : "running";
+    }
     const key = safeAgentId(agentId);
     const bot = this.#bots.get(key);
     if (!bot) return this.#lastError.has(key) ? "error" : "configured";
@@ -202,27 +213,5 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
     for (const [, bot] of entries) {
       await terminateChild(bot.child);
     }
-  }
-}
-
-// ─── Prod registry (resolve only, no spawn) ───
-
-export class ProdLarkBotRegistry implements LarkBotRegistry {
-  async ensureLarkBot(
-    _agentId: string,
-    _botDisplayName?: string | null,
-    _larkProfile?: string | null,
-  ): Promise<void> {
-    /* external orchestration */
-  }
-  async stopLarkBot(_agentId: string): Promise<void> {
-    /* external orchestration */
-  }
-  statusOf(_agentId: string): LarkBotStatus {
-    // Prod doesn't know runtime status — caller should query external supervisor
-    return "configured";
-  }
-  async dispose(): Promise<void> {
-    /* no-op */
   }
 }

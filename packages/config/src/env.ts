@@ -71,10 +71,6 @@ export const envSchema = z.object({
   MOCK_PASSWORD: z.string().optional().describe("Dev-only: mock login password"),
 
   // ── Lark-bot runner ──
-  RUNNER_ENV: z
-    .string()
-    .optional()
-    .describe("'dev' | 'prod' — selects lark-bot registry implementation"),
   LARK_WEB_URL: z
     .string()
     .optional()
@@ -96,17 +92,6 @@ export const envSchema = z.object({
     .describe(
       "Credential for project_push against https remotes; absent = https remotes are refused",
     ),
-  OMP_BIN: z.string().optional().describe("omp executable per Run (default: omp on PATH)"),
-  PI_BIN: z.string().optional().describe("pi executable per Run (default: pi on PATH)"),
-  PI_MCP_ADAPTER_PATH: z
-    .string()
-    .optional()
-    .describe("pi-mcp-adapter extension path (default: pi's own install)"),
-  CLAUDE_BIN: z.string().optional().describe("claude executable per Run (default: claude on PATH)"),
-  CLAUDE_PERMISSION_MODE: z
-    .string()
-    .optional()
-    .describe("claude --permission-mode (bypassPermissions refused under root)"),
   PRODUCT_TOOLS_MCP_URL: z
     .string()
     .optional()

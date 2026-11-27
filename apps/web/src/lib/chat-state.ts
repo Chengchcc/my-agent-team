@@ -322,7 +322,6 @@ function messageItem(message: AhpMessage, viewer: SenderRef): UiItem | undefined
     seq: typeof meta?.seq === "number" ? meta.seq : 0,
     ...(meta?.undone === true ? { undone: true } : {}),
     ...(isAnchorMeta(meta?.anchor) ? { anchor: meta.anchor } : {}),
-    ...(isFloorFor(meta?.floorFor) ? { floorFor: meta.floorFor } : {}),
     ...(isDispatchTo(meta?.dispatchTo) ? { dispatchTo: meta.dispatchTo } : {}),
   };
 }
@@ -334,13 +333,6 @@ function isDispatchTo(v: unknown): v is { conversationId: string } {
     v !== null &&
     typeof (v as { conversationId?: unknown }).conversationId === "string"
   );
-}
-
-/** ADR 0066 D4: `_meta.floorFor` - the worker a floor visit was addressed to. */
-function isFloorFor(v: unknown): v is { agentId: string; agentName: string } {
-  if (typeof v !== "object" || v === null) return false;
-  const f = v as { agentId?: unknown; agentName?: unknown };
-  return typeof f.agentId === "string" && typeof f.agentName === "string";
 }
 
 /** The projection's _meta.anchor (raft absorption): an artifacts:// url plus
@@ -360,7 +352,6 @@ function metaOfRequest(part: unknown):
       seq?: unknown;
       undone?: unknown;
       anchor?: unknown;
-      floorFor?: unknown;
       dispatchTo?: unknown;
       authorAgentId?: unknown;
     }
@@ -372,7 +363,6 @@ function metaOfRequest(part: unknown):
         seq?: unknown;
         undone?: unknown;
         anchor?: unknown;
-        floorFor?: unknown;
         dispatchTo?: unknown;
         authorAgentId?: unknown;
       })

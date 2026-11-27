@@ -450,17 +450,6 @@ export function Timeline({
                         Open sub-conversation ↗
                       </Link>
                     ) : null}
-                    {m.floorFor ? (
-                      // ADR 0066 D4: a floor visit. The room is the record, so it
-                      // says who the human walked down to see - otherwise the
-                      // secretary reads a line addressed to nobody.
-                      <span
-                        className="mb-1 inline-flex items-center gap-1 rounded-full border border-(--line) px-2 py-0.5 text-[10px] text-(--mute)"
-                        title={`said directly to ${m.floorFor.agentName}`}
-                      >
-                        → {m.floorFor.agentName}
-                      </span>
-                    ) : null}
                     {splitAnchorText(extractText(m.content), Boolean(m.anchor)).text && (
                       <MessageBubble
                         align={isSelf ? "right" : "left"}

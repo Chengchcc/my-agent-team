@@ -7,7 +7,6 @@ export type SettingsFieldId =
   | "providers"
   | "customKeys"
   | "reuseRoom"
-  | "assessment"
   | "systemInfo";
 
 export type SettingsSectionId = "workspace" | "models" | "execution" | "system";
@@ -59,14 +58,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     description:
       "How a dispatch opens a room, and how much of the “is this work?” decision is delegated.",
     folded: false,
-    fields: [
-      { id: "reuseRoom", label: "Dispatch", words: ["worker", "room", "conversation"] },
-      {
-        id: "assessment",
-        label: "Semantic assessment",
-        words: ["gate", "observe", "auto", "model"],
-      },
-    ],
+    fields: [{ id: "reuseRoom", label: "Dispatch", words: ["worker", "room", "conversation"] }],
   },
   {
     id: "system",

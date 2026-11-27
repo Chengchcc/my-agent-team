@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import {
   ConflictError,
   ValidationError as InfraValidationError,
+  NotFoundError,
 } from "../../infra/domain-errors.js";
 import { ProjectNotFoundError, type ProjectService, ValidationError } from "./service.js";
 import type { WorktreeOps } from "./worktree-ops.js";
@@ -80,21 +81,18 @@ export function projectRoutes(svc: ProjectService, worktreeOps?: WorktreeOps) {
       }
     })
     .get(
-      "/api/projects/:id/worktrees/:agentId/diff",
-      async ({ params: { id, agentId }, query: { slug } }) => {
+      "/api/projects/:id/worktrees/:workspaceId/diff",
+      async ({ params: { id, workspaceId } }) => {
         if (!worktreeOps) {
           return Response.json({ error: "worktree ops unavailable" }, { status: 501 });
         }
         try {
-          return { diff: await worktreeOps.diff(id, agentId, slug ? { slug } : undefined) };
+          return { diff: await worktreeOps.diff(id, workspaceId) };
         } catch (err) {
-          if (err instanceof ProjectNotFoundError) {
+          if (err instanceof ProjectNotFoundError || err instanceof NotFoundError) {
             return Response.json({ error: err.message }, { status: 404 });
           }
-          if (err instanceof InfraValidationError) {
-            return Response.json({ error: err.message }, { status: 400 });
-          }
-          if (err instanceof ValidationError) {
+          if (err instanceof InfraValidationError || err instanceof ValidationError) {
             return Response.json({ error: err.message }, { status: 400 });
           }
           if (err instanceof Error && err.message.includes("has no repoUrl")) {
@@ -102,68 +100,6 @@ export function projectRoutes(svc: ProjectService, worktreeOps?: WorktreeOps) {
           }
           throw err;
         }
-      },
-      { query: t.Object({ slug: t.Optional(t.String({ minLength: 1, maxLength: 40 })) }) },
-    )
-    .post(
-      "/api/projects/:id/worktrees/:agentId/fast-forward",
-      async ({ params: { id, agentId }, body }) => {
-        if (!worktreeOps) {
-          return Response.json({ error: "worktree ops unavailable" }, { status: 501 });
-        }
-        try {
-          await worktreeOps.fastForward(id, agentId, {
-            push: body.push === true,
-            slug: body.slug,
-          });
-          return { ok: true };
-        } catch (err) {
-          if (err instanceof ConflictError) {
-            return Response.json({ error: err.message }, { status: 409 });
-          }
-          if (err instanceof InfraValidationError) {
-            return Response.json({ error: err.message }, { status: 400 });
-          }
-          if (err instanceof ValidationError) {
-            return Response.json({ error: err.message }, { status: 400 });
-          }
-          throw err;
-        }
-      },
-      {
-        body: t.Object({
-          push: t.Optional(t.Boolean()),
-          slug: t.Optional(t.String({ minLength: 1, maxLength: 40 })),
-        }),
-      },
-    )
-    .post(
-      "/api/projects/:id/worktrees/:agentId/merge",
-      async ({ params: { id, agentId }, body }) => {
-        if (!worktreeOps) {
-          return Response.json({ error: "worktree ops unavailable" }, { status: 501 });
-        }
-        try {
-          await worktreeOps.merge(id, agentId, { push: body.push === true, slug: body.slug });
-          return { ok: true };
-        } catch (err) {
-          if (err instanceof ConflictError) {
-            return Response.json({ error: err.message }, { status: 409 });
-          }
-          if (err instanceof InfraValidationError) {
-            return Response.json({ error: err.message }, { status: 400 });
-          }
-          if (err instanceof ValidationError) {
-            return Response.json({ error: err.message }, { status: 400 });
-          }
-          throw err;
-        }
-      },
-      {
-        body: t.Object({
-          push: t.Optional(t.Boolean()),
-          slug: t.Optional(t.String({ minLength: 1, maxLength: 40 })),
-        }),
       },
     )
     .delete("/api/projects/:id", async ({ params: { id }, set }) => {

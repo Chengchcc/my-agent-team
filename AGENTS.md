@@ -199,11 +199,11 @@ sessions actually running inside that app.
 | `apps/backend/src/features/agent-run/execution-dispatch.ts` | Run dispatch: preflight, workspace, projection, execute, settle, follow-up |
 | `apps/backend/src/features/agent-run/adapter-sqlite-runs.ts` | Terminal commit, failed commit, next-run promotion |
 | `apps/backend/src/features/agent-context/projection.ts` | Full branch projection (the only agent-context part with a production caller) |
-| `apps/backend/src/infra/db/schema.ts` | Drizzle schema — 32 tables, single SQLite file |
+| `apps/backend/src/infra/db/schema.ts` | Drizzle schema — 30 tables, single SQLite file |
 | `apps/oh-my-agent/src/core/runtime/agent-loop.ts` | `createOmaSession()` — the agent loop |
 | `apps/oh-my-agent/src/core/runtime/plugin.ts` | `Plugin`/`PluginHooks`, `validatePlugins()` |
 | `packages/message/src/chat-model.ts` | `ChatModel` contract |
-| `apps/backend/src/features/coding/task-worktrees.ts` | Task-axis worktree listing + terminal path whitelist |
+| `apps/backend/src/features/workspace/service.ts` | ADR 0077 requirement-owned project workspaces |
 | `packages/ai/src/providers/anthropic-messages.ts` | Anthropic Messages API adapter |
 | `apps/web/src/lib/api.ts` | Typed API client (Eden Treaty) |
 | `apps/web/src/lib/client.ts` | BFF client + `unwrap()` helper |

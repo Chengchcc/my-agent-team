@@ -66,37 +66,3 @@ describe("ADR 0064 memory recall from the backend", () => {
     expect(await broken.search({ conversationId: "c1", query: "x", limit: 5 })).toEqual([]);
   });
 });
-
-describe("ADR 0065 amendment: the product's own memory file", () => {
-  test("a line written by remember is recallable without any vector store", async () => {
-    // Live-proven gap: remember wrote learned.md, the reader read memory.db,
-    // and nothing bridges them in product runs (the backfill is standalone
-    // only). The product therefore keeps its own file, read directly.
-    const { mkdirSync, writeFileSync } = await import("node:fs");
-    mkdirSync(join(root, ".oma", "memory"), { recursive: true });
-    writeFileSync(
-      join(root, ".oma", "memory", "product.md"),
-      "# Product memory\n\n- [2026-11-18] 登录重定向死循环的根因是两个分支都返回 /login",
-    );
-    // A natural sentence, the way a human actually asks: whole-sentence
-    // matching would find nothing (live-found).
-    const hits = await port().search({
-      conversationId: "c1",
-      query: "还记得上次登录重定向那个根因吗？",
-      limit: 5,
-    });
-    expect(hits).toHaveLength(1);
-    expect(hits[0]?.content).toContain("重定向");
-    expect(hits[0]?.source).toBe("remember");
-    expect(hits[0]?.why).toContain("product memory");
-    // The vector store still does not exist: the file is enough.
-    expect(existsSync(memoryDbPath(root))).toBe(false);
-  });
-
-  test("lines that match no cue stay out", async () => {
-    const { mkdirSync, writeFileSync } = await import("node:fs");
-    mkdirSync(join(root, ".oma", "memory"), { recursive: true });
-    writeFileSync(join(root, ".oma", "memory", "product.md"), "- [2026-11-18] 无关的事\n");
-    expect(await port().search({ conversationId: "c1", query: "登录", limit: 5 })).toEqual([]);
-  });
-});

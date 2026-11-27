@@ -1,5 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import type { PersistedTerminal, TerminalKind } from "./terminal-registry.js";
 
 /** Membership snapshot for boot restore. The file is a HINT, never truth:
@@ -31,14 +30,4 @@ export function loadPersistedTerminals(file: string): PersistedTerminal[] {
   } catch {
     return [];
   }
-}
-
-export function savePersistedTerminals(
-  file: string,
-  terminals: readonly PersistedTerminal[],
-): void {
-  mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(terminals, null, 2)}\n`);
-  renameSync(tmp, file);
 }

@@ -104,14 +104,6 @@ export function useConversationInputs(conversationId: string) {
   });
 }
 
-export function useConversationMembers(conversationId: string) {
-  return useQuery({
-    queryKey: ["conversation-members", conversationId],
-    queryFn: () => api.listConversationMembers(conversationId),
-    staleTime: 30_000,
-  });
-}
-
 export function usePostConversationMessage(conversationId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -120,8 +112,6 @@ export function usePostConversationMessage(conversationId: string) {
       mode?: "normal" | "steer" | "follow_up";
       model?: ChatModelOverride;
       attachments?: readonly { type: "image"; mediaType: string; base64: string }[];
-      /** ADR 0041: @mention targets, parsed by the caller (see mentions.ts). */
-      addressedTo?: string[];
     }) => {
       const blocks = params.attachments?.length
         ? [
@@ -133,7 +123,6 @@ export function usePostConversationMessage(conversationId: string) {
         content: blocks ?? params.text,
         mode: params.mode,
         model: params.model,
-        addressedTo: params.addressedTo,
       });
     },
     onSuccess: () => {

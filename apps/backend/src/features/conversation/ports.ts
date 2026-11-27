@@ -80,11 +80,6 @@ export interface ConversationPort {
     text: string | null;
     ts: number;
   }>;
-  /** ADR 0041 member roster (routing truth). Optional for legacy doubles —
-   *  callers fall back to conversation.agentId when absent. */
-  listMembers?(conversationId: string): string[];
-  addMember?(conversationId: string, agentId: string, addedAt: number): boolean;
-  removeMember?(conversationId: string, agentId: string): boolean;
 
   appendLedgerEntry(input: AppendLedgerInput): number; // returns seq
   getLedgerEntries(conversationId: string, opts?: { sinceSeq?: number }): LedgerEntry[];

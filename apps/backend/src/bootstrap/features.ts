@@ -21,11 +21,9 @@ import {
   agentModelRef,
   agentRoutes,
   createAgentConfigMcpServer,
-  createModelCatalogCheck,
 } from "../features/agent/index.js";
 import { FRONT_DESK_DISCIPLINE } from "../features/agent/prompt-front-desk.js";
 import {
-  bridgeWorktreeRoot,
   extractMcpSecrets,
   type McpServerEntry,
   reconcileAgentResources,
@@ -88,11 +86,9 @@ import {
   createSqliteCodingTerminalStore,
   createTerminalRegistry,
 } from "../features/coding/index.js";
-import { listTaskWorktrees, validateWorktreePath } from "../features/coding/task-worktrees.js";
 import { createConversationFeature } from "../features/conversation/conversation-compose.js";
 import {
   conversationRoutes,
-  createConversationMembers,
   deriveConversationTitle,
   firstUserText,
   sqliteConversationAdapter,
@@ -123,17 +119,6 @@ import {
   providerOfModelId,
 } from "../features/models/index.js";
 import {
-  type AssessmentCall,
-  createConfiguredAssessment,
-} from "../features/proactive/assessment.js";
-import { type AgentCard, frameAssessmentInput } from "../features/proactive/domain.js";
-import {
-  createProactiveService,
-  proactiveRoutes,
-  sqliteProactiveAdapter,
-} from "../features/proactive/index.js";
-import type { AssessmentGate } from "../features/proactive/service.js";
-import {
   createProductToolsDispatch,
   createProductToolsMcpServer,
   createProductToolsService,
@@ -152,13 +137,7 @@ import {
 import { pushProjectWorktree } from "../features/project/push.js";
 import { ensureRequirementWorktree } from "../features/project/requirement-workspace.js";
 import { createWorkspaceLockRegistry } from "../features/project/workspace-lock.js";
-import {
-  createTaskWorktree,
-  ensureMirror,
-  ensureWorktree,
-  removeTaskWorktree,
-  removeWorktree,
-} from "../features/project/worktree.js";
+import { ensureMirror } from "../features/project/worktree.js";
 import { createWorktreeOps } from "../features/project/worktree-ops.js";
 import {
   createProposalService,
@@ -208,7 +187,7 @@ import {
 } from "../features/workflow/index.js";
 import { createWorkspaceService } from "../features/workspace/service.js";
 import { startAllowlistProxy } from "../infra/allowlist-proxy.js";
-import { ConflictError, NotFoundError } from "../infra/domain-errors.js";
+import { NotFoundError } from "../infra/domain-errors.js";
 import { createEntityLabelResolver } from "../infra/entity-labels.js";
 import { ulid } from "../infra/ids.js";
 import { resolveOmaAcpArgv, resolveOmaCommand } from "../infra/oma-command.js";
@@ -685,35 +664,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const summarizeFromConfig = createConfiguredSummarizer(config.summaryModel, (id) =>
     providerSvc.credentialFor(id),
   );
-  // ADR 0047: validated member ops, shared by the routes, the ambient seam
-  // and the dispatch tool (one roster authority).
-  const conversationMembers = createConversationMembers({
-    port: convPort,
-    agentExists: (id: string) => agentSvc.exists(id),
-  });
-  // ADR 0046: ambient rules evaluate at the conversation observe seam. The
-  // service owns the event ledger; rules themselves live in agent config.
-  // ADR 0048: the semantic net under the rules — gate read per message, the
-  // model caller rebuilt only when the configured spec changes, promotion
-  // dereferences conv at request time (wired below, same late-bound trick
-  // as the dispatch tool).
-  const readAssessmentGate = (): AssessmentGate => {
-    const stored = settingsSvc.get<{ mode?: string; model?: string }>("proactiveAssessment");
-    const mode = stored?.mode;
-    if (mode !== "observe" && mode !== "auto") return { mode: "off" };
-    return { mode, model: stored?.model };
-  };
-  let cachedAssessment: { spec: string; call: AssessmentCall } | undefined;
-  const assessmentCallOf = (spec: string): AssessmentCall | undefined => {
-    if (cachedAssessment?.spec === spec) return cachedAssessment.call;
-    const call = createConfiguredAssessment(spec, (id) => providerSvc.credentialFor(id));
-    if (!call) return undefined;
-    cachedAssessment = { spec, call };
-    return call;
-  };
-  /** The enabled, non-archived roster as capability cards — the one source
-   *  both the assessment and team_list read. */
-  const rosterCards = async (): Promise<AgentCard[]> => {
+  /** The enabled, non-archived roster as capability cards — read by team_list. */
+  const rosterCards = async () => {
     const rows = await agentSvc.list();
     return rows
       .filter((row) => row.archivedAt === null && row.config.enabled)
@@ -734,62 +686,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
           : {}),
       }));
   };
-  const proactiveSvc = createProactiveService({
-    port: sqliteProactiveAdapter(db),
-    agentSvc,
-    assessmentGate: readAssessmentGate,
-    assessmentCall: (input) => {
-      const gate = readAssessmentGate();
-      const spec = gate.model;
-      if (spec === undefined) {
-        return Promise.reject(new Error("assessment mode is on but no model is configured"));
-      }
-      const call = assessmentCallOf(spec);
-      if (call === undefined) {
-        return Promise.reject(new Error(`assessment model spec invalid: ${spec}`));
-      }
-      return call(input);
-    },
-    listCards: rosterCards,
-    promote: async ({ conversationId, agentId, toAgentId, senderMemberId, instruction, text }) => {
-      if (toAgentId !== agentId) {
-        await conversationMembers.add(conversationId, toAgentId);
-      }
-      await conv.convSvc.postMessage({
-        conversationId,
-        senderMemberId,
-        addressedTo: [toAgentId],
-        content: frameAssessmentInput(instruction, text, senderMemberId),
-        mode: "normal",
-        authorization: "ambient:assessment",
-      });
-    },
-  });
   const conv = createConversationFeature({
     convPort,
 
     agentSvc,
     agentRunService,
-    evaluateAmbient: (input) => proactiveSvc.evaluate(input),
-    addConversationMember: async (conversationId, agentId) => {
-      await conversationMembers.add(conversationId, agentId);
-    },
-    isWorkerAgent: async (id: string) => {
-      try {
-        const row = await agentSvc.getById(id);
-        return row.config.role === "worker";
-      } catch {
-        return false;
-      }
-    },
-    agentNameOf: async (id: string) => {
-      try {
-        const row = await agentSvc.getById(id);
-        return row.config.name;
-      } catch {
-        return undefined;
-      }
-    },
     // ADR 0080: freeze a real config revision on the run — the member's config
     // `updatedAt`, which moves whenever its settings change. A constant 1 made
     // "which policy was this authorised under" unanswerable.
@@ -871,14 +772,13 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const reminderSvc = createReminderService({
     port: sqliteReminderAdapter(db),
     idGen: ulid,
-    deliver: async ({ conversationId, text, author }) => {
+    deliver: async ({ conversationId, text }) => {
       await conv.convSvc.postMessage({
         conversationId,
         content: `${REMINDER_BANNER_PREFIX}${text}`,
         mode: "normal",
         // ADR 0047: no human authored this run — the reminder tick did.
         authorization: "system",
-        ...(author ? { addressedTo: [author] } : {}),
       });
     },
   });
@@ -923,7 +823,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       conv.convSvc.postMessage({
         conversationId: input.conversationId,
         senderMemberId: input.senderMemberId,
-        addressedTo: [...input.addressedTo],
+        trigger: input.trigger,
         content: input.content,
         authorization: input.authorization,
         parentRunId: input.parentRunId,
@@ -1041,7 +941,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       await conv.convSvc.postMessage({
         conversationId: parentId,
         senderMemberId: run.agentId ?? "system",
-        addressedTo: [frontDesk],
         content: [
           `【需要人类决定】${workerName} 在子会话「${room.title ?? "未命名"}」停下了：${detail}`,
           "用 ask_question 在本房间升级给人：写清谁在问、在做什么、要执行什么、为什么必须由人决定、影响范围，并给出允许/拒绝选项。",
@@ -1054,7 +953,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     await conv.convSvc.postMessage({
       conversationId: target,
       senderMemberId: run.agentId ?? "system",
-      addressedTo: [owner.agentId],
       content: [
         `【请求】${workerName} 需要你决定：${detail}`,
         `用 answer_worker_request(run_id="${run.runId}", call_id="${input.callId}", evidence=[...]) 回答；`,
@@ -1450,7 +1348,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       const posted = await conv.convSvc.postMessage({
         conversationId: room.conversationId,
         senderMemberId: fromAgentId,
-        addressedTo: [toAgentId],
         content: frameBrief({
           fromAgentId,
           brief,
@@ -1479,7 +1376,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         ...(parentRunId ? { parentRunId } : {}),
       });
       // The room's summary is the FRONT DESK's line (sender = the dispatcher),
-      // ledger-only (addressedTo: []), and carries the child's id so the room
+      // ledger-only (`trigger: false`), and carries the child's id so the room
       // can open it.
       const workerName =
         (await agentSvc.getById(toAgentId).catch(() => null))?.config.name ?? toAgentId;
@@ -1487,7 +1384,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       await conv.convSvc.postMessage({
         conversationId,
         senderMemberId: fromAgentId,
-        addressedTo: [],
+        trigger: false,
         content: `→ 已派给 ${workerName}：「${head}」`,
         dispatchTo: { conversationId: room.conversationId },
       });
@@ -1546,7 +1443,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       const posted = await conv.convSvc.postMessage({
         conversationId: targetConversationId,
         senderMemberId: fromAgentId,
-        addressedTo: [toAgentId],
         content: frameHandbackInput(fromAgentId, reason, suggestion),
         mode: "normal",
         authorization: `handback:${fromAgentId}`,
@@ -1577,41 +1473,48 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         wake: purpose !== "progress",
       }),
     // ADR 0065: the product's only memory writer. It appends to the SAME file
-    // `learn` writes (learned.md, `- [YYYY-MM-DD] fact`), so the standalone
-    // backfill picks it up unchanged. The product never writes the vector
-    // store: that store's dedup/embedding semantics belong to its owner.
-    remember: async ({ agentId, text }) => {
-      const agent = await agentSvc.getById(agentId).catch(() => null);
-      const root = agent?.workspacePath;
-      if (!root) return { saved: false, reason: `agent ${agentId} has no workspace` };
-      const dir = join(root, ".oma", "memory");
-      // ADR 0065 amendment: the product keeps its OWN memory file. learned.md
-      // is the standalone `learn` file, and syncing it to the vector store is
-      // a standalone-only step - so a product write there would never be
-      // readable (live-proven 2026-11-18). This file is written only by a
-      // human-authorized run and read directly by the backend recall.
-      const file = join(dir, "product.md");
-      const line = `- [${new Date().toISOString().slice(0, 10)}] ${text.replace(/\s+/g, " ")}`;
-      try {
-        const existing = existsSync(file) ? await Bun.file(file).text() : "";
-        // Same lesson twice is one lesson: compare the fact, not the date
-        // prefix, so re-asking on another day does not duplicate it.
-        const already = existing
-          .split("\n")
-          .some((row) => row.replace(/^-\s*\[\d{4}-\d{2}-\d{2}\]\s*/, "").trim() === text);
-        if (already) return { saved: true, reason: "already remembered" };
-        mkdirSync(dir, { recursive: true });
-        const block = [
-          existing.trim() === "" ? "# Learned\n" : existing.replace(/\s+$/, ""),
-          "",
-          line,
-          "",
-        ].join("\n");
-        await Bun.write(file, block);
-        return { saved: true };
-      } catch (error) {
-        return { saved: false, reason: (error as Error).message };
+    // ADR 0065 / C2-A: persist human-authorized lessons straight into the
+    // agent's personal Wiki page (`personal/<agentId>/memories.md`), so
+    // backend has ONE knowledge/memory surface (with git history, visible in
+    // /wiki, participating in Wiki recall).
+    remember: async ({ agentId, conversationId, text }) => {
+      const normalized = text.replace(/\s+/g, " ").trim();
+      if (!normalized) return { saved: false, reason: "empty lesson" };
+      const pagePath = `personal/${agentId}/memories.md`;
+      const source = `conversation:${conversationId}`;
+      const line = `- [${new Date().toISOString().slice(0, 10)}] ${normalized}`;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const existing = wikiSvc.read(pagePath);
+        if (existing) {
+          const already = existing.body
+            .split("\n")
+            .some((row) => row.replace(/^-\s*\[\d{4}-\d{2}-\d{2}\]\s*/, "").trim() === normalized);
+          if (already) return { saved: true, reason: "already remembered" };
+          const body =
+            existing.body.trim() === "" ? line : `${existing.body.replace(/\s+$/, "")}\n${line}`;
+          const res = await wikiSvc.patch({
+            path: pagePath,
+            agentId,
+            content: body,
+            sources: [source],
+            expectedRevision: existing.revision,
+          });
+          if (res.ok) return { saved: true };
+          if (res.reason === "conflict") continue;
+          return { saved: false, reason: res.detail };
+        }
+        const res = await wikiSvc.create({
+          path: pagePath,
+          agentId,
+          title: "Personal Memories",
+          content: line,
+          sources: [source],
+        });
+        if (res.ok) return { saved: true };
+        if (res.reason === "conflict") continue;
+        return { saved: false, reason: res.detail };
       }
+      return { saved: false, reason: "concurrent update conflict" };
     },
     // ADR 0059 D6 + ADR 0070: query active runs across BOTH the dispatcher's
     // room and its spawned worker child conversations.
@@ -1679,7 +1582,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         .postMessage({
           conversationId,
           senderMemberId: fromAgentId,
-          addressedTo: [],
+          trigger: false,
           content: `（${fromAgentId} 停止了 ${toAgentId} 的工作：${reason}）`,
           authorization: `dispatch:${fromAgentId}`,
           parentRunId: active.runId,
@@ -1750,14 +1653,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       // no page to adopt the change, so the call must fail instead of
       // reporting a proposal nobody will ever see.
       agentExists: (agentId) => agentSvc.exists(agentId),
-      // agent_create goes through the SAME service as POST /api/agents, so
-      // the workspace, agent.yml, row and onCreate (builtin pack + bridge
-      // reconcile) all happen. A file write from the agent could not: the
-      // sandbox stops it and a bare workspace dir is invisible to list().
-      createAgent: async (input) => {
-        const row = await agentSvc.create(input);
-        return { id: row.id };
-      },
       proposals: proposalSvc,
       tokenRegistry: productToolsTokenRegistry,
     });
@@ -2073,8 +1968,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const servedModelKnowledge = createServedModelKnowledge({
     probe: createProviderModelProbe({ env: process.env }),
   });
-  // Config-time (backendKind, model) consistency (see model-check.ts).
-  const modelKnownForBackend = createModelCatalogCheck({ backends });
   const mcpRuntimeStatus = createMcpRuntimeStatusStore();
   /** The product read behind a run's turn. The writer owns the per-run caching and the ordering;
    *  this is the only part that knows about ports. */
@@ -2819,68 +2712,9 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       : [];
   }
 
-  reconcileAgent.fn = async (agentId: string, prevProjects?: string[]): Promise<void> => {
+  reconcileAgent.fn = async (agentId: string): Promise<void> => {
     try {
       const agent = await agentSvc.getById(agentId);
-      // Detach cleanup (ADR 0023): projects removed since the previous
-      // config get their worktree + branch removed.
-      if (prevProjects) {
-        const removed = prevProjects.filter(
-          (pid) => !agent.config.runtime_config.projects.includes(pid),
-        );
-        for (const pid of removed) {
-          const project = projectSvc.getById(pid);
-          if (!project?.repoUrl) continue;
-          try {
-            const mirror = await ensureMirror(config.dataDir, {
-              projectId: project.projectId,
-              repoUrl: project.repoUrl,
-              defaultBranch: project.defaultBranch,
-            });
-            await removeWorktree(
-              mirror,
-              agent.workspacePath,
-              {
-                projectId: project.projectId,
-                repoUrl: project.repoUrl,
-                defaultBranch: project.defaultBranch,
-              },
-              agentId,
-            );
-            // Task worktrees (ADR 0023's task axis) sit beside the main one
-            // as projects/<projectId>.<slug>; a detach must take them too or
-            // the checkout and its branch outlive the attachment. Dirty ones
-            // are left in place and reported - never force-deleted.
-            for (const task of listTaskWorktrees(project.projectId, [
-              { id: agentId, workspacePath: agent.workspacePath },
-            ])) {
-              try {
-                await removeTaskWorktree(
-                  mirror,
-                  agent.workspacePath,
-                  {
-                    projectId: project.projectId,
-                    repoUrl: project.repoUrl,
-                    defaultBranch: project.defaultBranch,
-                  },
-                  agentId,
-                  task.slug,
-                  // Never force on detach: losing uncommitted work silently is
-                  // worse than a leftover the Coding surface can still see.
-                  { force: false },
-                );
-              } catch (taskErr) {
-                console.warn(
-                  `[reconcile] task worktree ${project.projectId}.${task.slug} left in place for ${agentId}:`,
-                  taskErr instanceof Error ? taskErr.message : String(taskErr),
-                );
-              }
-            }
-          } catch (err) {
-            console.warn(`[reconcile] detach cleanup for ${agentId}/${pid} failed:`, err);
-          }
-        }
-      }
       const packs = await skillPackPort.listForAgent(agentId);
       const agentRole = agent.config.role === "worker" ? "worker" : "front";
       const builtinRoleDir = resolveBuiltinSkillsDirForRole(
@@ -2913,16 +2747,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
   // ─── FeatureSet ─────────────────────────────────────────────
 
-  // Worktree read/merge ops over the project mirrors (ADR 0023 P2).
+  // ADR 0076 / ADR 0077: read-only git inspection over requirement-owned checkouts.
   const worktreeOps = createWorktreeOps({
     dataDir: config.dataDir,
     projectPort,
-    listAgentConfigs: async () =>
-      (await agentSvc.list(true)).map((a) => ({
-        id: a.id,
-        workspacePath: a.workspacePath,
-        projects: a.config.runtime_config.projects,
-      })),
+    listWorkspacesForProject: (projectId) => workspaceSvc.listForProject(projectId),
   });
 
   // ─── Coding page terminals (plan A: PTY registry, ADR on Coding page) ──
@@ -2930,18 +2759,16 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const resolveCodingTarget = async (
     projectId: string | null | undefined,
     agentId: string,
-    worktreePath?: string,
+    workspaceId?: string,
   ): Promise<CodingTarget> => {
     const agents = await agentSvc.list(true);
     const agent = agents.find((a) => a.id === agentId);
     if (!agent) throw new NotFoundError("agent", agentId);
-    // --- the pane's shell and oma line, for whichever directory we resolve ---
     const oma = resolveOmaCommand(config);
     const shQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
     const omaLaunchLine = [oma.executable, ...(oma.args ?? [])].map(shQuote).join(" ");
     const targetOf = (cwd: string, omaEnv?: Record<string, string | undefined>): CodingTarget => ({
       cwd,
-      // ponytail: literal /bin/bash — env must flow through packages/config.
       shell: { executable: "/bin/bash", args: [], env: omaEnv ?? oma.env },
       omaLaunch: omaLaunchLine,
       omaPane: {
@@ -2950,72 +2777,20 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         env: omaEnv ?? oma.env,
       },
     });
-    // ADR 0073: no project = a terminal in the agent's OWN workspace, which is
-    // where a room's worker runs. A conversation can open it without inventing
-    // a project first.
+    if (workspaceId) {
+      const ws = workspaceSvc.getById(workspaceId);
+      if (!ws) throw new NotFoundError("workspace", workspaceId);
+      if (!existsSync(ws.path)) throw new NotFoundError("workspace path", ws.path);
+      return targetOf(ws.path);
+    }
+    // ADR 0073: no project = a terminal in the agent's OWN workspace.
     if (projectId === null || projectId === undefined) return targetOf(agent.workspacePath);
-    if (!agent.config.runtime_config.projects.includes(projectId)) {
-      throw new ConflictError(`agent ${agentId} has not attached project ${projectId}`);
-    }
     const project = projectSvc.getById(projectId);
-    if (!project?.repoUrl) {
-      throw new NotFoundError("project", projectId);
-    }
-    const wtProject = {
-      projectId: project.projectId,
-      repoUrl: project.repoUrl,
-      defaultBranch: project.defaultBranch,
-    };
-    // A task worktree is created explicitly; only the MAIN worktree
-    // materializes on demand here. The validated path (prefix-checked
-    // against this agent's namespace) wins when provided.
-    const main = join(agent.workspacePath, "projects", projectId);
-    const cwd = validateWorktreePath(agent.workspacePath, projectId, worktreePath) ?? main;
-    if (cwd === main && !existsSync(main)) {
-      // Normally the agent-update reconcile materialized it; first click
-      // after a fresh deploy does it on demand (local mirror, bounded).
-      const mirror = await ensureMirror(config.dataDir, wtProject);
-      const wt = await ensureWorktree(mirror, agent.workspacePath, wtProject, agentId);
-      if (!wt) {
-        throw new ConflictError(`worktree slot occupied by a plain directory: ${main}`);
-      }
-    }
-    if (cwd !== main && !existsSync(cwd)) {
-      throw new NotFoundError("task worktree", cwd);
-    }
-    return targetOf(cwd);
-  };
-
-  const listCodingTaskWorktrees = (projectId: string) =>
-    agentSvc.list(true).then((rows) =>
-      listTaskWorktrees(
-        projectId,
-        rows.map((a) => ({ id: a.id, workspacePath: a.workspacePath })),
-      ),
-    );
-
-  const createCodingTaskWorktree = async (projectId: string, agentId: string, slug: string) => {
-    const target = await resolveCodingTarget(projectId, agentId); // validates attach + repo
-    const project = projectSvc.getById(projectId);
-    if (!project?.repoUrl) throw new NotFoundError("project", projectId);
-    const agent = (await agentSvc.list(true)).find((a) => a.id === agentId);
-    if (!agent) throw new NotFoundError("agent", agentId);
-    const wtProject = {
-      projectId: project.projectId,
-      repoUrl: project.repoUrl,
-      defaultBranch: project.defaultBranch,
-    };
-    const mirror = await ensureMirror(config.dataDir, wtProject);
-    const path = await createTaskWorktree(mirror, agent.workspacePath, wtProject, agentId, slug);
-    // MCP-only bridge: reconcileAgentResources treats skill/knowledge
-    // lists as authoritative want-sets — passing empties would wipe the
-    // main workspace's links (review round-2 P0).
-    bridgeWorktreeRoot({
-      root: path,
-      mcpServers: await bridgeMcpServers(agentId),
-      productTools: productToolsManifest(),
-    });
-    return { path, mainPath: target.cwd };
+    if (!project) throw new NotFoundError("project", projectId);
+    // ADR 0077: prefer the newest open requirement checkout for this project;
+    // fall back to the agent's workspace if none has been materialized yet.
+    const openWs = workspaceSvc.listForProject(projectId).find((ws) => existsSync(ws.path));
+    return targetOf(openWs ? openWs.path : agent.workspacePath);
   };
 
   // Boot restore (P2 + ADR 0082 D3): persisted in SQLite `coding_terminal`
@@ -3029,7 +2804,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const restoreCodingTerminals = async (): Promise<void> => {
     for (const entry of codingTerminalStore.loadAll()) {
       try {
-        const target = await resolveCodingTarget(entry.projectId, entry.agentId);
+        const target = await resolveCodingTarget(
+          entry.projectId,
+          entry.agentId,
+          entry.workspaceId ?? undefined,
+        );
         const cwd = existsSync(entry.cwd) ? entry.cwd : target.cwd;
         codingRegistry.spawn({
           terminalId: entry.terminalId,
@@ -3050,43 +2829,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // Prune skipped entries (agent/project gone) so they stop retrying
     // every boot even when nothing else mutates membership afterwards.
     codingRegistry.sync();
-  };
-
-  // Removal is symmetric with creation, with two server-side guards:
-  // a live terminal would have its cwd yanked away, and uncommitted
-  // changes are never discarded without the explicit force flag.
-  const removeCodingTaskWorktree = async (
-    projectId: string,
-    agentId: string,
-    slug: string,
-    force: boolean,
-  ) => {
-    const target = await resolveCodingTarget(projectId, agentId);
-    const project = projectSvc.getById(projectId);
-    if (!project?.repoUrl) throw new NotFoundError("project", projectId);
-    const agent = (await agentSvc.list(true)).find((a) => a.id === agentId);
-    if (!agent) throw new NotFoundError("agent", agentId);
-    const path = validateWorktreePath(
-      agent.workspacePath,
-      projectId,
-      `${target.cwd}.${slug}`,
-    ) as string;
-    if (codingRegistry.list().some((t) => t.cwd === path && t.status === "running")) {
-      throw new ConflictError("close this worktree's terminals first (running processes)");
-    }
-    const wtProject = {
-      projectId: project.projectId,
-      repoUrl: project.repoUrl,
-      defaultBranch: project.defaultBranch,
-    };
-    const mirror = await ensureMirror(config.dataDir, wtProject);
-    await removeTaskWorktree(mirror, agent.workspacePath, wtProject, agentId, slug, { force });
-    // Frozen (exited) terminals of that path would point at a directory
-    // that no longer exists — drop them so the rail tells the truth.
-    for (const t of codingRegistry.list()) {
-      if (t.cwd === path) codingRegistry.close(t.terminalId);
-    }
-    return { path };
   };
 
   // ─── Agentic Workflow ───────────────────────────────────
@@ -3380,13 +3122,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       // `<dataDir>` (lark-bot/*.env, workflows/, other agents) stay unreachable.
       [join(config.dataDir, "skill-packs")],
       larkSurfaceFactsOf,
-      modelKnownForBackend,
     ),
     conversations: conversationRoutes(
       conv.convSvc,
       ulid,
       (id: string) => projectSvc.exists(id),
-      conversationMembers,
       async (id: string) => {
         try {
           return (await agentSvc.getById(id)).config.role;
@@ -3447,7 +3187,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
         await conv.convSvc.postMessage({
           conversationId: run.conversationId,
           senderMemberId: "user",
-          addressedTo: [run.agentId],
           content: [
             `【更正】你之前请求 ${actionId} 的回答已由人更正。`,
             "以这次的内容为准，重做受影响的部分；如有冲突，说明你按哪一条执行。",
@@ -3471,9 +3210,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     coding: codingRoutes({
       registry: codingRegistry,
       resolveTarget: resolveCodingTarget,
-      listTaskWorktrees: listCodingTaskWorktrees,
-      createTaskWorktree: createCodingTaskWorktree,
-      removeTaskWorktree: removeCodingTaskWorktree,
       wsBase: browserWsBase,
       labelResolver: entityLabels,
       requirementOfConversation: (conversationId: string) => {
@@ -3505,7 +3241,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     mcp: mcpRoutes(mcpSvc),
     workflowExecutions: workflowApp,
     artifacts: artifactRoutes(artifactService),
-    proactive: proactiveRoutes(proactiveSvc),
     productTools,
     settings: settingsRoutes(settingsSvc),
     // ADR 0040 + 2026-11-23: adoption APPLIES. The two appliers are the same
@@ -3555,66 +3290,36 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     providers: providerRoutes(providerSvc, { onChange: refreshOmaProviderEnv }),
 
     harnesses: harnessRoutes(harnessCatalog),
-    models: modelRoutes(
-      {
-        // The provider axis only (ADR 0040 decision 7): what the oma harness
-        // actually serves, straight from `oma --list-models`. Harness keys are
-        // NOT models and live in /api/harnesses; the two pickers read the two
-        // lists and never mix.
-        list: async () => {
-          const rows = (await codingAgentCatalog.list()).models.map((m) => ({
-            ...m,
-            backendKind: "oma",
-          }));
-          // Kick discovery for every provider on this page; answers land
-          // asynchronously (serves() never blocks) and flip availability
-          // to false only when the provider is known NOT to serve the id.
-          servedModelKnowledge.refresh([...new Set(rows.map((m) => providerOfModelId(m.id)))]);
-          return rows.map((m) => ({
-            id: m.id,
-            name: m.displayName ?? m.id,
-            available: applyServedAvailability(
-              m.available,
-              servedModelKnowledge.serves(providerOfModelId(m.id), bareModelId(m.id)),
-            ),
-            reasoning: m.reasoning,
-            input: m.inputModalities,
-            cost: m.cost,
-            contextWindow: m.contextWindow,
-            maxTokens: m.maxOutputTokens,
-            backendKind: m.backendKind,
-          }));
-        },
+    models: modelRoutes({
+      // The provider axis only (ADR 0040 decision 7): what the oma harness
+      // actually serves, straight from `oma --list-models`. Harness keys are
+      // NOT models and live in /api/harnesses; the two pickers read the two
+      // lists and never mix.
+      list: async () => {
+        const rows = (await codingAgentCatalog.list()).models.map((m) => ({
+          ...m,
+          backendKind: "oma",
+        }));
+        // Kick discovery for every provider on this page; answers land
+        // asynchronously (serves() never blocks) and flip availability
+        // to false only when the provider is known NOT to serve the id.
+        servedModelKnowledge.refresh([...new Set(rows.map((m) => providerOfModelId(m.id)))]);
+        return rows.map((m) => ({
+          id: m.id,
+          name: m.displayName ?? m.id,
+          available: applyServedAvailability(
+            m.available,
+            servedModelKnowledge.serves(providerOfModelId(m.id), bareModelId(m.id)),
+          ),
+          reasoning: m.reasoning,
+          input: m.inputModalities,
+          cost: m.cost,
+          contextWindow: m.contextWindow,
+          maxTokens: m.maxOutputTokens,
+          backendKind: m.backendKind,
+        }));
       },
-      // Provider-catalogue health: the aggregate /api/models above fails
-      // wholesale when the CLI listing fails — that blind spot is exactly
-      // what this endpoint exists to expose. Harness probes have their own
-      // health row inside /api/harnesses.
-      async () => {
-        try {
-          const list = (await codingAgentCatalog.list()).models;
-          return [
-            {
-              backendKind: "oma",
-              catalogOk: true,
-              models: list.length,
-              available: list.filter((m) => m.available !== false).length,
-              error: null,
-            },
-          ];
-        } catch (err) {
-          return [
-            {
-              backendKind: "oma",
-              catalogOk: false,
-              models: 0,
-              available: 0,
-              error: err instanceof Error ? err.message : String(err),
-            },
-          ];
-        }
-      },
-    ),
+    }),
   };
 
   // ─── Lifecycle ──────────────────────────────────────────────
@@ -3688,8 +3393,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
 
   async function dispose(): Promise<void> {
     // Order matters (P1-18):
-    // 1. Stop all new-work producers (cron, timers, workflow trigger scheduler)
-    //    and drain async background writers (proactive).
+    // 1. Stop all new-work producers (cron, timers, workflow trigger scheduler).
     // 2. Kill every running agent child & drain in-flight dispatches + PTYs.
     // 3. Close local MCP servers and sandbox allowlist proxy.
     // 4. Dispose Lark supervisor & setup manager.
@@ -3698,7 +3402,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     clearInterval(humanTimeoutInterval);
     clearInterval(artifactRetentionInterval);
     await workflowTriggerScheduler.dispose();
-    await proactiveSvc.drain();
     await agentRunExecution.dispose(); // abort/SIGTERM/SIGKILL children + drain
     codingRegistry.closeAll(); // PTYs die with the children, not with the OS
     await productToolsMcp?.close();

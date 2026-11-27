@@ -259,20 +259,19 @@ describe("conversation service (Agent Run cutover)", () => {
     expect(dispatchCalls).toEqual(["run-0"]);
   });
 
-  test("explicit addressedTo without the conversation's agent does not trigger", async () => {
+  test("trigger: false writes to the ledger without triggering a run", async () => {
     const id = "cid-b";
     setupConv(id);
     enqueueCalls.length = 0;
 
-    await svc.postMessage({ conversationId: id, addressedTo: [], content: "hello" });
-    expect(enqueueCalls).toHaveLength(0);
-
-    await svc.postMessage({
+    const result = await svc.postMessage({
       conversationId: id,
-      addressedTo: ["someone-else"],
-      content: "hello",
+      trigger: false,
+      content: "ledger-only note",
     });
+    expect(result.triggeredRuns).toEqual([]);
     expect(enqueueCalls).toHaveLength(0);
+    expect(messages(id)).toHaveLength(1);
   });
 
   test("busy branch with LIVE child -> queued as the next turn, no injection", async () => {
@@ -766,220 +765,7 @@ describe("conversation compaction", () => {
   });
 });
 
-describe("ambient rules on the observe seam (ADR 0046)", () => {
-  type AmbientFn = NonNullable<Parameters<typeof createConversationService>[0]["evaluateAmbient"]>;
-
-  function makeAmbient(evaluateAmbient: AmbientFn) {
-    return createConversationService({
-      port,
-      agentRunService: runSvc,
-      dispatchRun: async (runId) => {
-        dispatchCalls.push(runId);
-      },
-      injectSteer: async () => {},
-      isLive: () => false,
-      isInflight: () => false,
-      abortStaleRun: async () => {},
-      contextService: contextSvc,
-      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
-      idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
-      evaluateAmbient,
-    });
-  }
-
-  const ACT_RULE = {
-    id: "deploy-alarm",
-    chats: [] as string[],
-    senders: [] as string[],
-    keyword: "deploy",
-    mode: "act" as const,
-    instruction: "去查部署问题",
-  };
-  const OBSERVE_INPUT = {
-    senderMemberId: "human:lark:ou_alice",
-    addressedTo: [] as string[],
-    source: { kind: "lark" as const, chatId: "oc_dev" },
-  };
-
-  test("an act match promotes the observation: framed ledger row + one run", async () => {
-    const id = "cid-amb-act";
-    setupConv(id);
-    nextAcquired = true;
-    activeRunId = null;
-    enqueueCalls.length = 0;
-    const local = makeAmbient(async () => ({ rule: ACT_RULE, outcome: "triggered" }));
-
-    const result = await local.postMessage({
-      conversationId: id,
-      ...OBSERVE_INPUT,
-      content: "deploy is broken",
-    });
-
-    // The message became a task: one triggered run on the ordinary path.
-    expect(result.triggeredRuns).toHaveLength(1);
-    expect(result.triggeredRuns[0]!.queued).toBe(false);
-    expect(enqueueCalls).toHaveLength(1);
-    // The ledger row is the FRAMED task and quotes the original verbatim —
-    // one row, not two (the observation was promoted, not duplicated).
-    const rows = messages(id);
-    expect(rows).toHaveLength(1);
-    const text = JSON.stringify(rows[0]!.content);
-    expect(text).toContain("deploy-alarm");
-    expect(text).toContain("去查部署问题");
-    expect(text).toContain("deploy is broken");
-  });
-
-  test("a record match keeps the observation: no run, raw text in the ledger", async () => {
-    const id = "cid-amb-rec";
-    setupConv(id);
-    enqueueCalls.length = 0;
-    const local = makeAmbient(async () => ({
-      rule: { ...ACT_RULE, mode: "record" as const, instruction: "" },
-      outcome: "recorded",
-    }));
-
-    const result = await local.postMessage({
-      conversationId: id,
-      ...OBSERVE_INPUT,
-      content: "deploy is broken",
-    });
-
-    expect(result.triggeredRuns).toEqual([]);
-    expect(enqueueCalls).toHaveLength(0);
-    expect(JSON.stringify(messages(id)[0]!.content)).toContain("deploy is broken");
-  });
-
-  test("no source, no evaluation: observe stays observe for web-style posts", async () => {
-    const id = "cid-amb-nosrc";
-    setupConv(id);
-    enqueueCalls.length = 0;
-    let called = 0;
-    const local = makeAmbient(async () => {
-      called++;
-      return null;
-    });
-
-    await local.postMessage({ conversationId: id, addressedTo: [], content: "no source" });
-    expect(called).toBe(0);
-    expect(enqueueCalls).toHaveLength(0);
-  });
-
-  test("an evaluator crash cannot take the human message down with it", async () => {
-    const id = "cid-amb-err";
-    setupConv(id);
-    enqueueCalls.length = 0;
-    const local = makeAmbient(async () => {
-      throw new Error("rule table corrupted");
-    });
-
-    const result = await local.postMessage({
-      conversationId: id,
-      ...OBSERVE_INPUT,
-      content: "deploy is broken",
-    });
-
-    // Failure degrades to plain observation: ledgered, unrouted, no throw.
-    expect(result.triggeredRuns).toEqual([]);
-    expect(messages(id)).toHaveLength(1);
-  });
-
-  test("the evaluator sees the sender label and the source chat", async () => {
-    const id = "cid-amb-args";
-    setupConv(id);
-    const seen: string[] = [];
-    const local = makeAmbient(async (input) => {
-      seen.push(input.agentId, input.senderMemberId, input.source.chatId, input.text);
-      return null;
-    });
-    await local.postMessage({
-      conversationId: id,
-      ...OBSERVE_INPUT,
-      content: "deploy is broken",
-    });
-    expect(seen).toEqual(["a-1", "human:lark:ou_alice", "oc_dev", "deploy is broken"]);
-  });
-
-  test("ADR 0047: a rule naming another agent promotes to IT, joining the room", async () => {
-    const id = "cid-amb-target";
-    setupConv(id);
-    nextAcquired = true;
-    activeRunId = null;
-    enqueueCalls.length = 0;
-    const memberAdds: Array<{ cid: string; agent: string }> = [];
-    const local = createConversationService({
-      port,
-      agentRunService: runSvc,
-      dispatchRun: async (runId) => {
-        dispatchCalls.push(runId);
-      },
-      injectSteer: async () => {},
-      isLive: () => false,
-      isInflight: () => false,
-      abortStaleRun: async () => {},
-      contextService: contextSvc,
-      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
-      idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
-      evaluateAmbient: async () => ({
-        rule: { ...ACT_RULE, agent: "a-2" },
-        outcome: "triggered",
-      }),
-      addConversationMember: async (cid, agentId) => {
-        memberAdds.push({ cid, agent: agentId });
-      },
-    });
-
-    const result = await local.postMessage({
-      conversationId: id,
-      ...OBSERVE_INPUT,
-      content: "deploy is broken",
-    });
-
-    // The promotion routed to the rule's target, not the conversation's own
-    // agent, and the target was made a member first.
-    expect(memberAdds).toEqual([{ cid: id, agent: "a-2" }]);
-    expect(result.triggeredRuns).toHaveLength(1);
-    expect(enqueueCalls).toHaveLength(1);
-    expect(enqueueCalls[0]!.agentId).toBe("a-2");
-    // The cheap Mandate: the run carries WHY it may run.
-    expect(enqueueCalls[0]!.authorization).toBe("ambient:deploy-alarm");
-  });
-
-  test("ADR 0047: a target that cannot join cancels the promotion", async () => {
-    const id = "cid-amb-join-fail";
-    setupConv(id);
-    enqueueCalls.length = 0;
-    const local = createConversationService({
-      port,
-      agentRunService: runSvc,
-      dispatchRun: async () => {},
-      injectSteer: async () => {},
-      isLive: () => false,
-      isInflight: () => false,
-      abortStaleRun: async () => {},
-      contextService: contextSvc,
-      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
-      idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
-      evaluateAmbient: async () => ({
-        rule: { ...ACT_RULE, agent: "ghost" },
-        outcome: "triggered",
-      }),
-      addConversationMember: async () => {
-        throw new Error("unknown agent ghost");
-      },
-    });
-
-    const result = await local.postMessage({
-      conversationId: id,
-      ...OBSERVE_INPUT,
-      content: "deploy is broken",
-    });
-
-    // 宁可不动作: the observation stays ledger-only, no run, no throw.
-    expect(result.triggeredRuns).toEqual([]);
-    expect(enqueueCalls).toHaveLength(0);
-    expect(messages(id)).toHaveLength(1);
-  });
-
+describe("authorization basis (ADR 0047)", () => {
   test("authorization basis: user by default, overridden by the caller", async () => {
     const id = "cid-auth-basis";
     setupConv(id);
@@ -995,7 +781,6 @@ describe("ambient rules on the observe seam (ADR 0046)", () => {
       conversationId: id,
       content: "worker, go",
       senderMemberId: "a-1",
-      addressedTo: ["a-1"],
       authorization: "dispatch:a-1",
     });
     expect(enqueueCalls[0]!.authorization).toBe("dispatch:a-1");
@@ -1006,23 +791,10 @@ describe("ADR 0070: a ledger-only note records its author", () => {
   test("an agent sender stamps authorAgentId; a human sender does not", async () => {
     const id = "cid-author-stamp";
     setupConv(id);
-    const svc = createConversationService({
-      port,
-      agentRunService: runSvc,
-      dispatchRun: async () => {},
-      injectSteer: async () => {},
-      isLive: () => false,
-      isInflight: () => false,
-      abortStaleRun: async () => {},
-      contextService: contextSvc,
-      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
-      idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
-      isWorkerAgent: async () => true,
-    });
     await svc.postMessage({
       conversationId: id,
       senderMemberId: "a-front",
-      addressedTo: [],
+      trigger: false,
       content: "→ 已派给 a-worker：「x」",
       dispatchTo: { conversationId: "child-1" },
     });
@@ -1039,7 +811,6 @@ describe("ADR 0070: a ledger-only note records its author", () => {
     }>;
     const marker = rows.find((r) => r.text?.startsWith("→"));
     const human = rows.find((r) => r.text === "hello");
-    // Without this the room renders the summary in the human's own bubble.
     expect(marker?.authorAgentId).toBe("a-front");
     expect(human?.authorAgentId).toBeUndefined();
   });
@@ -1058,36 +829,34 @@ describe("ADR 0070: a dispatch opens a room for the worker", () => {
       contextService: contextSvc,
       resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
       idGen: () => `child-${Math.random().toString(36).slice(2, 8)}`,
-      isWorkerAgent: async () => true,
     });
   }
 
   test("the child room is bound to its parent and to the worker", async () => {
     const id = "cid-dispatch-parent";
     setupConv(id);
-    const svc = svcWithRooms();
-    const childId = await svc.createChildConversation({
+    const local = svcWithRooms();
+    const childId = await local.createChildConversation({
       parentConversationId: id,
       agentId: "a-worker",
     });
     const child = port.getConversation(childId);
     expect(child?.parentConversationId).toBe(id);
     expect(child?.agentId).toBe("a-worker");
-    // Not a sidebar room: the list only carries user/fork origins.
     expect(child?.origin).toBe("dispatch");
   });
 
   test("reuse keeps ONE room per (parent, worker); off opens a new one each time", async () => {
     const id = "cid-dispatch-reuse";
     setupConv(id);
-    const svc = svcWithRooms();
+    const local = svcWithRooms();
 
-    const first = await svc.dispatchRoom({
+    const first = await local.dispatchRoom({
       parentConversationId: id,
       workerAgentId: "a-worker",
       reuse: true,
     });
-    const second = await svc.dispatchRoom({
+    const second = await local.dispatchRoom({
       parentConversationId: id,
       workerAgentId: "a-worker",
       reuse: true,
@@ -1096,7 +865,7 @@ describe("ADR 0070: a dispatch opens a room for the worker", () => {
     expect(second.created).toBe(false);
     expect(second.conversationId).toBe(first.conversationId);
 
-    const fresh = await svc.dispatchRoom({
+    const fresh = await local.dispatchRoom({
       parentConversationId: id,
       workerAgentId: "a-worker",
       reuse: false,
@@ -1104,188 +873,12 @@ describe("ADR 0070: a dispatch opens a room for the worker", () => {
     expect(fresh.created).toBe(true);
     expect(fresh.conversationId).not.toBe(first.conversationId);
 
-    // A different worker never shares the room.
-    const other = await svc.dispatchRoom({
+    const other = await local.dispatchRoom({
       parentConversationId: id,
       workerAgentId: "a-other",
       reuse: true,
     });
     expect(other.created).toBe(true);
     expect(other.conversationId).not.toBe(first.conversationId);
-  });
-});
-
-describe("front desk invariant (ADR 0049)", () => {
-  const WORKERS: Record<string, true> = { "a-worker": true };
-
-  function makeFrontDesk() {
-    return createConversationService({
-      port,
-      agentRunService: runSvc,
-      dispatchRun: async (runId) => {
-        dispatchCalls.push(runId);
-      },
-      injectSteer: async () => {},
-      isLive: () => false,
-      isInflight: () => false,
-      abortStaleRun: async () => {},
-      contextService: contextSvc,
-      resolveDefaultModel: async () => ({ backendKind: "oma", modelId: "fake/echo" }),
-      idGen: () => `id-${Math.random().toString(36).slice(2, 8)}`,
-      isWorkerAgent: (id) => Promise.resolve(WORKERS[id] === true),
-      agentNameOf: async (id) => (id === "a-worker" ? "Worker One" : undefined),
-    });
-  }
-
-  test("human input naming a worker reroutes to the conversation's front", async () => {
-    const id = "cid-front-1";
-    setupConv(id); // agentId "a-1" (the front)
-    port.addMember?.(id, "a-worker", 1);
-    enqueueCalls.length = 0;
-    nextAcquired = true;
-    activeRunId = null;
-
-    const result = await makeFrontDesk().postMessage({
-      conversationId: id,
-      senderMemberId: "human:lark:ou_alice",
-      addressedTo: ["a-worker"],
-      content: "@a-worker 修一下登录",
-    });
-
-    // The FRONT ran, not the worker; the @ text survives verbatim.
-    expect(enqueueCalls).toHaveLength(1);
-    expect(enqueueCalls[0]!.agentId).toBe("a-1");
-    expect(enqueueCalls[0]!.message.text).toContain("@a-worker");
-    expect(result.triggeredRuns[0]!.agentId).toBe("a-1");
-  });
-
-  test("ADR 0066: a floor visit addresses the worker AND the room records who it was for", async () => {
-    const id = "cid-front-floor";
-    setupConv(id);
-    port.addMember?.(id, "a-worker", 1);
-    enqueueCalls.length = 0;
-    nextAcquired = true;
-    activeRunId = null;
-
-    const result = await makeFrontDesk().postMessage({
-      conversationId: id,
-      senderMemberId: "human:web:alice",
-      addressedTo: ["a-worker"],
-      content: "别改样式，只修跳转",
-      directToWorker: true,
-    });
-
-    // The worker ran (no reroute), still on the human's own authority.
-    expect(enqueueCalls).toHaveLength(1);
-    expect(enqueueCalls[0]!.agentId).toBe("a-worker");
-    expect(enqueueCalls[0]!.authorization).toBe("user");
-    expect(result.triggeredRuns[0]!.agentId).toBe("a-worker");
-
-    // The room keeps the addressee ON the message: the room only draws messages
-    // that started a run, so a separate note row would be invisible there.
-    const entries = port.getLedgerEntries(id).map((e) => JSON.parse(JSON.stringify(e.content)));
-    const human = entries.find((c) => (c as { text?: string }).text?.includes("别改样式")) as
-      | { floorFor?: { agentId?: string; agentName?: string } }
-      | undefined;
-    expect(human?.floorFor).toEqual({ agentId: "a-worker", agentName: "Worker One" });
-    // No extra ledger row: the marker rides the human's own message.
-    expect(entries).toHaveLength(1);
-    expect(enqueueCalls).toHaveLength(1);
-  });
-
-  test("ADR 0066 D5: a mention-less message in a room reaches the front desk", async () => {
-    const id = "cid-front-room";
-    setupConv(id); // front = "a-1"
-    port.addMember?.(id, "a-worker", 1); // the worker joined when it was dispatched
-    enqueueCalls.length = 0;
-    nextAcquired = true;
-    activeRunId = null;
-
-    const result = await makeFrontDesk().postMessage({
-      conversationId: id,
-      senderMemberId: "human:web:alice",
-      content: "登录那块还没好，进度如何？",
-    });
-
-    // Two members used to mean "mentions only" (ADR 0041's group rule), which
-    // silently swallowed the human's line once a dispatch had added a worker.
-    expect(enqueueCalls).toHaveLength(1);
-    expect(enqueueCalls[0]!.agentId).toBe("a-1");
-    expect(result.triggeredRuns[0]!.agentId).toBe("a-1");
-  });
-
-  test("an observed channel keeps the group rule: unaddressed stays ledger-only", async () => {
-    const id = "cid-front-group";
-    setupConv(id);
-    port.addMember?.(id, "a-worker", 1);
-    enqueueCalls.length = 0;
-    nextAcquired = true;
-    activeRunId = null;
-
-    const result = await makeFrontDesk().postMessage({
-      conversationId: id,
-      senderMemberId: "human:lark:ou_alice",
-      content: "群里的一句闲聊",
-      source: { kind: "lark", chatId: "oc_1" },
-    });
-
-    expect(enqueueCalls).toHaveLength(0);
-    expect(result.triggeredRuns).toHaveLength(0);
-  });
-
-  test("dispatch (a server-side basis) addresses the worker directly", async () => {
-    const id = "cid-front-2";
-    setupConv(id);
-    port.addMember?.(id, "a-worker", 1);
-    enqueueCalls.length = 0;
-    nextAcquired = true;
-    activeRunId = null;
-
-    await makeFrontDesk().postMessage({
-      conversationId: id,
-      senderMemberId: "a-1",
-      addressedTo: ["a-worker"],
-      content: "（由 a-1 派发的任务）修一下登录",
-      authorization: "dispatch:a-1",
-    });
-
-    expect(enqueueCalls).toHaveLength(1);
-    expect(enqueueCalls[0]!.agentId).toBe("a-worker");
-    expect(enqueueCalls[0]!.authorization).toBe("dispatch:a-1");
-  });
-
-  test("human input naming the front still triggers the front", async () => {
-    const id = "cid-front-3";
-    setupConv(id);
-    enqueueCalls.length = 0;
-    nextAcquired = true;
-    activeRunId = null;
-
-    await makeFrontDesk().postMessage({
-      conversationId: id,
-      addressedTo: ["a-1"],
-      content: "在吗",
-    });
-
-    expect(enqueueCalls).toHaveLength(1);
-    expect(enqueueCalls[0]!.agentId).toBe("a-1");
-  });
-
-  test("without the dep, today's behaviour stands: anyone is addressable", async () => {
-    const id = "cid-front-4";
-    setupConv(id);
-    port.addMember?.(id, "a-worker", 1);
-    enqueueCalls.length = 0;
-    nextAcquired = true;
-    activeRunId = null;
-
-    await svc.postMessage({
-      conversationId: id,
-      addressedTo: ["a-worker"],
-      content: "@a-worker 直接说",
-    });
-
-    expect(enqueueCalls).toHaveLength(1);
-    expect(enqueueCalls[0]!.agentId).toBe("a-worker");
   });
 });
