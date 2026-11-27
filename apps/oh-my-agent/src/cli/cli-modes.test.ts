@@ -89,6 +89,30 @@ describe("oma CLI (spawned)", () => {
     expect(text).toContain("done2");
   }, 15_000);
 
+  test("--read-only omits write/bash/workflow_run tools in both print and json modes (P0-8)", async () => {
+    const printTools = join(tmp, "ro-print-tools.json");
+    const jsonTools = join(tmp, "ro-json-tools.json");
+    const res1 = await spawnCli(["--read-only", "-p", "inspect"], {
+      OMA_FAKE_TOOLS_RECORD: printTools,
+    });
+    expect(res1.exitCode).toBe(0);
+    const tools1 = JSON.parse(readFileSync(printTools, "utf8")) as string[];
+    expect(tools1).not.toContain("write");
+    expect(tools1).not.toContain("edit");
+    expect(tools1).not.toContain("bash");
+    expect(tools1).not.toContain("workflow_run");
+
+    const res2 = await spawnCli(["--mode", "json", "--read-only", "-p", "inspect"], {
+      OMA_FAKE_TOOLS_RECORD: jsonTools,
+    });
+    expect(res2.exitCode).toBe(0);
+    const tools2 = JSON.parse(readFileSync(jsonTools, "utf8")) as string[];
+    expect(tools2).not.toContain("write");
+    expect(tools2).not.toContain("edit");
+    expect(tools2).not.toContain("bash");
+    expect(tools2).not.toContain("workflow_run");
+  }, 15_000);
+
   test("print mode persists the completed turn to a session file", async () => {
     const sessionDir = mkdtempSync(join(tmpdir(), "oma-sess-"));
     const res = await spawnCli(["-p", "fix this"], { OMA_SESSION_DIR: sessionDir });

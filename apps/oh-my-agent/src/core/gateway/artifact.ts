@@ -13,7 +13,7 @@ const DEFAULT_STACK_REPO = "Chengchcc/my-agent-team";
 const INSTALL_MARKER = ".complete";
 
 export function omaHome(env: NodeJS.ProcessEnv = process.env): string {
-  return env.OMA_HOME ?? join(homedir(), ".oma");
+  return env.OMA_HOME ?? join(env.HOME || homedir(), ".oma");
 }
 
 /** The launcher's on-disk layout, in one place: code lives under

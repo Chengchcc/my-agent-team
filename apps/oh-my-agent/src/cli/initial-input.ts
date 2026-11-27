@@ -28,23 +28,21 @@ export function resolveStandaloneSkillRoots(workspaceRoot: string): string[] {
       candidates.push(isAbsolute(p) ? p : join(workspaceRoot, p));
     }
   } else {
+    const home = process.env.HOME || homedir();
     candidates.push(join(workspaceRoot, ".oma", "skills"));
     candidates.push(join(agentDir(), "skills"));
     if (settings.enableClaude) {
-      candidates.push(
-        join(workspaceRoot, ".claude", "skills"),
-        join(homedir(), ".claude", "skills"),
-      );
+      candidates.push(join(workspaceRoot, ".claude", "skills"), join(home, ".claude", "skills"));
     }
     if (settings.enableCodex) {
-      candidates.push(join(workspaceRoot, ".codex", "skills"), join(homedir(), ".codex", "skills"));
+      candidates.push(join(workspaceRoot, ".codex", "skills"), join(home, ".codex", "skills"));
     }
     if (settings.enableAgents) {
       candidates.push(
         join(workspaceRoot, ".agent", "skills"),
         join(workspaceRoot, ".agents", "skills"),
-        join(homedir(), ".agent", "skills"),
-        join(homedir(), ".agents", "skills"),
+        join(home, ".agent", "skills"),
+        join(home, ".agents", "skills"),
       );
     }
   }

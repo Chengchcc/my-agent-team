@@ -24,7 +24,7 @@ import { join } from "node:path";
  *  OMA_CODING_AGENT_DIR (pi's PI_CODING_AGENT_DIR). Everything under it —
  *  sessions today — follows the override. */
 export function agentDir(): string {
-  return process.env.OMA_CODING_AGENT_DIR ?? join(homedir(), ".oma");
+  return process.env.OMA_CODING_AGENT_DIR ?? join(process.env.HOME || homedir(), ".oma");
 }
 
 /** Sessions root: <agentDir>/sessions. */

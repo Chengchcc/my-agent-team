@@ -31,7 +31,7 @@ const IDENTITY_FILES = ["SOUL.md", "USER.md"] as const;
  *  and including the home directory (omp agents-md boundary rules).
  *  `opts.home` overrides the home boundary for hermetic tests. */
 export function contextDirChain(cwd: string, opts?: { home?: string }): string[] {
-  const home = opts?.home ?? homedir();
+  const home = opts?.home ?? (process.env.HOME || homedir());
   const dirs: string[] = [];
   let dir = cwd;
   for (;;) {
