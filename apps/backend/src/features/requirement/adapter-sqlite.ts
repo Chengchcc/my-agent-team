@@ -188,6 +188,13 @@ function headOf(payload: string | null): string {
     if (typeof parsed !== "object" || parsed === null) return "";
     const q = (parsed as { question?: unknown }).question;
     if (typeof q === "string" && q !== "") return q.slice(0, 120);
+    const questions = (parsed as { questions?: unknown }).questions;
+    if (Array.isArray(questions)) {
+      const first = questions[0] as { question?: unknown } | undefined;
+      if (typeof first?.question === "string" && first.question !== "") {
+        return first.question.slice(0, 120);
+      }
+    }
     const reason = (parsed as { reason?: unknown }).reason;
     if (typeof reason === "string" && reason !== "") return reason.slice(0, 120);
     return "";

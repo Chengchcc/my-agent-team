@@ -125,7 +125,7 @@ for (const rel of queryFnFiles)
 // .mcp.json product-tools SSE endpoint must be normalized to /sse and the
 // bearer file must carry an ENV-VAR NAME, never a raw token (I1 regression
 // guard: the bare base URL historically 404'd the child's SSEClientTransport).
-const mcpConfigRel = "apps/backend/src/bootstrap/features.ts";
+const mcpConfigRel = "apps/backend/src/bootstrap/wiring-ops-mcp.ts";
 const mcpConfigSrc = readFileSync(join(ROOT, mcpConfigRel), "utf8");
 if (!mcpConfigSrc.includes("sseUrlEndpoint(config.productToolsMcpUrl)"))
   failures.push(`${mcpConfigRel}: product-tools SSE url not normalized via sseUrlEndpoint`);

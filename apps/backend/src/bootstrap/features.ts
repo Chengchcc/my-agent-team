@@ -1,35 +1,18 @@
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
-import { join, resolve } from "node:path";
-import { resolveModelAlias } from "@chengchenccc/ai";
-import type { EmbeddingProvider } from "@chengchenccc/embedding";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { AskQuestionInput } from "@chengchenccc/message";
 import { extractText, type Message, serializeMessageRevision } from "@chengchenccc/message";
-import type { WorkflowDefinition } from "@chengchenccc/workflow";
 import type { FeatureSet } from "../app.js";
 import { createAgentSvc } from "../features/agent/agent-compose.js";
-import { createAgentIdentityStore, identityTextOf } from "../features/agent/agent-identity.js";
+import { createAgentIdentityStore } from "../features/agent/agent-identity.js";
 import { FRONT_DESK_DISABLED_TOOLS } from "../features/agent/front-desk-tools.js";
 import {
   AgentBusyError,
-  agentModelRef,
   agentRoutes,
   createAgentConfigMcpServer,
 } from "../features/agent/index.js";
 import { FRONT_DESK_DISCIPLINE } from "../features/agent/prompt-front-desk.js";
-import {
-  extractMcpSecrets,
-  type McpServerEntry,
-  reconcileAgentResources,
-  writeMcpConfig,
-  writeProductToolsManifest,
-} from "../features/agent/workspace-bridge.js";
+import { writeMcpConfig, writeProductToolsManifest } from "../features/agent/workspace-bridge.js";
 import {
   createAgentContextService,
   sqliteAgentContextAdapter,
@@ -45,11 +28,8 @@ import { pendingActionId } from "../features/agent-run/domain.js";
 import { finalAnswerMessage } from "../features/agent-run/execution-input.js";
 import {
   agentRunRoutes,
-  buildHistoryTools,
   createAgentRunExecutionService,
   createAgentRunService,
-  createBudgetGate,
-  resolveRunWorkspace,
   sqliteAgentRunAdapter,
 } from "../features/agent-run/index.js";
 import {
@@ -67,25 +47,13 @@ import {
 } from "../features/agent-run/routing-observations.js";
 import { endsWithQuestion, lastParagraph } from "../features/agent-run/unasked-question.js";
 import {
-  chatUri,
-  createAhpChatWriter,
-  createAhpHost,
-  createAhpStateSource,
-  type RunTurnContext,
-} from "../features/ahp/index.js";
-import {
   artifactRoutes,
   createArtifactFsAdapter,
   createArtifactService,
   createSqliteArtifactIndexAdapter,
 } from "../features/artifact/index.js";
 import { authRoutes, createPasswordService, MIN_PASSWORD_LENGTH } from "../features/auth/index.js";
-import {
-  type CodingTarget,
-  codingRoutes,
-  createSqliteCodingTerminalStore,
-  createTerminalRegistry,
-} from "../features/coding/index.js";
+import { codingRoutes } from "../features/coding/index.js";
 import { createConversationFeature } from "../features/conversation/conversation-compose.js";
 import {
   conversationRoutes,
@@ -94,19 +62,7 @@ import {
   sqliteConversationAdapter,
 } from "../features/conversation/index.js";
 import { createConfiguredSummarizer } from "../features/conversation/summarize.js";
-import { createEmbeddingClient } from "../features/embedding-client.js";
-import {
-  CliSetupProvisioner,
-  createLarkSetupStore,
-  LarkSetupManager,
-  probeCliSetupCapability,
-} from "../features/lark-bot/index.js";
-import {
-  createMcpRuntimeStatusStore,
-  createMcpService,
-  fileMcpServerAdapter,
-  mcpRoutes,
-} from "../features/mcp/index.js";
+import { createMcpRuntimeStatusStore, mcpRoutes } from "../features/mcp/index.js";
 import {
   applyServedAvailability,
   bareModelId,
@@ -129,16 +85,9 @@ import {
   sqliteProductToolCallAdapter,
 } from "../features/product-tools/index.js";
 import { createRunTokenRegistry } from "../features/product-tools/run-token-registry.js";
-import {
-  createProjectService,
-  projectRoutes,
-  sqliteProjectAdapter,
-} from "../features/project/index.js";
+import { projectRoutes } from "../features/project/index.js";
 import { pushProjectWorktree } from "../features/project/push.js";
-import { ensureRequirementWorktree } from "../features/project/requirement-workspace.js";
 import { createWorkspaceLockRegistry } from "../features/project/workspace-lock.js";
-import { ensureMirror } from "../features/project/worktree.js";
-import { createWorktreeOps } from "../features/project/worktree-ops.js";
 import {
   createProposalService,
   ProposalNotApplicable,
@@ -147,7 +96,6 @@ import {
   sqliteProposalAdapter,
 } from "../features/proposal/index.js";
 import { createProviderService, providerRoutes } from "../features/provider/index.js";
-import { createMemoryRecall } from "../features/recall/memory-recall.js";
 import { recall } from "../features/recall/recall.js";
 import {
   createReminderService,
@@ -160,7 +108,7 @@ import {
   requirementRoutes,
   sqliteRequirementAdapter,
 } from "../features/requirement/index.js";
-import { createRuntimeOpsService, opsRoutes } from "../features/runtime-ops/index.js";
+import { opsRoutes } from "../features/runtime-ops/index.js";
 import { settingsRoutes } from "../features/settings/index.js";
 import type { SkillPackRow } from "../features/skill-pack/index.js";
 import {
@@ -178,22 +126,22 @@ import {
 } from "../features/skill-pack/index.js";
 import { createFsWikiStore, createWikiService, wikiRoutes } from "../features/wiki/index.js";
 import {
-  createNodeRunners,
-  createWorkflowExecutionService,
   createWorkflowMcpServer,
-  createWorkflowTriggerScheduler,
-  sqliteWorkflowExecutionAdapter,
-  workflowRoutes,
+  type WorkflowExecutionService,
 } from "../features/workflow/index.js";
-import { createWorkspaceService } from "../features/workspace/service.js";
 import { startAllowlistProxy } from "../infra/allowlist-proxy.js";
-import { NotFoundError } from "../infra/domain-errors.js";
 import { createEntityLabelResolver } from "../infra/entity-labels.js";
 import { ulid } from "../infra/ids.js";
 import { resolveOmaAcpArgv, resolveOmaCommand } from "../infra/oma-command.js";
 import { createRetentionSweeper } from "../infra/retention.js";
 import { sseUrlEndpoint } from "../infra/sse-url.js";
 import type { BackendServices } from "./services.js";
+import { wireAhp } from "./wiring-ahp.js";
+import { wireCodingAndWorktrees } from "./wiring-coding.js";
+import { wireOpsAndMcp } from "./wiring-ops-mcp.js";
+import { seedDefaultTeamAndWorkflows } from "./wiring-seed.js";
+import { wireWorkflows } from "./wiring-workflows.js";
+import { wireWorkspaceAndRecall } from "./wiring-workspace.js";
 
 // ─── Helper ───────────────────────────────────────────────────
 
@@ -223,7 +171,7 @@ export interface InstalledFeatures {
   agentRunService: ReturnType<typeof createAgentRunService>;
   agentRunExecution: ReturnType<typeof createAgentRunExecutionService>;
   productTools: ReturnType<typeof createProductToolsService>;
-  workflowExecutionService: ReturnType<typeof createWorkflowExecutionService>;
+  workflowExecutionService: WorkflowExecutionService;
 
   prepare(): Promise<void>;
   start(): Promise<void>;
@@ -340,114 +288,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     // `~/.lark-cli/config.json`, and a test suite must never do that.
     ...(services.larkProfileInit ? { profileInit: services.larkProfileInit } : {}),
   });
-
-  /** ADR 0074: the seeded identities. A SOUL.md is the agent's own persona —
-   *  the product rules arrive separately as the front-desk discipline, and
-   *  duplicating them here would make one of the two go stale. Written only
-   *  when absent: a boot must never revert an operator's edit. */
-  const SEED_SOULS: Record<string, string> = {
-    default: `# Personal Agent
-
-你是一个人长期依赖的私人助理，不是工具箱。
-
-## 你怎么工作
-
-- 你管的是注意力：先弄清对方真正想要什么，再决定「我答 / 我安排 / 我派人」。
-- 动手的活交给团队：你负责说清规格、盯住结果、把结论说成人话。
-- 你不假装做完。没验证就说没验证，卡住就说卡在哪、需要谁决定。
-- 空闲时你整理知识：这个人在意什么、决定过什么、为什么——记进 wiki，标好来源。
-
-## 你的边界
-
-- 你没有写文件和执行命令的能力，这不是缺陷，是分工。
-- 你改变不了授权与配置；需要改，就请人来做。`,
-    coder: `# Coder
-
-你是一个工程师。你的作品是改动本身和可复现的验证。
-
-## 你怎么工作
-
-- 先读再改：看不懂的代码不猜着改。
-- 改完就跑：验证结果贴命令和输出，不用形容词代替证据。
-- 报告写「改了什么 / 怎么验证的 / 还有什么风险」，三句话能说完就别写三段。
-
-## 你的边界
-
-- 只在自己的工作区里动手；工作区外的东西只读。
-- 需要人拍板的事（不可逆操作、缺信息、规格矛盾）就停下来问，不硬猜。`,
-    researcher: `# Researcher
-
-你把「不确定」变成「可判断」。
-
-## 你怎么工作
-
-- 每个结论标来源；区分「资料这么说」和「我认为」。
-- 比较方案时先给取舍维度（成本、风险、可逆性），再给倾向，最后说清前提。
-- 找不到就说找不到；不用看起来合理的推测填空。
-
-## 你的边界
-
-- 不做实现，也不替人拍板；你的交付是判断依据。`,
-  };
-
-  async function seedSoul(agentId: string, soul: string): Promise<void> {
-    if (soul === "") return;
-    const agent = await agentSvc.getById(agentId);
-    mkdirSync(agent.workspacePath, { recursive: true });
-    const file = join(agent.workspacePath, "SOUL.md");
-    // The workspace seeder writes a TEMPLATE (# SOUL + "describe this agent
-    // here"); that is not an identity, so it is replaceable. Anything a person
-    // actually wrote is not.
-    const existing = existsSync(file) ? readFileSync(file, "utf8") : null;
-    if (identityTextOf(existing) !== null) return;
-    writeFileSync(file, `${soul.trimEnd()}\n`, "utf8");
-  }
-
-  async function ensureAgent(
-    id: string,
-    name: string,
-    options: { harness: string; model?: string; description?: string; role?: "worker" },
-  ) {
-    try {
-      await agentSvc.getById(id);
-    } catch {
-      await agentSvc.create({
-        id,
-        name,
-        harness: options.harness,
-        ...(options.model ? { model: options.model } : {}),
-        permissionMode: "auto",
-        ...(options.description ? { description: options.description } : {}),
-        ...(options.role ? { role: options.role } : {}),
-      });
-    }
-  }
-
-  /** Seed model + provider derive from the live catalog (single source of
-   *  truth) — catalog evolution changes the default without touching this
-   *  file. Picks the FIRST available model across all providers (the user's
-   *  configured provider keys determine which appear). When no provider has
-   *  a key yet (clean machine), seeds a placeholder so agents still exist
-   *  and get configured later in the UI. */
-  async function defaultSeedModel(): Promise<{ harness: string; model: string }> {
-    try {
-      const catalog = await codingAgentCatalog.list();
-      const first = catalog.models.find((m) => m.available !== false);
-      if (first) {
-        // oma's ACP server catalogs the provider models themselves, so the
-        // catalog id is already exactly what that harness runs.
-        return { harness: "oma", model: first.id };
-      }
-    } catch (err) {
-      console.warn(
-        "[bootstrap] seed model catalog failed:",
-        err instanceof Error ? err.message : String(err),
-      );
-    }
-    // ponytail: no provider key yet. Agents still exist with
-    // identity/memory/skills; "" lets the harness run its own default.
-    return { harness: "oma", model: "" };
-  }
 
   // ─── Conversation + Phase 5 Agent Run (conversation first: the ledger
   //      resolver and run services build on its port; the execution service
@@ -1971,273 +1811,86 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     probe: createProviderModelProbe({ env: process.env }),
   });
   const mcpRuntimeStatus = createMcpRuntimeStatusStore();
-  /** The product read behind a run's turn. The writer owns the per-run caching and the ordering;
-   *  this is the only part that knows about ports. */
-  const readRunTurn = async (runId: string): Promise<RunTurnContext | null> => {
-    const run = await agentRunPort.getRun(runId).catch(() => null);
-    if (!run) return null;
-    const inputs = await agentRunPort.listInputs(run.branchId).catch(() => []);
-    const input = inputs.find((candidate) => candidate.runId === runId);
-    return {
-      conversationId: run.conversationId,
-      inputText: input?.message.text ?? "",
-      ...(input?.message.id === undefined ? {} : { messageId: input.message.id }),
-      startedAt: new Date(run.createdAt).toISOString(),
-      status: run.status,
-    };
-  };
-
-  /** The chat channel's writer (ADR 0040 decision 4): live events as actions, a settled turn stated
-   *  from the projection, and the two announcements. `ahpHost`/`ahpSource` are declared below, but
-   *  every use of them sits inside a closure that only runs once the stack is up. */
-  const chatWriter = createAhpChatWriter({
-    dispatch: (uri, action) => ahpHost.server.dispatch(uri, action),
-    invalidate: (uri) => ahpHost.server.invalidate(uri),
-    // #65 output side: a tool-produced image's bytes exist only on the event,
-    // so they land in the artifact store and the surfaces get a reference.
-    saveImage: async ({ runId, conversationId, mediaType, base64 }) => {
-      const ext =
-        mediaType === "image/png"
-          ? "png"
-          : mediaType === "image/jpeg"
-            ? "jpg"
-            : mediaType === "image/gif"
-              ? "gif"
-              : "webp";
-      const meta = await artifactService.upload({
-        folder: `tool-images/${conversationId}`,
-        filename: `${runId}-${Date.now()}.${ext}`,
-        content: base64,
-        encoding: "base64",
-        source: { runId, conversationId },
-      });
-      return { uri: meta.url, contentType: meta.mimeType, size: meta.size };
-    },
-    projectedTurn: async (conversationId, turnId) => {
-      const chat = await ahpSource.chat(chatUri(conversationId)).catch(() => null);
-      return chat?.turns.find((candidate) => candidate.id === turnId) ?? null;
-    },
-    readRunTurnContext: readRunTurn,
-  });
-
-  /** Where a conversation's runs work: the Agent's workspace, its project worktree, or the
-   *  fallback root. The run dispatch lets a mis-attached project throw (that is a real failure);
-   *  the AHP session read treats the same failure as "nothing to show". */
-  /** A worker's name for human-facing text. An id is for machines: result
-   *  notices and inbox titles rendered `adce782188a740b18e764cdc08` where a
-   *  person should read "Coder" (live 2026-11-24: 10 of 13 inbox rows had the
-   *  same hash title). */
   const agentNameOf = async (agentId: string | null): Promise<string> => {
     if (agentId === null) return "unknown member";
     const agent = await agentSvc.getById(agentId).catch(() => null);
     return agent?.config.name ?? agentId;
   };
 
-  // ADR 0077: the requirement's checkout, materialized on first use. The
-  // agent's project binding is a capability (who may be dispatched) and never
-  // a directory — one agent owning one copy is what serialized two tasks.
-  const workspaceSvc = createWorkspaceService({
+  // Wire Project, MCP, RuntimeOps, Lark setup, and resource reconciliation.
+  const {
+    getSetupManager,
+    disposeSetupManager,
+    opsSvc,
+    larkSurfaceFactsOf,
+    projectPort,
+    projectSvc,
+    mcpSvc,
+    prepareMcpBridge,
+    productToolsManifest,
+    reconcileAgent: reconcileAgentImpl,
+  } = wireOpsAndMcp({
+    config,
     db,
-    idGen: ulid,
-    materialize: async ({ projectId, requirementId }) => {
-      const project = projectSvc.getById(projectId);
-      if (!project?.repoUrl) return null;
-      const wp = {
-        projectId: project.projectId,
-        repoUrl: project.repoUrl,
-        defaultBranch: project.defaultBranch,
-      };
-      const mirror = await ensureMirror(config.dataDir, wp);
-      return ensureRequirementWorktree({
-        mirrorPath: mirror,
-        workspacesRoot: join(config.dataDir, "workspaces"),
-        requirementId,
-        projectId,
-        defaultBranch: project.defaultBranch,
-      });
-    },
+    ulid,
+    agentSvc,
+    convPort: conv.convPort,
+    skillPackPort,
+    larkBotRegistry,
+    opsStore: services.opsStore,
+    mcpClientManager,
+    mcpRuntimeStatus,
+    entityLabels,
+    enabledMcpServers,
+    getWorkflowMcpUrl: () => workflowMcp?.url ?? null,
+    getAgentConfigMcpUrl: () => agentConfigMcp?.url ?? null,
   });
+  reconcileAgent.fn = reconcileAgentImpl;
 
-  /** The room's current requirement and its OPEN checkout for a project, or
-   *  nulls. Read-only. */
-  const checkoutOf = (
-    conversationId: string,
-  ): {
-    requirementId: string | null;
-    projectId: string | null;
-    checkout: { path: string } | null;
-  } => {
-    const convRow = conv.convPort.getConversation(conversationId);
-    const requirementId = workspaceSvc.currentRequirementOf(conversationId);
-    const requirementProject =
-      requirementId === null
-        ? null
-        : (requirementSvc.get(requirementId)?.requirement.projectId ?? null);
-    const projectId = convRow?.projectId ?? requirementProject;
-    const checkout =
-      requirementId !== null && projectId !== null
-        ? workspaceSvc.findForRequirement({ requirementId, projectId })
-        : null;
-    return { requirementId, projectId, checkout };
-  };
-
-  /** Read-only lookup for readers (chat state, memory recall). It never opens
-   *  a requirement: a read must not write. A project room with no checkout yet
-   *  reads from the agent's own directory. */
-  const peekWorkspaceFor = async (input: {
-    conversationId: string;
-    agentId?: string | null;
-  }): Promise<{ root: string; access: "read_write" }> => {
-    const agent = input.agentId ? await agentSvc.getById(input.agentId).catch(() => null) : null;
-    const { projectId, checkout } = checkoutOf(input.conversationId);
-    return resolveRunWorkspace({
-      agentId: input.agentId ?? null,
-      agentWorkspacePath: agent?.workspacePath ?? null,
-      fallbackRoot: config.workspaceRoot,
-      // No checkout → not a project room as far as the resolver is concerned.
-      conversationProjectId: checkout === null ? null : projectId,
-      requirementWorkspacePath: checkout?.path ?? null,
-    });
-  };
-
-  /** The workspace a RUN works in. A project room with no requirement gets one
-   *  NOW — opened by the product and visible in /requirements (ADR 0077): the
-   *  alternative is a first message that fails because it has nowhere to work.
-   *  A human room names its requirement after the room; a dispatched room
-   *  already points at the dispatcher's requirement. */
-  const workspaceForRun = async (input: {
-    conversationId: string;
-    agentId?: string | null;
-    runId?: string;
-  }): Promise<{ root: string; access: "read_write" }> => {
-    const agent = input.agentId ? await agentSvc.getById(input.agentId).catch(() => null) : null;
-    const convRow = conv.convPort.getConversation(input.conversationId);
-    let { requirementId } = checkoutOf(input.conversationId);
-    const { projectId } = checkoutOf(input.conversationId);
-    // Who works here decides whether an item is opened. A requirement is the
-    // PA's record of WORK it discovered (ADR 0080); a front-desk turn that
-    // answers a question in a project room is not that, and used to leave a
-    // "work opened from this room" item behind for every question (audit
-    // 2026-11-24 / N4). Only a run that actually works — a worker — opens one,
-    // which is also the run that takes the checkout (see below).
-    const isWorker = agent?.config.role === "worker";
-    if (isWorker && projectId !== null && requirementId === null) {
-      const project = projectSvc.getById(projectId);
-      // Name it after what the person asked, not after the room: the room has
-      // no title yet when its first run starts, so the project fallback made
-      // every auto-opened requirement read "my-agent-team — work opened from
-      // this room" (27 rows, a dozen of them identical — live 2026-11-24).
-      const asked = deriveConversationTitle(
-        firstUserText(conv.convPort.getLedgerEntries(input.conversationId)),
-      );
-      const title =
-        (convRow?.title ?? "").trim().slice(0, 80) ||
-        asked ||
-        (project ? `${project.name} — work opened from this room` : "Work opened from this room");
-      const opened = requirementSvc.create({
-        title,
-        // No "refine here": the detail page has no editor, so the promise was
-        // false (independent audit, 2026-11-24). Say only what happened.
-        goal: "Opened by the product when work started in this room.",
-        projectId,
-        originConversationId: input.conversationId,
-        createdByAgentId: input.agentId ?? null,
-      });
-      requirementId = opened.requirementId;
-      workspaceSvc.attachConversation({ conversationId: input.conversationId, requirementId });
-      console.log(
-        `[workspace] opened requirement ${requirementId} for room ${input.conversationId} (project ${projectId})`,
-      );
-    }
-    // ADR 0077: the run is linked to the requirement whose checkout it gets —
-    // EVERY run, not only dispatched ones. Dispatch links the worker it starts;
-    // this is what links a person's own front-desk turn and a worker driven on
-    // a direct line. Never over an existing link: a brief that named a
-    // requirement already decided it.
-    if (input.runId !== undefined && requirementId !== null) {
-      const row = await agentRunPort.getRun(input.runId).catch(() => null);
-      if (row !== null && row.requirementId === null) {
-        agentRunPort.setRequirementId?.(input.runId, requirementId);
-      }
-    }
-    // The checkout is where WORKERS work. A front-desk run routes and then
-    // holds for the worker's result — if it also took the checkout, it would
-    // hold the workspace lock the worker needs, and the two would wait on each
-    // other forever (measured 2026-11-23: 0 tool calls in 13 minutes). The
-    // front desk stays in its own directory; it opened the requirement above
-    // and that is its whole part in it.
-    const checkout =
-      isWorker && requirementId !== null && projectId !== null
-        ? await workspaceSvc.ensureForRequirement({ requirementId, projectId })
-        : null;
-    return resolveRunWorkspace({
-      agentId: input.agentId ?? null,
-      agentWorkspacePath: agent?.workspacePath ?? null,
-      fallbackRoot: config.workspaceRoot,
-      // A front desk in a project room is not "a project run": it has no
-      // checkout and must not be refused for lacking one.
-      conversationProjectId: isWorker ? projectId : null,
-      requirementWorkspacePath: checkout?.path ?? null,
-    });
-  };
-
-  // Catalog prices for usage and for the daily brake. Born at wiring time,
-  // awaited by a request — the catch keeps a failed catalog call from taking
-  // the process down (see the same pattern at the agent-run routes).
-  const modelCostsSnapshot = (async () => {
-    const map = new Map<
-      string,
-      { input: number; output: number; cacheRead: number; cacheWrite: number }
-    >();
-    for (const m of (await codingAgentCatalog.list()).models) {
-      map.set(resolveModelAlias(m.id), m.cost);
-    }
-    return map;
-  })().catch((err) => {
-    console.warn("[bootstrap] model cost catalog failed:", err);
-    return new Map<
-      string,
-      { input: number; output: number; cacheRead: number; cacheWrite: number }
-    >();
-  });
-
-  const budgetGate = createBudgetGate({
+  // Wire ADR 0077 requirement workspaces, run workspace resolution, budget gate, and memory recall.
+  const {
+    workspaceSvc,
+    checkoutOf,
+    peekWorkspaceFor,
+    workspaceForRun,
+    modelCostsSnapshot,
+    budgetGate,
+    memoryRecall,
+  } = wireWorkspaceAndRecall({
+    config,
     db,
-    modelCosts: modelCostsSnapshot,
-    getSetting: (key) => settingsSvc.get(key),
+    ulid,
+    agentSvc,
+    convPort: conv.convPort,
+    agentRunPort,
+    requirementSvc,
+    settingsSvc,
+    codingAgentCatalog,
+    getProjectSvc: () => projectSvc,
   });
 
-  // The vector voice needs an embedding model; without one the FTS voice still
-  // answers (degrades, never breaks - the store's own contract).
-  const embeddingProviderForRecall = (): EmbeddingProvider | null => {
-    if (!config.embeddingModel || !config.embeddingBaseUrl) return null;
-    const client = createEmbeddingClient({
-      model: config.embeddingModel,
-      baseUrl: config.embeddingBaseUrl,
-    });
-    return {
-      model: config.embeddingModel,
-      dim: 0,
-      embedDocuments: (texts) => client.embed([...texts]),
-      embedQuery: async (text) => {
-        const [vector] = await client.embed([text]);
-        return vector ?? [];
-      },
-    };
+  // Wire AHP read-only state source, WebSocket host, and live chat writer (zero TDZ forward refs).
+  const { browserWsBase, ahpHost, chatWriter } = wireAhp({
+    config,
+    agentSvc,
+    harnessCatalog,
+    convPort: conv.convPort,
+    agentRunPort,
+    artifactService,
+    opsStore: services.opsStore,
+    peekWorkspaceFor,
+  });
+
+  onContinuityRecorded.fn = (input) => {
+    void chatWriter
+      .announceContinuity(input)
+      .catch((err) =>
+        console.error(
+          `[bootstrap] continuity announcement failed for ${input.conversationId}:`,
+          err,
+        ),
+      );
   };
-
-  const memoryRecall = createMemoryRecall({
-    workspaceOf: async (conversationId) => {
-      const convRow = conv.convPort.getConversation(conversationId);
-      if (!convRow?.agentId) return null;
-      const ws = await peekWorkspaceFor({
-        conversationId,
-        agentId: convRow.agentId,
-      }).catch(() => null);
-      return ws?.root ?? null;
-    },
-    embedding: embeddingProviderForRecall(),
-  });
 
   const agentRunExecution = createAgentRunExecutionService({
     budgetGate,
@@ -2449,447 +2102,29 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   isInflight.fn = (runId: string) => agentRunExecution.isInflight(runId);
   abortStaleRun.fn = (runId: string) => agentRunExecution.abortStaleRun(runId);
 
-  // ─── Lark setup ────────────────────────────────────────────
-  let setupManager: LarkSetupManager | undefined;
-  function getSetupManager(provisioner = new CliSetupProvisioner()): LarkSetupManager {
-    if (!setupManager) {
-      // Persisted: a restart must not lose a half-finished authorization, and
-      // an expired one has to stay readable for the wizard to explain it.
-      const setupStore = createLarkSetupStore(db);
-      setupManager = new LarkSetupManager(
-        provisioner,
-        async (session) => {
-          await agentSvc.update(session.agentId, {
-            lark: { enabled: true, botDisplayName: session.botDisplayName ?? undefined },
-          });
-          await larkBotRegistry.ensureLarkBot(
-            session.agentId,
-            session.botDisplayName,
-            session.profileRef,
-          );
-          console.log(
-            `[lark-setup] completed for ${session.agentId}, profile=${session.profileRef}`,
-          );
-        },
-        setupStore,
-      );
-    }
-    return setupManager;
-  }
-
-  // ─── Runtime Ops (surface-health audit only) ───────────────
-
-  /** Whether `POST .../lark/setup` can run here. The real check spawns
-   *  `lark-cli … --help`, too heavy for a GET the wizard polls, so the
-   *  answer is cached for a minute — long enough to be useful, short enough
-   *  that installing the CLI shows up without a restart. */
-  const CLI_PROBE_TTL_MS = 60_000;
-  let cliCapability: { at: number; available: boolean } | null = null;
-  const setupAvailable = async (): Promise<boolean> => {
-    if (cliCapability && Date.now() - cliCapability.at < CLI_PROBE_TTL_MS) {
-      return cliCapability.available;
-    }
-    const available = await probeCliSetupCapability().catch(() => false);
-    cliCapability = { at: Date.now(), available };
-    return available;
-  };
-
-  const agentNames = new Map<string, string>();
-  {
-    const rows = await agentSvc.list(true);
-    for (const r of rows) agentNames.set(r.id, r.config.name);
-  }
-
-  const opsSvc = createRuntimeOpsService({
-    opsStore: services.opsStore,
-    getAgentName: (agentId: string) => agentNames.get(agentId),
-    dbPath: `${config.dataDir}/backend.db`,
-  });
-
-  /** Inputs of the Lark wizard read model. Assembled here because this is
-   *  the only scope that holds all four sources at once: the agent config,
-   *  the setup session, the bot registry, and the heartbeat store. */
-  const larkSurfaceFactsOf = async (agentId: string) => {
-    const agent = await agentSvc.getById(agentId).catch(() => null);
-    if (!agent) return null;
-    const lk = agent.config.lark;
-    const surface = opsSvc.getAgentRuntime(agentId).surfaces.lark;
-    const session = setupManager?.getByAgentId(agentId);
-    const counters = (surface?.counters ?? {}) as Record<string, unknown>;
-    const pending = counters.pendingDeliveries;
-    const runtime = {
-      registryStatus: larkBotRegistry.statusOf(agentId),
-      lastSeenAt: surface?.lastSeenAt ?? null,
-      lastError: surface?.lastError ?? null,
-      // The bot reports counters, not a queue length; absent means zero.
-      pendingDeliveries: typeof pending === "number" ? pending : 0,
-      setupAvailable: await setupAvailable(),
-    };
-    const setup = session
-      ? {
-          id: session.setupId,
-          status: session.status,
-          expiresAt: session.expiresAt,
-          ...(session.brand ? { brand: session.brand } : {}),
-          ...(session.error ? { error: session.error } : {}),
-          ...(session.url ? { url: session.url } : {}),
-        }
-      : null;
-    return {
-      config: {
-        enabled: lk.enabled,
-        appId: lk.app_id !== "" ? lk.app_id : null,
-        profileRef: lk.profile_ref !== "" ? lk.profile_ref : null,
-        botDisplayName: lk.bot_display_name !== "" ? lk.bot_display_name : null,
-        allowedSenders: lk.allowed_senders,
-        ...(lk.group_policy ? { groupPolicy: lk.group_policy } : {}),
-      },
-      runtime,
-      setup,
-    };
-  };
-
-  // ─── Project ────────────────────────────────────────────────
-
-  const projectPort = sqliteProjectAdapter(db);
-  const projectSvc = createProjectService({
-    port: projectPort,
-    hasProjectBinding: (pid: string) => conv.convPort.hasProjectBinding?.(pid) ?? false,
-    idGen: ulid,
-    // Detach guard (ADR 0023): refuse deleting a project agents still
-    // attach to. agentSvc.list returns rows carrying the materialized
-    // config cache; includeArchived covers archived agents too.
-    listAgentConfigs: async () =>
-      (await agentSvc.list(true)).map((a) => ({
-        id: a.id,
-        projects: a.config.runtime_config.projects,
-      })),
-  });
-
-  // ─── MCP ────────────────────────────────────────────────────
-
-  const mcpSvcRaw = createMcpService({
-    port: fileMcpServerAdapter(config.dataDir),
-    mcpClientManager,
-    runtimeStatus: mcpRuntimeStatus,
-    agentExists: (id: string) => agentSvc.exists(id),
-    getAgentMcpServers: async (agentId) => {
-      const agent = await agentSvc.getById(agentId);
-      return agent.config.runtime_config.mcp_servers.map((s) => ({
-        serverId: s.server_id,
-        enabled: s.enabled,
-      }));
-    },
-    setAgentMcpServers: async (agentId, entries) => {
-      await agentSvc.update(agentId, {
-        mcpServers: entries.map((e) => ({ serverId: e.serverId, enabled: e.enabled })),
-      });
-    },
-    idGen: ulid,
-  });
-  // Catalog mutations + assignment changes re-reconcile every affected
-  // agent's workspace mcp.json (ADR 0022).
-  const mcpSvc: ReturnType<typeof createMcpService> = {
-    ...mcpSvcRaw,
-    async create(input) {
-      const row = await mcpSvcRaw.create(input);
-      return row;
-    },
-    async update(serverId, input) {
-      const row = await mcpSvcRaw.update(serverId, input);
-      for (const agentId of await agentIdsWithMcpServer(serverId)) {
-        await reconcileAgent.fn(agentId);
-      }
-      return row;
-    },
-    async delete(serverId) {
-      const affected = await agentIdsWithMcpServer(serverId);
-      await mcpSvcRaw.delete(serverId);
-      for (const agentId of affected) await reconcileAgent.fn(agentId);
-    },
-    async setAgentServers(agentId, entries) {
-      await mcpSvcRaw.setAgentServers(agentId, entries);
-      await reconcileAgent.fn(agentId);
-    },
-  };
-  async function agentIdsWithMcpServer(serverId: string): Promise<string[]> {
-    // The catalog row exists before delete; agents are whoever assigned it.
-    const all = await agentSvc.list();
-    const ids: string[] = [];
-    for (const agent of all) {
-      if ((await mcpSvcRaw.listAssignments(agent.id)).some((a) => a.serverId === serverId)) {
-        ids.push(agent.id);
-      }
-    }
-    return ids;
-  }
-
-  /** H1: the ONE builder of the workspace mcp server list — used by
-   *  reconcileAgent (config changes) AND the per-dispatch rewrite
-   *  (rewriteWorkspaceBridge). Extracts user MCP env/headers secrets into
-   *  `${MCP_SECRET_...}` placeholders so `.mcp.json` on disk stays secret-free
-   *  and secrets reach the child only via spawn env. */
-  async function prepareMcpBridge(agentId: string) {
-    // Fail loudly on an unknown agent: the bridge is the single author of the
-    // workspace .mcp.json, and an empty server list for a real agent would
-    // silently strip its tools.
-    const agent = await agentSvc.getById(agentId);
-    const isWorker = agent.config.role === "worker";
-    const userServers: McpServerEntry[] = (await mcpSvc.listForAgent(agentId)).map((s) => ({
-      name: s.name,
-      transport: s.transport,
-      url: s.url,
-      command: s.command,
-      args: s.args ?? [],
-      env: s.env ?? {},
-      headers: s.headers ?? {},
-    }));
-    const extracted = extractMcpSecrets(userServers);
-    const servers: McpServerEntry[] = [
-      ...extracted.servers,
-      // The product-tools server (ledger access, ADR 0020) merges into
-      // the SAME workspace .mcp.json — one config, one writer. Gated by
-      // the per-server enabled set (ENABLED_MCP_SERVERS).
-      ...(config.productToolsMcpUrl && enabledMcpServers.has("product-tools")
-        ? [
-            {
-              name: "product-tools",
-              transport: "sse" as const,
-              // The SSE session endpoint is `<base>/sse` (the child's
-              // SSEClientTransport GETs the url as-is; the bare base
-              // 404s). sseUrlEndpoint appends only when needed.
-              url: sseUrlEndpoint(config.productToolsMcpUrl),
-              // ENV NAME, not the token: pi (bearerTokenEnv) and omp
-              // (bearer_token_env_var) read this var at connect time;
-              // claude expands the ${VAR} placeholder in headers. The
-              // per-run bearer arrives via spawn env. File stays static.
-              bearerTokenEnv: "PRODUCT_TOOLS_RUN_TOKEN",
-              // An ask_question parks until a human answers — the call must
-              // outlive the SDK's 60s default and the backend's own ask
-              // deadline, or the question dies before it can be read.
-              timeoutMs: config.askTimeoutMs + 60_000,
-            },
-          ]
-        : []),
-      // The workflow DSL server (per-server controlled): lets the chat
-      // agent read/write the workflow file it is editing. Injected only
-      // when enabled AND the server is live.
-      ...(workflowMcp
-        ? [
-            {
-              name: "workflow",
-              transport: "sse" as const,
-              // The Oma SSEClientTransport GETs this url as-is; the bare
-              // base 404s, so point at the /sse endpoint directly.
-              url: workflowMcp.url,
-              bearerTokenEnv: "PRODUCT_TOOLS_RUN_TOKEN",
-            },
-          ]
-        : []),
-      // The agent-config server: front-desk / operator-facing agents only —
-      // workers must not propose agent configuration changes.
-      ...(agentConfigMcp && !isWorker
-        ? [
-            {
-              name: "agent-config",
-              transport: "sse" as const,
-              url: agentConfigMcp.url,
-              bearerTokenEnv: "PRODUCT_TOOLS_RUN_TOKEN",
-            },
-          ]
-        : []),
-    ];
-    return { servers, env: extracted.env, expandableVars: extracted.expandableVars };
-  }
-
-  async function bridgeMcpServers(agentId: string): Promise<McpServerEntry[]> {
-    return (await prepareMcpBridge(agentId)).servers;
-  }
-
-  /** The product-tools manifest (ADR 0003 decision 6) — single source for
-   *  reconcile + the per-dispatch manifest rewrite. */
-  function productToolsManifest(): readonly unknown[] {
-    return config.productToolsMcpUrl
-      ? [...buildHistoryTools(`sse:${sseUrlEndpoint(config.productToolsMcpUrl)}`)]
-      : [];
-  }
-
-  reconcileAgent.fn = async (agentId: string): Promise<void> => {
-    try {
-      const agent = await agentSvc.getById(agentId);
-      const packs = await skillPackPort.listForAgent(agentId);
-      const agentRole = agent.config.role === "worker" ? "worker" : "front";
-      const builtinRoleDir = resolveBuiltinSkillsDirForRole(
-        config.dataDir,
-        config.builtinSkillsDir,
-        agentRole,
-      );
-      // ADR 0077: an agent no longer owns project checkouts. The checkout is
-      // the requirement's (`<dataDir>/workspaces/<requirementId>/<projectId>`),
-      // created when a dispatch needs it; `projects` on the agent stays what it
-      // always was for the guard — who may be dispatched to which project.
-      const extraRoots: string[] = [];
-      reconcileAgentResources({
-        extraRoots,
-        workspacePath: agent.workspacePath,
-        kind: agent.config.runtime_config.harness,
-        skillPacks: packs
-          .filter((p) => p.status === "ready")
-          .map((p) => ({
-            id: p.id,
-            source: p.id === BUILTIN_PACK_ID ? builtinRoleDir : installPath(config.dataDir, p.id),
-          })),
-        mcpServers: await bridgeMcpServers(agentId),
-        productTools: productToolsManifest(),
-      });
-    } catch (err) {
-      console.error(`[bridge] reconcile failed for ${agentId}:`, err);
-    }
-  };
-
-  // ─── FeatureSet ─────────────────────────────────────────────
-
-  // ADR 0076 / ADR 0077: read-only git inspection over requirement-owned checkouts.
-  const worktreeOps = createWorktreeOps({
-    dataDir: config.dataDir,
-    projectPort,
-    listWorkspacesForProject: (projectId) => workspaceSvc.listForProject(projectId),
-  });
-
-  // ─── Coding page terminals (plan A: PTY registry, ADR on Coding page) ──
-
-  const resolveCodingTarget = async (
-    projectId: string | null | undefined,
-    agentId: string,
-    workspaceId?: string,
-  ): Promise<CodingTarget> => {
-    const agents = await agentSvc.list(true);
-    const agent = agents.find((a) => a.id === agentId);
-    if (!agent) throw new NotFoundError("agent", agentId);
-    const oma = resolveOmaCommand(config);
-    const shQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
-    const omaLaunchLine = [oma.executable, ...(oma.args ?? [])].map(shQuote).join(" ");
-    const targetOf = (cwd: string, omaEnv?: Record<string, string | undefined>): CodingTarget => ({
-      cwd,
-      shell: { executable: "/bin/bash", args: [], env: omaEnv ?? oma.env },
-      omaLaunch: omaLaunchLine,
-      omaPane: {
-        executable: "/bin/bash",
-        args: ["-c", `${omaLaunchLine} --continue; exec /bin/bash`],
-        env: omaEnv ?? oma.env,
-      },
+  // ─── Coding, Worktrees, Workflows & Timers ──────────────────
+  const { worktreeOps, resolveCodingTarget, codingRegistry, restoreCodingTerminals } =
+    wireCodingAndWorktrees({
+      config,
+      db,
+      agentSvc,
+      projectPort,
+      projectSvc,
+      workspaceSvc,
     });
-    if (workspaceId) {
-      const ws = workspaceSvc.getById(workspaceId);
-      if (!ws) throw new NotFoundError("workspace", workspaceId);
-      if (!existsSync(ws.path)) throw new NotFoundError("workspace path", ws.path);
-      return targetOf(ws.path);
-    }
-    // ADR 0073: no project = a terminal in the agent's OWN workspace.
-    if (projectId === null || projectId === undefined) return targetOf(agent.workspacePath);
-    const project = projectSvc.getById(projectId);
-    if (!project) throw new NotFoundError("project", projectId);
-    // ADR 0077: prefer the newest open requirement checkout for this project;
-    // fall back to the agent's workspace if none has been materialized yet.
-    const openWs = workspaceSvc.listForProject(projectId).find((ws) => existsSync(ws.path));
-    return targetOf(openWs ? openWs.path : agent.workspacePath);
-  };
 
-  // Boot restore (P2 + ADR 0082 D3): persisted in SQLite `coding_terminal`
-  // (one-time import from legacy `terminals.json` if table is empty).
-  const codingStateFile = join(config.dataDir, "coding", "terminals.json");
-  const codingTerminalStore = createSqliteCodingTerminalStore(db);
-  codingTerminalStore.importLegacyJsonIfEmpty(codingStateFile);
-  const codingRegistry = createTerminalRegistry({
-    persist: (snapshot) => codingTerminalStore.saveAll(snapshot),
-  });
-  const restoreCodingTerminals = async (): Promise<void> => {
-    for (const entry of codingTerminalStore.loadAll()) {
-      try {
-        const target = await resolveCodingTarget(
-          entry.projectId,
-          entry.agentId,
-          entry.workspaceId ?? undefined,
-        );
-        const cwd = existsSync(entry.cwd) ? entry.cwd : target.cwd;
-        codingRegistry.spawn({
-          terminalId: entry.terminalId,
-          projectId: entry.projectId,
-          agentId: entry.agentId,
-          workspaceId: entry.workspaceId ?? null,
-          conversationId: entry.conversationId ?? null,
-          requirementId: entry.requirementId ?? null,
-          cwd,
-          title: entry.title,
-          kind: entry.kind,
-          command: entry.kind === "oma" ? target.omaPane : target.shell,
-        });
-      } catch {
-        // agent/project gone — drop silently; sync() below prunes it
-      }
-    }
-    // Prune skipped entries (agent/project gone) so they stop retrying
-    // every boot even when nothing else mutates membership afterwards.
-    codingRegistry.sync();
-  };
-
-  // ─── Agentic Workflow ───────────────────────────────────
-  const workflowPort = sqliteWorkflowExecutionAdapter(db);
-  const workflowNodeRunners = createNodeRunners({
-    dataDir: config.dataDir,
-    // H2: script nodes are opt-in; the sandbox denies reads over the
-    // data dir and the deployment's .env, and cuts network (bwrap/
-    // sandbox-exec when available).
-    scriptsEnabled: config.workflowScriptsEnabled,
-    denyReadDirs: config.workflowScriptDenyReadDirs,
-    // A script log is a durable fact: it lands in the trace the execution page reads.
-    onLog: (executionId, data) =>
-      workflowPort
-        .appendExecutionEvent({ executionId, event: "script_log", data, ts: Date.now() })
-        .catch(() => {}),
-  });
-  const workflowExecutionService = createWorkflowExecutionService({
-    port: workflowPort,
-    nodeRunners: workflowNodeRunners,
-    idGen: ulid,
+  const { workflowExecutionService, workflowTriggerScheduler, workflowApp } = wireWorkflows({
+    config,
+    db,
+    ulid,
+    settingsSvc,
+    agentSvc,
     agentRunService,
     agentRunExecution,
     convPort,
     conversationService: conv.convSvc,
     artifactService,
-    resolveDefaultModel: async (agentId) => agentModelRef(await agentSvc.getById(agentId)),
-    agentProjects: async (agentId) =>
-      (await agentSvc.getById(agentId))?.config.runtime_config.projects ?? [],
-  });
-  // Builtin showcase: seed the sample workflows on first boot (user has none
-  // yet) from <resources>/workflow-showcase. A packaged stack may ship without
-  // them, so a missing directory is skipped, not fatal.
-  {
-    const wfDir = join(config.dataDir, "workflows");
-    mkdirSync(wfDir, { recursive: true });
-    const existing = readdirSync(wfDir).filter((f) => f.endsWith(".workflow.json"));
-    if (existing.length === 0 && existsSync(config.workflowShowcaseDir)) {
-      for (const f of readdirSync(config.workflowShowcaseDir)) {
-        if (f.endsWith(".workflow.json")) {
-          copyFileSync(join(config.workflowShowcaseDir, f), join(wfDir, f));
-          console.log(`[bootstrap] seeded showcase workflow: ${f}`);
-        }
-      }
-    }
-  }
-
-  const workflowTriggerScheduler = createWorkflowTriggerScheduler({
-    workflowDir: join(config.dataDir, "workflows"),
-    schedule: (expr: string, fn: () => void) => {
-      const h = Bun.cron(expr, fn);
-      return { stop: () => h.stop() };
-    },
-    startExecution: (input: {
-      workflowId: string;
-      definition: WorkflowDefinition;
-      input: Record<string, unknown>;
-    }) => workflowExecutionService.startExecution(input),
-    listExecutions: (workflowId: string) => workflowExecutionService.listExecutions(workflowId),
+    entityLabels,
   });
 
   // Reminder tick (raft step 2): DB rows are the truth, so a 30s scan is
@@ -2901,8 +2136,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   }, 30_000);
 
   // Human-node timeouts (DSL `timeoutMs`): a parked execution has no live loop,
-  // so this scan is its only clock. DB rows are the truth → a task that expired
-  // while the process was down settles on the first tick after boot.
+  // so this scan is its only clock.
   const humanTimeoutInterval = setInterval(() => {
     void workflowExecutionService.expireHumanTimeouts().catch((err: unknown) => {
       console.error(
@@ -2912,10 +2146,6 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     });
   }, 30_000);
 
-  // Artifact retention (opt-in, ARTIFACT_RETENTION_DAYS): 0/unset keeps every
-  // artifact forever — they are the user's own files and age alone is never a
-  // reason to delete. A daily tick, plus one sweep at boot so configuring a
-  // window takes effect on the next restart rather than a day later.
   const artifactRetentionDays = config.artifactRetentionDays ?? 0;
   const sweepArtifacts = () => {
     void artifactService
@@ -2938,59 +2168,8 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   const artifactRetentionInterval = setInterval(sweepArtifacts, 24 * 60 * 60 * 1000);
   const retentionSweeper = createRetentionSweeper(db);
 
-  // One-time boot migration: legacy `workflow.trigger.<id>` keys did not match
-  // `isSecretKey` and were stored in plaintext. Move them to
-  // `workflow.trigger_token.<id>` so `settingsSvc` AES-seals & masks them.
-  {
-    const legacyRows = db
-      .query("SELECT key FROM settings WHERE key LIKE 'workflow.trigger.%'")
-      .all() as Array<{ key: string }>;
-    for (const row of legacyRows) {
-      if (row.key.startsWith("workflow.trigger_token.")) continue;
-      const wfId = row.key.slice("workflow.trigger.".length);
-      const raw = settingsSvc.get<string>(row.key);
-      if (typeof raw === "string" && raw.length > 0) {
-        settingsSvc.set(`workflow.trigger_token.${wfId}`, raw);
-      }
-      settingsSvc.delete(row.key);
-    }
-  }
-
-  const workflowApp = workflowRoutes({
-    workflowExecutionService,
-    loadWorkflow: async (ref) => {
-      // Containment: http.ts validates the "<stem>.workflow.json" shape, but
-      // this is the boundary — resolve and verify before touching disk.
-      const workflowsDir = join(config.dataDir, "workflows");
-      const file = join(workflowsDir, ref.path);
-      if (!resolve(file).startsWith(resolve(workflowsDir))) {
-        throw new Error(`workflow path escapes workflows dir: ${ref.path}`);
-      }
-      return await Bun.file(file).text();
-    },
-    workflowDir: join(config.dataDir, "workflows"),
-    // Trigger tokens live in the sealed settings KV under a *_token.* key so
-    // sealDeep/maskDeep/settings-HTTP-guard all apply automatically.
-    scriptsEnabled: config.workflowScriptsEnabled,
-    getTriggerToken: async (workflowId) =>
-      settingsSvc.get<string>(`workflow.trigger_token.${workflowId}`),
-    setTriggerToken: async (workflowId, token) => {
-      settingsSvc.set(`workflow.trigger_token.${workflowId}`, token);
-    },
-    deleteTriggerToken: async (workflowId) => {
-      settingsSvc.delete(`workflow.trigger_token.${workflowId}`);
-    },
-    labelResolver: entityLabels,
-    resyncTriggers: () => workflowTriggerScheduler.sync(),
-  });
-
   const passwordSvc = createPasswordService(settingsSvc, { dataDir: config.dataDir });
 
-  // The launcher's password (env/secret) is a BOOTSTRAP credential: adopt it
-  // once, as a hash, then the DB is the only source. Without this, a regenerated
-  // .env or gateway secret silently changes the login password, and a password
-  // set in the console stops matching as soon as the stack is launched another
-  // way.
   const seeded = await passwordSvc.seedFromBootstrap(config.bootstrapPassword);
   if (seeded === "seeded") {
     console.error("[auth] login password seeded into the database from MOCK_PASSWORD");
@@ -3001,105 +2180,11 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       `[auth] MOCK_PASSWORD is shorter than ${MIN_PASSWORD_LENGTH} characters; not seeding it as the login password`,
     );
   } else if (seeded === "none") {
-    // Neither a stored password nor a bootstrap one: login is locked until
-    // someone sets one. Loud, because the usual cause is wiring (the bootstrap
-    // value not reaching THIS process) rather than an intentional choice.
     console.error(
       "[auth] no login password stored and no MOCK_PASSWORD bootstrap in this process's env;",
       "set MOCK_PASSWORD or run scripts/reset-login-password.sh once the console is up",
     );
   }
-
-  // A wildcard bind is not a host a browser can reach: hand the client a loopback address.
-  const browserWsBase = `ws://${
-    config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host
-  }:${config.port}`;
-
-  // The AHP face (ADR 0040): the protocol machinery lives in features/ahp, and this is where the
-  // state source and the command port attach. The source is a read-only projection - sessions and
-  // chats come from the canonical model - and the command port refuses until the control plane is
-  // wired to it.
-  /** The projection: the face serves it, and the chat writer reads it back to re-state a committed
-   *  turn exactly as a fresh subscriber would read it. */
-  const ahpSource = createAhpStateSource({
-    listAgents: async () =>
-      (await agentSvc.list(false)).map((agent) => ({
-        id: agent.id,
-        name: agent.config.name,
-        harness: agent.config.runtime_config.harness,
-        // The harness's own model, in that harness's vocabulary; "" = its default.
-        model: agent.config.runtime_config.model,
-      })),
-    harnessModels: async (harness) =>
-      (await harnessCatalog.list()).find((h) => h.key === harness)?.models ?? [],
-    getConversation: (conversationId) => conv.convPort.getConversation(conversationId),
-    getLedgerEntries: (conversationId) => conv.convPort.getLedgerEntries(conversationId),
-    listPendingInputs: async (conversationId) =>
-      // Every status: a turn's message is the input that started it, and that input has left the
-      // queue by the time the turn is history.
-      (await agentRunPort.listInputsForConversation(conversationId)).map((input) => ({
-        runId: input.runId,
-        message: JSON.stringify(input.message),
-      })),
-    // The canonical model takes plain row objects only: action payloads and answers are
-    // serialized here, so product types never leak into it.
-    listPendingActions: async (runId) =>
-      (await agentRunPort.listPendingActions(runId)).map((action) => ({
-        actionId: action.actionId,
-        kind: action.kind,
-        status: action.status,
-        payload: JSON.stringify(action.payload),
-        response: action.response === null ? null : JSON.stringify(action.response),
-      })),
-    getRun: (runId) => agentRunPort.getRun(runId),
-    listActiveRuns: (conversationId) =>
-      agentRunPort.listRecentRunsForConversations([conversationId], 10 * 60_000).catch(() => []),
-    // Todos are stored per branch; the chat state keys them by run.
-    workspaceRootOf: async (conversationId) => {
-      const row = conv.convPort.getConversation(conversationId);
-      const workspace = await peekWorkspaceFor({
-        conversationId,
-        agentId: row?.agentId ?? null,
-      }).catch(() => null);
-      return workspace?.root ?? null;
-    },
-    latestRunTodo: async (runId) => {
-      const run = await agentRunPort.getRun(runId);
-      return run ? agentRunPort.getLatestRunTodo(run.branchId) : null;
-    },
-    // The activity lines a run wrote while it worked (its own describeStart output). They
-    // live in the run telemetry, which is where "how the run behaved" belongs; the ledger
-    // stays the canonical outcome. A rebuilt card therefore labels a call the way the live
-    // stream did, and a rail that records no activity simply keeps the tool name.
-    toolActivities: async (runId) => {
-      const activities = new Map<string, string>();
-      for (const event of services.opsStore.listRunEvents(runId, 2000)) {
-        if (event.type !== "native_tool_started") continue;
-        const callId = event.data.callId;
-        const activity = event.data.activity;
-        if (typeof callId === "string" && typeof activity === "string") {
-          activities.set(callId, activity);
-        }
-      }
-      return activities;
-    },
-  });
-
-  const ahpHost = createAhpHost({
-    wsBase: browserWsBase,
-    source: ahpSource,
-  });
-
-  onContinuityRecorded.fn = (input) => {
-    void chatWriter
-      .announceContinuity(input)
-      .catch((err) =>
-        console.error(
-          `[bootstrap] continuity announcement failed for ${input.conversationId}:`,
-          err,
-        ),
-      );
-  };
 
   const featureSet: FeatureSet = {
     agents: agentRoutes(
@@ -3379,19 +2464,23 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     }
     const smokeCronExpr = config.smokeCron;
     if (smokeCronExpr) {
-      smokeCron = Bun.cron(smokeCronExpr, () => {
-        void (async () => {
-          const smokeEntry = join(import.meta.dir, "../../../../scripts/smoke-workflow.ts");
-          console.log(`[smoke] workflow smoke start ${new Date().toISOString()}`);
-          const proc = Bun.spawn([process.execPath, smokeEntry], {
-            stdout: "inherit",
-            stderr: "inherit",
-          });
-          const code = await proc.exited;
-          console.log(`[smoke] workflow smoke exit=${code}`);
-        })();
-      });
-      console.log(`[smoke] workflow smoke scheduled: ${smokeCronExpr}`);
+      const smokeEntry = join(import.meta.dir, "../../../../scripts/smoke-workflow.ts");
+      if (!existsSync(smokeEntry)) {
+        console.warn(`[smoke] script not found at ${smokeEntry}; skipping smoke schedule`);
+      } else {
+        smokeCron = Bun.cron(smokeCronExpr, () => {
+          void (async () => {
+            console.log(`[smoke] workflow smoke start ${new Date().toISOString()}`);
+            const proc = Bun.spawn([process.execPath, smokeEntry], {
+              stdout: "inherit",
+              stderr: "inherit",
+            });
+            const code = await proc.exited;
+            console.log(`[smoke] workflow smoke exit=${code}`);
+          })();
+        });
+        console.log(`[smoke] workflow smoke scheduled: ${smokeCronExpr}`);
+      }
     }
   }
 
@@ -3414,156 +2503,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     await agentConfigMcp?.close();
     await sandboxProxy?.close();
     await larkBotRegistry.dispose();
-    setupManager?.dispose();
+    disposeSetupManager();
   }
 
-  // Seed the default agent AFTER the whole wiring (the catalog const and
-  // the reconcile binding): an early call reads a TDZ const and skips the
-  // workspace reconcile (no skills links, no .mcp.json).
-  {
-    const seed = await defaultSeedModel();
-    // ADR 0074: the personal agent plus a team whose capability cards differ,
-    // so dispatch-by-capability has something to choose between. The worker
-    // role is the difference between a team member and a second front desk.
-    //
-    // A marker records what this install has seeded: without it, deleting a
-    // seed-created member would resurrect it on the next boot (the guide-agent
-    // problem), and with it a deliberate deletion sticks.
-    const markerPath = join(config.dataDir, ".agent-seed.json");
-    const seeded = new Set<string>();
-    try {
-      const parsed = JSON.parse(readFileSync(markerPath, "utf8")) as { seeded?: string[] };
-      for (const id of parsed.seeded ?? []) seeded.add(id);
-    } catch {
-      /* first boot */
-    }
-
-    await ensureAgent("default", "Personal Agent", {
-      harness: seed.harness,
-      ...(seed.model ? { model: seed.model } : {}),
-      description:
-        "Personal agent — manages your attention: understands, dispatches, keeps the wiki",
-    });
-    await seedSoul("default", SEED_SOULS.default ?? "");
-
-    const team = await agentSvc.list();
-    const workerNames = new Set(
-      team.filter((agent) => agent.config.role === "worker").map((agent) => agent.config.name),
-    );
-    // ADR 0056: choosing a worker IS a capability recall over these cards. A
-    // card that names an identity ("software engineer") matches nothing; one
-    // that names the WORK does. Live 2026-11-21 the front desk could not map
-    // "investigate this repo" onto "执行派下来的具体改动" and did the
-    // investigation itself.
-    const members = [
-      {
-        id: "coder",
-        name: "Coder",
-        description:
-          "读代码、查实现、跑测试、改代码的工程师。有 shell 与文件工具，工作在自己的仓库副本里：" +
-          "可以回答「这个项目某功能怎么实现的」「为什么这里会报错」，也能直接改代码并验证。",
-      },
-      {
-        id: "researcher",
-        name: "Researcher",
-        description:
-          "调研与比较：收集外部资料、核对事实、比较多个方案并给出取舍与依据。产出是判断依据，" +
-          "不做代码实现。适合「调研/比较/写一份分析」这类需要查证的工作。",
-      },
-    ];
-    for (const member of members) {
-      // Match by NAME, not id: an upgraded install may already have this
-      // member under a different id, and a second Coder is worse than none.
-      // The marker keeps a deleted member deleted.
-      if (workerNames.has(member.name)) continue;
-      if (seeded.has(member.id)) continue;
-      await ensureAgent(member.id, member.name, {
-        harness: seed.harness,
-        ...(seed.model ? { model: seed.model } : {}),
-        description: member.description,
-        role: "worker",
-      });
-      await seedSoul(member.id, SEED_SOULS[member.id] ?? "");
-      seeded.add(member.id);
-    }
-    seeded.add("default");
-    writeFileSync(markerPath, JSON.stringify({ seeded: [...seeded] }, null, 2), "utf8");
-
-    // ADR 0074: knowledge decays unless someone sweeps it. A nightly workflow
-    // has the personal agent run wiki_lint and repair what it finds — no human
-    // gate, because lint is maintenance, not a decision; the attention inbox
-    // stays for things that need the person.
-    const workflowPath = join(config.dataDir, "workflows", "wiki-lint.workflow.json");
-    if (!existsSync(workflowPath)) {
-      mkdirSync(join(config.dataDir, "workflows"), { recursive: true });
-      writeFileSync(
-        workflowPath,
-        JSON.stringify(
-          {
-            version: 1,
-            id: "wiki-lint",
-            triggers: [{ type: "cron", cron: "0 4 * * *" }],
-            meta: {
-              name: "Nightly wiki lint",
-              description:
-                "每天凌晨检查知识库：补来源、补回链、修正悬空的 supersedes；只做维护，不打扰人",
-              tags: ["wiki", "maintenance"],
-              status: "active",
-              owner: "system",
-              updatedBy: "seed",
-            },
-            nodes: [
-              { id: "start", type: "start" },
-              {
-                id: "lint",
-                type: "agent",
-                ...(seed.model ? { model: seed.model } : {}),
-                agentId: "default",
-                prompt: [
-                  "你是这个知识库的维护者。目标不是把 findings 清零，而是让库里的知识保持可信、可查、不互相打架。",
-                  "",
-                  "第一步：wiki_query 读 index 概览，再运行 wiki_lint 取回全部 findings。",
-                  "",
-                  "第二步：按下面的清单做检查（Karpathy 的 wiki-lint 纪律），findings 只是入口：",
-                  "1) 无来源（unsourced）：能在这轮材料或其它页面里找到出处的，用 wiki_patch 补 sources；",
-                  "   找不到的，把 status 降为 draft，并在正文末尾加一行「来源待补」。",
-                  "2) 孤儿（orphan）：找语义相关的页面，在它的正文末尾加一条链接指向本页；",
-                  "   没有相关页面的，把本页的标题挂到最相关父页的列表里。",
-                  "3) 悬空 supersedes：删掉那条指向不存在页面的条目。",
-                  "4) 过时（stale）：某页 status=confirmed 但正文与新页面冲突时，不要改结论——",
-                  "   在两页里各加一行「与 [[另一页]] 的说法不一致，待裁决」，并把较旧的一页降为 draft。",
-                  "5) 缺失概念页：同一个概念被三个以上页面链接却还没有自己的页面时，建一个 stub（只放定义与来源）。",
-                  "",
-                  "第三步：动手规则",
-                  "- 每处修改前先 wiki_read 拿当前 revision，再带 expected_revision 调 wiki_patch；被拒绝就重读、重合并、重试。",
-                  "- 只做最小修复：不重写整页，不改变已经确认的结论，不删除内容。",
-                  "- 不碰 personal/ 下不属于你的页面；不修改 raw/；不创建无来源的页面。",
-                  "- 冲突永远只标记、不裁决——裁决是人的事。",
-                  "",
-                  "最后输出一句话：检查了几页、改了几处、哪几处留给人类裁决。",
-                ].join("\n"),
-                output: [{ key: "summary", type: "string" }],
-                outputSchema: {
-                  type: "object",
-                  properties: { summary: { type: "string" } },
-                  required: ["summary"],
-                },
-                retry: { maxAttempts: 1, intervalMs: 2000 },
-              },
-              { id: "done", type: "end", status: "success" },
-            ],
-            edges: [
-              { from: "start", to: "lint" },
-              { from: "lint", to: "done" },
-            ],
-          },
-          null,
-          2,
-        ),
-        "utf8",
-      );
-    }
-  }
+  await seedDefaultTeamAndWorkflows({ config, agentSvc, codingAgentCatalog });
 
   // B4: one best-effort reconcile over every LIVE agent at boot — worktrees
   // and bridged configs refresh without waiting for the first PATCH (replaces

@@ -106,6 +106,12 @@ export function createMcpService(deps: {
     },
 
     async create(input: CreateMcpServerInput): Promise<McpServerRow> {
+      if (input.transport === "stdio" && !input.command?.trim()) {
+        throw new McpValidationError("stdio MCP server requires a non-empty command");
+      }
+      if (input.transport === "sse" && !input.url?.trim()) {
+        throw new McpValidationError("sse MCP server requires a non-empty url");
+      }
       const now = Date.now();
       const serverId = idGen();
       const row = deps.port.create({
