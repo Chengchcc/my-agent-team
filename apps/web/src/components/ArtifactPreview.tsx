@@ -1,16 +1,20 @@
 "use client";
 
+import { useState } from "react";
 import { toast } from "sonner";
 import { Markdown } from "@/components/Markdown";
 import { artifactDataUrl } from "@/features/artifacts/artifact-view";
 import { type ArtifactMeta, api } from "@/lib/api";
 import { t } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 
 export type StoredEncoding = "utf8" | "base64";
 
 /** Past this many characters a text is shown in part; the download has all of it. */
 const TEXT_CAP = 256 * 1024;
 const MARKDOWN = /\.(md|markdown)$/i;
+const HTML_FILE = /\.(html|htm)$/i;
+const JSON_FILE = /\.json$/i;
 
 /** How a stored file's bytes are to be read. Anything but base64 is text. */
 export function storedEncoding(raw: string): StoredEncoding {
@@ -21,6 +25,15 @@ export function storedEncoding(raw: string): StoredEncoding {
 function reasonOf(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error);
   return text;
+}
+
+/** Format valid JSON with 2-space indentation; fall back to raw text on parse error. */
+function formatJsonText(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
 }
 
 /** Save a stored file to this computer under its stored name. Reading only:
@@ -47,9 +60,62 @@ export function downloadArtifact(artifact: ArtifactMeta): Promise<void> {
     });
 }
 
-/** A stored file as the browser can show it: an image, a PDF, sound, video, a
- *  document (rendered when it is markdown, as text otherwise), or a line that
- *  says there is no preview. It never writes anything. */
+function HtmlArtifactPreview({ filename, html }: { filename: string; html: string }) {
+  const [mode, setMode] = useState<"preview" | "source">("preview");
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center justify-between border-b border-(--hairline) bg-(--panel)/35 px-4 py-1.5">
+        <div
+          role="group"
+          aria-label={t("HTML view mode")}
+          className="inline-flex rounded-md border border-(--hairline) bg-(--canvas) p-0.5 text-[11px]"
+        >
+          <button
+            type="button"
+            aria-pressed={mode === "preview"}
+            onClick={() => setMode("preview")}
+            className={cn(
+              "rounded px-2.5 py-0.5 transition-colors",
+              mode === "preview"
+                ? "bg-(--panel2) font-medium text-(--ink-strong)"
+                : "text-(--mute) hover:text-(--ink)",
+            )}
+          >
+            {t("Preview")}
+          </button>
+          <button
+            type="button"
+            aria-pressed={mode === "source"}
+            onClick={() => setMode("source")}
+            className={cn(
+              "rounded px-2.5 py-0.5 transition-colors",
+              mode === "source"
+                ? "bg-(--panel2) font-medium text-(--ink-strong)"
+                : "text-(--mute) hover:text-(--ink)",
+            )}
+          >
+            {t("Source")}
+          </button>
+        </div>
+        <span className="font-mono text-[10px] text-(--faint)">sandboxed iframe</span>
+      </div>
+      {mode === "preview" ? (
+        <iframe
+          title={filename}
+          srcDoc={html}
+          sandbox="allow-scripts"
+          className="h-[72vh] w-full flex-1 border-0 bg-white"
+        />
+      ) : (
+        <pre className="wrap-anywhere px-6 py-5 font-mono text-[11px]/[1.8]">{html}</pre>
+      )}
+    </div>
+  );
+}
+
+/** A stored file as the browser can show it: an image, a sandboxed HTML page,
+ *  a PDF, sound, video, a document (rendered when it is markdown, pretty JSON,
+ *  or plain text otherwise), or a line that says there is no preview. */
 export function ArtifactPreview({
   artifact,
   content,
@@ -62,6 +128,8 @@ export function ArtifactPreview({
   const url = artifactDataUrl(artifact, content, encoding);
   const name = artifact.filename.toLowerCase();
   const isImage = artifact.mimeType.startsWith("image/") || name.endsWith(".svg");
+  const isHtml = artifact.mimeType === "text/html" || HTML_FILE.test(name);
+  const isJson = artifact.mimeType === "application/json" || JSON_FILE.test(name);
   const isPdf = artifact.mimeType === "application/pdf";
   const isAudio = artifact.mimeType.startsWith("audio/");
   const isVideo = artifact.mimeType.startsWith("video/");
@@ -70,12 +138,14 @@ export function ArtifactPreview({
 
   if (isImage) {
     return (
-      // biome-ignore lint/performance/noImgElement: data URL content preview
-      <img
-        src={url}
-        alt={artifact.filename}
-        className="max-h-[70vh] w-full rounded-[9px] bg-[#202a26] object-contain"
-      />
+      <div className="flex items-center justify-center p-4">
+        {/* biome-ignore lint/performance/noImgElement: data URL content preview */}
+        <img
+          src={url}
+          alt={artifact.filename}
+          className="max-h-[70vh] max-w-full rounded-[9px] bg-[#202a26] object-contain"
+        />
+      </div>
     );
   }
   if (isPdf) {
@@ -92,11 +162,21 @@ export function ArtifactPreview({
     );
   }
   if (encoding === "utf8") {
+    if (isHtml) {
+      return <HtmlArtifactPreview filename={artifact.filename} html={shown} />;
+    }
     if (MARKDOWN.test(name)) {
       return (
         <div className="wrap-anywhere px-8 py-7">
           <Markdown text={shown} />
         </div>
+      );
+    }
+    if (isJson) {
+      return (
+        <pre className="wrap-anywhere px-8 py-7 font-mono text-[11px]/[1.8]">
+          {formatJsonText(shown)}
+        </pre>
       );
     }
     return <pre className="wrap-anywhere px-8 py-7 font-mono text-[11px]/[1.8]">{shown}</pre>;

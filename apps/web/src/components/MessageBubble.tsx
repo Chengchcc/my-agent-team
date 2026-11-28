@@ -3,7 +3,6 @@ import { ConversationDensityContext } from "@/components/conversation-density";
 import type { RoleKind } from "@/components/ui/role-avatar";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { StreamingCursor } from "./StreamingCursor";
 import { StreamingMarkdown } from "./StreamingMarkdown";
 
 /** `14:28:09` — strict turn timestamp from the message ledger. */
@@ -71,12 +70,8 @@ export function MessageShell({
         <div className={cn("text-(--primary)", NAME[density])}>{name}</div>
       )}
       <div
-        className={cn(
-          "min-w-0 w-full",
-          BODY[density],
-          isSelf && USER_CARD[density],
-          isStreaming && !isSelf && "border-l-2 border-(--primary)/40 pl-3",
-        )}
+        className={cn("min-w-0 w-full", BODY[density], isSelf && USER_CARD[density])}
+        data-streaming={isStreaming && !isSelf ? "true" : undefined}
       >
         {children}
       </div>
@@ -135,10 +130,7 @@ export function MessageBubble({
       {isSelf ? (
         <p className="whitespace-pre-wrap wrap-break-word">{content}</p>
       ) : (
-        <>
-          <StreamingMarkdown text={content} streaming={isStreaming ?? false} />
-          {isStreaming && <StreamingCursor />}
-        </>
+        <StreamingMarkdown text={content} streaming={isStreaming ?? false} />
       )}
       {runStatus === "retrying" && (
         <p className="mt-1 text-xs text-(--warn) animate-pulse">{t("Retrying...")}</p>

@@ -132,6 +132,19 @@ test("upload and download utf8 + base64", async () => {
   const bg = await svc.download(bin.url);
   expect(bg.encoding).toBe("base64");
   expect(Buffer.from(bg.content, "base64")).toEqual(Buffer.from([1, 2, 3]));
+
+  const svg = await svc.upload({
+    folder: "img",
+    filename: "badge.svg",
+    content: "<svg xmlns='http://www.w3.org/2000/svg'/>",
+  });
+  expect(svg.mimeType).toBe("image/svg+xml");
+  const htm = await svc.upload({
+    folder: "web",
+    filename: "card.htm",
+    content: "<p>hi</p>",
+  });
+  expect(htm.mimeType).toBe("text/html");
 });
 
 test("list and delete", async () => {
