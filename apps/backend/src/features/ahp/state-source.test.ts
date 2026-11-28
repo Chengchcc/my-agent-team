@@ -660,7 +660,11 @@ test("a tool call part carries the coordinate of its row", async () => {
   const chat = await source.chat(chatUri("c1"));
   expect(chat?.turns[0]?.responseParts[0]).toMatchObject({
     kind: "toolCall",
-    _meta: { messageId: "run:r1:tool:1", seq: 4 },
+    _meta: {
+      messageId: "run:r1:tool:1",
+      seq: 4,
+      toolResult: { content: "3 files", isError: false },
+    },
   });
 });
 

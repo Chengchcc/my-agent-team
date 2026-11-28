@@ -62,6 +62,19 @@ export function useConversation(
   /** The run the chat state says is live: the projection builds one active turn per running Run,
    *  so the id comes from there and not from a stream of its own. */
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  /** Bridges the brief gap between POST /messages returning 200 and the AHP
+   *  subscription delivering `activeTurn`, so the composer & timeline show
+   *  immediate "Thinking…" feedback with zero dead gap after pressing Enter. */
+  const [awaitingRun, setAwaitingRun] = useState(false);
+  const awaitingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const turnCountRef = useRef(0);
+  const clearAwaitingRun = useCallback(() => {
+    setAwaitingRun(false);
+    if (awaitingTimerRef.current) {
+      clearTimeout(awaitingTimerRef.current);
+      awaitingTimerRef.current = null;
+    }
+  }, []);
 
   // Leaving the conversation clears its transient state: a switched conversation must never
   // inherit the previous one's streaming bubbles. Runs on unmount AND conversationId change;
@@ -73,8 +86,9 @@ export function useConversation(
       transientsRef.current = {};
       setTransientTools({});
       setRunTodos({});
+      clearAwaitingRun();
     };
-  }, [conversationId]);
+  }, [conversationId, clearAwaitingRun]);
   /** HITL approval (spec): POST the decision; clear the card ONLY on a
    *  successful response. A failed POST means the child never saw the
    *  decision — dropping the card would silently lose a live approval. */
@@ -133,6 +147,10 @@ export function useConversation(
         setTransientTools(view.tools);
         setRunTodos(view.todos);
         setActiveRunId(state.activeTurn?.id ?? null);
+        if (state.activeTurn?.id || state.turns.length > turnCountRef.current) {
+          clearAwaitingRun();
+        }
+        turnCountRef.current = state.turns.length;
         // The history comes from the same subscription: a snapshot carries all of it, and every
         // later action keeps it current.
         // The first state is the snapshot: a continuation already in it is
@@ -154,7 +172,7 @@ export function useConversation(
       onError: () => dispatch({ type: "conn", status: "reconnecting" }),
     });
     return () => connection.close();
-  }, [conversationId, snap.data?.agentId]);
+  }, [conversationId, snap.data?.agentId, clearAwaitingRun]);
   useEffect(() => {
     if (!snap.data) return;
     dispatch({
@@ -187,6 +205,14 @@ export function useConversation(
       // Composer queue area) instead of being injected as a live steer;
       // each queued item can be steered/edited/cancelled individually.
       const queued = isBusy(state) || activeRunId !== null;
+      if (!queued) {
+        setAwaitingRun(true);
+        if (awaitingTimerRef.current) clearTimeout(awaitingTimerRef.current);
+        awaitingTimerRef.current = setTimeout(() => {
+          setAwaitingRun(false);
+          awaitingTimerRef.current = null;
+        }, 12_000);
+      }
       sendMut.mutate(
         {
           text,
@@ -199,15 +225,16 @@ export function useConversation(
             dispatch({ type: "send/settled" });
           },
           onError: () => {
+            clearAwaitingRun();
             dispatch({ type: "send/error", message: "Send failed — retry" });
           },
         },
       );
     },
-    [sendMut, state, activeRunId],
+    [sendMut, state, activeRunId, clearAwaitingRun],
   );
 
-  const busy = isBusy(state) || activeRunId !== null;
+  const busy = isBusy(state) || activeRunId !== null || awaitingRun;
 
   return {
     state,

@@ -34,6 +34,9 @@ export function ToolStep({
   const Icon = toolIcon(name);
   const preview = inputPreview(input);
   const normalizedOutput = result ? normalizeToolResultContent(result.content) : "";
+  const mcpMatch = /^mcp__([^_]+(?:-[^_]+)*)__(.+)$/.exec(name);
+  const displayName = mcpMatch ? mcpMatch[2]! : name;
+  const serverTag = mcpMatch ? mcpMatch[1]! : undefined;
 
   return (
     <div
@@ -61,7 +64,14 @@ export function ToolStep({
           <Loader2 className="size-3.5 shrink-0 animate-spin text-(--primary)" aria-hidden />
         )}
         <Icon size={13} className="shrink-0 text-(--mute)" aria-hidden />
-        <span className="shrink-0 font-mono text-[11px] font-medium text-(--ink)">{name}</span>
+        <span className="shrink-0 font-mono text-[11px] font-medium text-(--ink)" title={name}>
+          {displayName}
+        </span>
+        {serverTag && (
+          <span className="hidden shrink-0 rounded bg-(--canvas-soft) px-1 py-0.5 font-mono text-[9px] text-(--faint) sm:inline">
+            {serverTag}
+          </span>
+        )}
         {preview && (
           <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-(--faint)">
             {preview}

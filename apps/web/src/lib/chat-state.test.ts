@@ -541,3 +541,86 @@ describe("#30: continuation is a control event, not a text notice", () => {
     expect(continuationControl(state([continuityTurn, b, c]))?.conversationId).toBe("conv-c");
   });
 });
+
+describe("settled tool calls and reasoning in history", () => {
+  const viewer = { memberId: "viewer", kind: "human" } as const;
+  const agent = { memberId: "default", kind: "agent", agentId: "default" } as const;
+
+  test("settled reasoning and toolCall parts survive into items so ReasoningTrace renders them", () => {
+    const items = itemsFromChatState(
+      state([
+        {
+          id: "run-1",
+          state: "complete",
+          message: {
+            text: "check team and wiki",
+            origin: { kind: "user" },
+            _meta: { messageId: "msg-1", seq: 1 },
+          },
+          responseParts: [
+            {
+              kind: "reasoning",
+              id: "r0",
+              content: "Let me call both tools.",
+              _meta: { messageId: "run:run-1:assistant:1", seq: 2 },
+            },
+            {
+              kind: "toolCall",
+              toolCall: {
+                toolCallId: "tc-1",
+                toolName: "mcp__product-tools__team_list",
+                displayName: "mcp__product-tools__team_list",
+                status: "completed",
+                success: true,
+                toolInput: '{"includeWorkers":true}',
+                invocationMessage: '{"includeWorkers":true}',
+                pastTenseMessage: "mcp__product-tools__team_list finished",
+              },
+              _meta: {
+                messageId: "run:run-1:tool:1",
+                seq: 3,
+                toolResult: { content: '[{"id":"coder"}]', isError: false },
+              },
+            },
+            {
+              kind: "markdown",
+              id: "t0",
+              content: "Here are the team members.",
+              _meta: { messageId: "run:run-1:assistant:0", seq: 4 },
+            },
+          ],
+        },
+      ]),
+      viewer,
+      agent,
+    );
+
+    expect(items).toHaveLength(5);
+    const thinking = items[1];
+    const toolUse = items[2];
+    const toolResult = items[3];
+    const answer = items[4];
+    expect(thinking?.kind === "message" ? thinking.content.blocks : null).toEqual([
+      { type: "thinking", text: "Let me call both tools." },
+    ]);
+    expect(toolUse?.kind === "message" ? toolUse.content.blocks : null).toEqual([
+      {
+        type: "tool_use",
+        id: "tc-1",
+        name: "mcp__product-tools__team_list",
+        input: { includeWorkers: true },
+      },
+    ]);
+    expect(toolResult?.kind === "message" ? toolResult.content.blocks : null).toEqual([
+      {
+        type: "tool_result",
+        tool_use_id: "tc-1",
+        content: '[{"id":"coder"}]',
+        is_error: false,
+      },
+    ]);
+    expect(answer?.kind === "message" ? answer.content.text : null).toBe(
+      "Here are the team members.",
+    );
+  });
+});

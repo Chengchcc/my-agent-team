@@ -562,10 +562,26 @@ function toResponsePart(
       return error;
     }
     case "toolCall": {
+      const baseMeta = metaOf(part.messageId, part.seq, part.undone, undefined, author)._meta;
+      const result = part.toolCall.result;
+      const resultMeta =
+        result === undefined
+          ? undefined
+          : {
+              toolResult: {
+                content:
+                  result.content.length > 16_000
+                    ? `${result.content.slice(0, 16_000)}\n… [truncated]`
+                    : result.content,
+                isError: result.isError,
+              },
+            };
+      const mergedMeta =
+        baseMeta || resultMeta ? { ...(baseMeta ?? {}), ...(resultMeta ?? {}) } : undefined;
       const call: ToolCallResponsePart = {
         kind: enumValue<ToolCallResponsePart["kind"]>("toolCall"),
         toolCall: toToolCall(part.toolCall, activities?.get(part.toolCall.toolCallId)),
-        ...metaOf(part.messageId, part.seq, part.undone, undefined, author),
+        ...(mergedMeta ? { _meta: mergedMeta } : {}),
       };
       return call;
     }

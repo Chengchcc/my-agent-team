@@ -275,6 +275,96 @@ export function itemsFromChatState(
         });
         return;
       }
+      if (kind === "reasoning") {
+        const text = contentOf(part);
+        if (!text) return;
+        const meta = metaOfRequest(part);
+        if (isForeign(meta)) return;
+        const id =
+          typeof meta?.messageId === "string"
+            ? `${meta.messageId}:reasoning:${index}`
+            : `${turn.id}:reasoning:${index}`;
+        items.push({
+          kind: "message",
+          id,
+          sender: agent ?? { memberId: "agent", kind: "agent" },
+          content: {
+            role: "assistant",
+            blocks: [{ type: "thinking", text }],
+          } satisfies Message,
+          seq: typeof meta?.seq === "number" ? meta.seq : 0,
+          ...(meta?.undone === true ? { undone: true } : {}),
+        });
+        return;
+      }
+      if (kind === "toolCall") {
+        const meta = metaOfRequest(part);
+        if (isForeign(meta)) return;
+        const call = (part as { toolCall?: ToolCallState }).toolCall;
+        if (!call) return;
+        const baseSeq = typeof meta?.seq === "number" ? meta.seq : 0;
+        const undoneFlag = meta?.undone === true ? { undone: true } : {};
+        const sender = agent ?? { memberId: "agent", kind: "agent" };
+        const rawInput =
+          "toolInput" in call && typeof call.toolInput === "string" ? call.toolInput : undefined;
+        let parsedInput: unknown = {};
+        if (rawInput !== undefined) {
+          try {
+            parsedInput = JSON.parse(rawInput);
+          } catch {
+            parsedInput = rawInput;
+          }
+        }
+        const callId = call.toolCallId || `${turn.id}:call:${index}`;
+        items.push({
+          kind: "message",
+          id: `${turn.id}:tool-use:${callId}:${index}`,
+          sender,
+          content: {
+            role: "assistant",
+            blocks: [{ type: "tool_use", id: callId, name: call.toolName, input: parsedInput }],
+          } satisfies Message,
+          seq: baseSeq,
+          ...undoneFlag,
+        });
+        const status = call.status as string;
+        const metaResult = toolResultMetaOf(meta);
+        const isSettled =
+          status === "completed" || status === "cancelled" || metaResult !== undefined;
+        if (isSettled) {
+          const isError =
+            metaResult?.isError ??
+            (status === "cancelled" || (call as { success?: boolean }).success === false);
+          const fallbackContent =
+            ("error" in call &&
+            call.error &&
+            typeof (call.error as { message?: unknown }).message === "string"
+              ? (call.error as { message: string }).message
+              : undefined) ??
+            ("pastTenseMessage" in call && typeof call.pastTenseMessage === "string"
+              ? call.pastTenseMessage
+              : "");
+          items.push({
+            kind: "message",
+            id: `${turn.id}:tool-result:${callId}:${index}`,
+            sender,
+            content: {
+              role: "tool",
+              blocks: [
+                {
+                  type: "tool_result",
+                  tool_use_id: callId,
+                  content: metaResult?.content ?? fallbackContent,
+                  is_error: isError,
+                },
+              ],
+            } satisfies Message,
+            seq: baseSeq,
+            ...undoneFlag,
+          });
+        }
+        return;
+      }
       if (kind !== "markdown") return;
       const text = contentOf(part);
       if (!text) return;
@@ -346,6 +436,17 @@ function isAnchorMeta(v: unknown): v is { url: string; anchor: unknown } {
   );
 }
 
+function toolResultMetaOf(
+  meta: ReturnType<typeof metaOfRequest>,
+): { content: string; isError: boolean } | undefined {
+  const raw = meta?.toolResult;
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const content = (raw as { content?: unknown }).content;
+  const isError = (raw as { isError?: unknown }).isError;
+  if (typeof content !== "string") return undefined;
+  return { content, isError: isError === true };
+}
+
 function metaOfRequest(part: unknown):
   | {
       messageId?: unknown;
@@ -354,6 +455,7 @@ function metaOfRequest(part: unknown):
       anchor?: unknown;
       dispatchTo?: unknown;
       authorAgentId?: unknown;
+      toolResult?: unknown;
     }
   | undefined {
   const meta = (part as { _meta?: unknown } | undefined)?._meta;
@@ -365,6 +467,7 @@ function metaOfRequest(part: unknown):
         anchor?: unknown;
         dispatchTo?: unknown;
         authorAgentId?: unknown;
+        toolResult?: unknown;
       })
     : undefined;
 }

@@ -21,6 +21,7 @@ export function LiveToolStep({ tool }: { tool: LiveToolCall }) {
   const [open, setOpen] = useState(false);
 
   const stateDot = STATE_DOT[tool.state];
+  const distinctActivity = tool.activity && tool.activity !== tool.name ? tool.activity : undefined;
 
   return (
     <div className="mt-1 min-w-0 rounded-md border border-(--hairline) bg-(--canvas-soft) px-2 py-1">
@@ -29,18 +30,18 @@ export function LiveToolStep({ tool }: { tool: LiveToolCall }) {
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 text-left"
       >
-        <span className={`size-1.5  shrink-0 rounded-full ${stateDot}`} />
+        <span className={`size-1.5 shrink-0 rounded-full ${stateDot}`} />
         <span
-          className={`min-w-0 truncate text-xs text-(--ink)${tool.activity ? "" : " font-mono"}`}
+          className={`min-w-0 truncate text-xs text-(--ink)${distinctActivity ? "" : " font-mono"}`}
         >
-          {tool.activity ?? tool.name}
+          {distinctActivity ?? tool.name}
         </span>
-        {tool.activity && (
-          <span className="shrink-0 font-mono text-[10px] text-(--mute)">{tool.name}</span>
+        {distinctActivity && (
+          <span className="shrink-0 font-mono text-[10px] text-(--faint)">{tool.name}</span>
         )}
-        <span className="text-[10px] text-(--mute)">{tool.state}</span>
+        <span className="ml-auto shrink-0 font-mono text-[10px] text-(--mute)">{tool.state}</span>
         {tool.result !== undefined && (
-          <span className="ml-auto text-[10px] text-(--mute)">{open ? "hide" : "result"}</span>
+          <span className="shrink-0 text-[10px] text-(--mute)">{open ? "hide" : "result"}</span>
         )}
       </button>
       {open && tool.result !== undefined && (
