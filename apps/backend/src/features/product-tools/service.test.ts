@@ -38,6 +38,13 @@ const TOOL_MANIFEST = [
   { name: "ask_question", description: "q", inputSchema: {}, entrypoint: "sse:x" },
   { name: "answer_worker_request", description: "a", inputSchema: {}, entrypoint: "sse:x" },
   { name: "project_propose", description: "p", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "workflow_list", description: "wl", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "workflow_read", description: "wr", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "workflow_save", description: "ws", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "workflow_delete", description: "wd", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "workflow_run", description: "wrun", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "workflow_status", description: "wst", inputSchema: {}, entrypoint: "sse:x" },
+  { name: "workflow_cancel", description: "wc", inputSchema: {}, entrypoint: "sse:x" },
 ];
 
 /** Captures emitAsk calls so tests can assert the request surfaced.
@@ -1825,5 +1832,150 @@ describe("project_propose with project_id proposes a change to a registered proj
         args: { project_id: "proj-1" },
       }),
     ).rejects.toThrow(/at least one of name/);
+  });
+});
+
+describe("ADR 0084: workflow_* product tools", () => {
+  test("all 7 workflow_* tools reject cleanly when workflows dep is not enabled", async () => {
+    const runId = await createRun("manage workflows");
+    for (const tool of [
+      "workflow_list",
+      "workflow_read",
+      "workflow_save",
+      "workflow_delete",
+      "workflow_run",
+      "workflow_status",
+      "workflow_cancel",
+    ]) {
+      await expect(
+        service.call({
+          identity: identity(runId),
+          callId: `wf-off-${tool}`,
+          idempotencyKey: `${runId}:wf-off-${tool}`,
+          tool,
+          args: {},
+        }),
+      ).rejects.toThrow(/not enabled/);
+    }
+  });
+
+  test("all 7 workflow_* tools validate arguments and forward to deps.workflows", async () => {
+    const calls: Array<{ op: string; payload: unknown }> = [];
+    const wfService = createProductToolsService({
+      runPort,
+      contextPort,
+      conversationPort: convPort,
+      callPort: sqliteProductToolCallAdapter(db),
+      idGen: { ulid: () => `wf-${Math.random().toString(36).slice(2, 8)}` },
+      workflows: {
+        list: async () => {
+          calls.push({ op: "list", payload: null });
+          return { workflows: [{ workflowId: "sop-1", name: "SOP 1" }] };
+        },
+        read: async (workflowId) => {
+          calls.push({ op: "read", payload: workflowId });
+          return { workflowId, definition: { version: 1 } };
+        },
+        save: async (input) => {
+          calls.push({ op: "save", payload: input });
+          return { state: "saved", workflowId: input.workflowId, commit: "abc1234" };
+        },
+        delete: async (input) => {
+          calls.push({ op: "delete", payload: input });
+          return { deleted: true, workflowId: input.workflowId };
+        },
+        run: async (input) => {
+          calls.push({ op: "run", payload: input });
+          return { executionId: "exec-1", workflowId: input.workflowId };
+        },
+        status: async (input) => {
+          calls.push({ op: "status", payload: input });
+          return { executions: [] };
+        },
+        cancel: async (input) => {
+          calls.push({ op: "cancel", payload: input });
+          return { cancelled: true, executionId: input.executionId };
+        },
+      },
+    });
+
+    const runId = await createRun("run team SOP");
+    const call = (tool: string, args: Record<string, unknown>, id: string) =>
+      wfService.call({
+        identity: identity(runId),
+        callId: id,
+        idempotencyKey: `${runId}:${id}`,
+        tool,
+        args,
+      });
+
+    // Happy paths
+    expect(JSON.parse((await call("workflow_list", {}, "w1")).content)).toEqual({
+      workflows: [{ workflowId: "sop-1", name: "SOP 1" }],
+    });
+    expect(
+      JSON.parse((await call("workflow_read", { workflowId: "sop-1" }, "w2")).content),
+    ).toEqual({ workflowId: "sop-1", definition: { version: 1 } });
+    expect(
+      JSON.parse(
+        (
+          await call(
+            "workflow_save",
+            { workflowId: "sop-1", definition: { version: 1 }, summary: "update SOP" },
+            "w3",
+          )
+        ).content,
+      ),
+    ).toMatchObject({ state: "saved", workflowId: "sop-1" });
+    expect(
+      JSON.parse(
+        (await call("workflow_delete", { workflowId: "sop-1", reason: "obsolete" }, "w4")).content,
+      ),
+    ).toEqual({ deleted: true, workflowId: "sop-1" });
+    expect(
+      JSON.parse(
+        (
+          await call(
+            "workflow_run",
+            {
+              workflowId: "sop-1",
+              input: { pr: 7 },
+              requirementId: "req-1",
+              projectId: "proj-1",
+            },
+            "w5",
+          )
+        ).content,
+      ),
+    ).toEqual({ executionId: "exec-1", workflowId: "sop-1" });
+    expect(
+      JSON.parse(
+        (await call("workflow_status", { executionId: "exec-1", workflowId: "sop-1" }, "w6"))
+          .content,
+      ),
+    ).toEqual({ executions: [] });
+    expect(
+      JSON.parse((await call("workflow_cancel", { executionId: "exec-1" }, "w7")).content),
+    ).toEqual({ cancelled: true, executionId: "exec-1" });
+
+    // Validation error branches
+    await expect(call("workflow_read", {}, "e1")).rejects.toThrow(/requires workflowId/);
+    await expect(call("workflow_save", {}, "e2")).rejects.toThrow(/requires workflowId/);
+    await expect(
+      call("workflow_save", { workflowId: "sop-1", definition: [] }, "e3"),
+    ).rejects.toThrow(/requires definition/);
+    await expect(call("workflow_delete", {}, "e4")).rejects.toThrow(/requires workflowId/);
+    await expect(call("workflow_run", {}, "e5")).rejects.toThrow(/requires workflowId/);
+    await expect(call("workflow_cancel", {}, "e6")).rejects.toThrow(/requires executionId/);
+
+    expect(calls.map((c) => c.op)).toEqual([
+      "list",
+      "read",
+      "save",
+      "delete",
+      "run",
+      "status",
+      "cancel",
+    ]);
   });
 });
