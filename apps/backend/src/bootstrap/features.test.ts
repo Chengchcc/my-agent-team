@@ -290,7 +290,7 @@ describe("front-desk routing discipline (ADR 0057)", () => {
     const { buildAgentSystemPrompt } = await import("./features.js");
     const prompt = buildAgentSystemPrompt(null, null, { role: "front" });
     expect(prompt).toContain("## Routing (you are the front desk)");
-    expect(prompt).toContain("`verb` is an argument to dispatch, not an exit");
+    expect(prompt).toContain("`verb` is a dispatch argument, not an exit");
   });
 
   test("a legacy agent with no role is a front", async () => {
@@ -315,7 +315,7 @@ describe("front-desk routing discipline (ADR 0057)", () => {
     const { buildAgentSystemPrompt } = await import("./features.js");
     const prompt = buildAgentSystemPrompt(null, null, { role: "front" }) ?? "";
     expect(prompt).toContain("not an exit"); // verb placed in "action"
-    expect(prompt).toContain("neither is ANSWER"); // write/investigate answered
-    expect(prompt).toContain("already states is NOT missing"); // re-asking known slots
+    expect(prompt).toContain("is WORK: DISPATCH or ASK"); // write/investigate answered
+    expect(prompt).toContain("Never re-ask details already stated"); // re-asking known slots
   });
 });

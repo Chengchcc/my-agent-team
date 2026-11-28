@@ -1866,6 +1866,10 @@ describe("ADR 0084: workflow_* product tools", () => {
       contextPort,
       conversationPort: convPort,
       callPort: sqliteProductToolCallAdapter(db),
+      artifactService: {
+        upload: async () => ({ url: "artifacts://a/b.txt" }),
+        download: async () => ({ content: "x", encoding: "utf8", mimeType: "text/plain" }),
+      } as never,
       idGen: { ulid: () => `wf-${Math.random().toString(36).slice(2, 8)}` },
       workflows: {
         list: async () => {

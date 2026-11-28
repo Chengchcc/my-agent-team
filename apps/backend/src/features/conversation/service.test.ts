@@ -692,7 +692,9 @@ describe("conversation compaction", () => {
     await local.compactConversation(id);
 
     // 25 messages, the newest 20 stay verbatim => 5 are folded in.
-    expect(seen).toEqual([["m-1", "m-2", "m-3", "m-4", "m-5"]]);
+    expect(seen).toEqual([
+      ["[user]\nm-1", "[user]\nm-2", "[user]\nm-3", "[user]\nm-4", "[user]\nm-5"],
+    ]);
     const entries = await contextSvc.listEntriesToLeaf(branch.branchId);
     const summary = entries.find((e) => e.type === "summary");
     expect(summary?.summary).toBe("SUMMARY");
@@ -718,7 +720,14 @@ describe("conversation compaction", () => {
 
     expect(seen[0]).toHaveLength(25);
     // The 5 messages that age out of the kept tail are the only new ground.
-    expect(seen[1]).toEqual(["SUMMARY-1", "m-26", "m-27", "m-28", "m-29", "m-30"]);
+    expect(seen[1]).toEqual([
+      "SUMMARY-1",
+      "[user]\nm-26",
+      "[user]\nm-27",
+      "[user]\nm-28",
+      "[user]\nm-29",
+      "[user]\nm-30",
+    ]);
   });
 
   test("a branch with nothing older than the tail makes no model call", async () => {
