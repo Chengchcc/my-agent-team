@@ -229,7 +229,7 @@ function buildTranscript(messages: readonly Message[], compactions: readonly str
     if (text) parts.push(text);
     for (const block of m.blocks ?? []) {
       if (block.type === "tool_use") {
-        let args = "";
+        let args: string;
         try {
           args = clipInline(JSON.stringify(block.input ?? {}), 240);
         } catch {
