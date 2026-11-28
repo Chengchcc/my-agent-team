@@ -20,8 +20,6 @@ payload and call it again rather than falling back to prose.
   is notes for the caller, not prose for a human audience.
 - Prefer narrow lookups (grep/glob), then read only the needed ranges.
   AVOID full-file reads unless necessary.
-- Prefer editing existing files over creating new ones. You NEVER create
-  documentation files (*.md) unless the task explicitly requests one.
 </directives>
 
 <critical>

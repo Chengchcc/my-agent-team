@@ -15,6 +15,8 @@ export interface ProductToolsMcpServerOptions {
   /** Per-run bearer registry — the ONLY accepted auth. A token validates
    *  only while its run is live (minted at dispatch, revoked at settle). */
   readonly tokenRegistry: RunTokenRegistry;
+  /** Optional role lookup to scope exposed tools per agent role. */
+  readonly roleOf?: (agentId: string) => "front" | "worker" | null;
   readonly host?: string;
   /** 0 = ephemeral port. */
   readonly port?: number;
@@ -41,10 +43,10 @@ function authorize(req: IncomingMessage, registry: RunTokenRegistry): RunTokenCo
 export async function createProductToolsMcpServer(
   opts: ProductToolsMcpServerOptions,
 ): Promise<ProductToolsMcpServer> {
-  const { service, tokenRegistry } = opts;
+  const { service, tokenRegistry, roleOf } = opts;
   // Protocol shape, identity rules and tool list live in the dispatch shared
   // with the in-process (MCP-over-ACP) rail; this file is the SSE shell.
-  const dispatch: ProductToolsDispatch = createProductToolsDispatch({ service });
+  const dispatch: ProductToolsDispatch = createProductToolsDispatch({ service, roleOf });
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 0;
   /** One Server per SSE session. The session's bearer token is the identity:
@@ -58,7 +60,9 @@ export async function createProductToolsMcpServer(
       },
     );
 
-    s.setRequestHandler(ListToolsRequestSchema, async () => dispatch.listTools());
+    s.setRequestHandler(ListToolsRequestSchema, async () =>
+      dispatch.listTools({ runId: caller.runId, agentId: caller.agentId }),
+    );
 
     s.setRequestHandler(CallToolRequestSchema, async (req) => {
       const metaIdentity = (req.params as { _meta?: { identity?: WireIdentity } })._meta?.identity;

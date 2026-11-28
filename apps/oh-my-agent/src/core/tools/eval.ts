@@ -55,8 +55,7 @@ export function createEvalTool(opts: {
         description: descriptionParam,
         code: {
           type: "string",
-          description:
-            "TS/JS module source. Must `export default async (ctx) => result`. Omit when async is set.",
+          description: "TS/JS module source. Must `export default async (ctx) => result`.",
         },
         input: {
           type: "object",
@@ -71,14 +70,15 @@ export function createEvalTool(opts: {
         },
         timeout: {
           type: "number",
-          description: "Timeout in milliseconds (default 30000). 0 disables the deadline.",
+          description:
+            "Timeout in milliseconds (default 30000). 0 disables the deadline for foreground runs (async runs cap at 600000 ms).",
         },
         keepWorkspace: {
           type: "boolean",
           description: "Keep the sandbox working dir across this session (default false)",
         },
       },
-      required: ["description"],
+      required: ["description", "code"],
     },
     async execute(input: Record<string, unknown>, signal?: AbortSignal) {
       const {

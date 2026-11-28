@@ -56,10 +56,11 @@ const CONSOLIDATE_PROMPT = `You maintain the agent's long-term memory artifacts
 facts into the EXISTING artifacts:
 - MEMORY.md: a curated long-term document, grouped thematically, keeping
   every durable lesson with enough context to act on.
-- memory_summary.md: the compact digest injected into the system prompt
-  at session start.
-Drop facts already covered and anything static or re-derivable from the
-repo. Return STRICT JSON only:
+- memory_summary.md: a compact digest injected into the system prompt at
+  session start (keep it under 3500 characters so it never crowds out other
+  workspace memories).
+Write in the same language as the facts. Drop facts already covered and
+anything static or re-derivable from the repo. Return STRICT JSON only:
 {"summary":"compact digest","memory":"curated long-term document"}`;
 
 const EXTRACT_TIMEOUT_MS = 60_000;
@@ -122,7 +123,8 @@ export async function extractAutonomousMemory(
       await callModel(
         input.modelRuntime,
         modelRef,
-        `${EXTRACT_PROMPT}\n\n<transcript>\n${transcript}\n</transcript>`,
+        EXTRACT_PROMPT,
+        `<transcript>\n${transcript}\n</transcript>`,
       ),
     );
     if (facts.length === 0) return { ran: true, freshFacts: 0 };
@@ -165,7 +167,8 @@ export async function extractAutonomousMemory(
     const raw = await callModel(
       input.modelRuntime,
       modelRef,
-      `${CONSOLIDATE_PROMPT}\n\n<existing_summary>\n${oldSummary ?? "(none)"}\n</existing_summary>\n\n<existing_memory>\n${oldMemory ?? "(none)"}\n</existing_memory>\n\n<new_facts>\n${renderFacts(input.runId, fresh)}\n</new_facts>`,
+      CONSOLIDATE_PROMPT,
+      `<existing_summary>\n${oldSummary ?? "(none)"}\n</existing_summary>\n\n<existing_memory>\n${oldMemory ?? "(none)"}\n</existing_memory>\n\n<new_facts>\n${renderFacts(input.runId, fresh)}\n</new_facts>`,
     );
     const consolidated = parseConsolidation(raw);
     if (consolidated.summary) {
@@ -209,23 +212,48 @@ async function resolveMemoryModel(
   return runModelId;
 }
 
+function clipInline(text: string, maxChars: number): string {
+  const s = text.replace(/\s+/g, " ").trim();
+  return s.length <= maxChars ? s : `${s.slice(0, maxChars - 1)}…`;
+}
+
 function buildTranscript(messages: readonly Message[], compactions: readonly string[]): string {
   const lines: string[] = [];
-  for (const m of messages) {
-    const label = m.role === "assistant" ? "Assistant" : m.role === "user" ? "User" : m.role;
-    const text = extractText(m).trim();
-    if (text) lines.push(`${label}: ${text}`);
-  }
   for (const c of compactions) {
     if (c.trim()) lines.push(`[compaction summary]\n${c.trim()}`);
   }
-  return lines.join("\n\n").slice(0, TRANSCRIPT_BUDGET_CHARS);
+  for (const m of messages) {
+    const label = m.role === "assistant" ? "Assistant" : m.role === "user" ? "User" : m.role;
+    const parts: string[] = [];
+    const text = extractText(m).trim();
+    if (text) parts.push(text);
+    for (const block of m.blocks ?? []) {
+      if (block.type === "tool_use") {
+        let args = "";
+        try {
+          args = clipInline(JSON.stringify(block.input ?? {}), 240);
+        } catch {
+          args = "[unserializable]";
+        }
+        parts.push(`[tool_use ${block.name}] ${args}`);
+      } else if (block.type === "tool_result") {
+        const errTag = block.is_error ? " (error)" : "";
+        parts.push(`[tool_result${errTag}] ${clipInline(block.content, 300)}`);
+      }
+    }
+    if (parts.length > 0) lines.push(`${label}: ${parts.join("\n")}`);
+  }
+  const full = lines.join("\n\n");
+  // Keep the TAIL of long transcripts so final fixes, errors, and conclusions
+  // survive rather than being truncated off the end.
+  return full.length <= TRANSCRIPT_BUDGET_CHARS ? full : full.slice(-TRANSCRIPT_BUDGET_CHARS);
 }
 
 async function callModel(
   modelRuntime: ModelRuntime,
   modelRef: string,
-  prompt: string,
+  systemPrompt: string,
+  userPrompt: string,
 ): Promise<string> {
   const slash = modelRef.indexOf("/");
   const providerId = slash > 0 ? modelRef.slice(0, slash) : modelRef;
@@ -234,7 +262,10 @@ async function callModel(
   for await (const chunk of modelRuntime.stream(
     providerId,
     modelId,
-    [{ role: "user", text: prompt }],
+    [
+      { role: "system", text: systemPrompt },
+      { role: "user", text: userPrompt },
+    ],
     {
       signal: AbortSignal.timeout(EXTRACT_TIMEOUT_MS),
     },

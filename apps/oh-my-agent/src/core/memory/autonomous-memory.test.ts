@@ -304,4 +304,46 @@ describe("extractAutonomousMemory", () => {
       "cheap fact",
     );
   });
+
+  test("separates system instructions from user transcript and preserves tool blocks", async () => {
+    const seen: (readonly Message[])[] = [];
+    const provider: Provider = {
+      id: "spy",
+      name: "Spy",
+      getModels: () => [{ ...FAKE_MODEL, provider: "spy" }],
+      async *stream(_model, messages): AsyncIterable<AIMessageChunk> {
+        seen.push(messages);
+        yield { delta: { type: "text", text: JSON.stringify({ facts: [] }) } };
+        yield { stopReason: "end_turn" };
+      },
+    };
+    const runtime = createModelRuntime();
+    runtime.registerProvider(provider);
+    const root = freshWorkspace();
+
+    await extractAutonomousMemory({
+      modelRuntime: runtime,
+      modelId: "spy/m",
+      workspaceRoot: root,
+      runId: "run-tools",
+      messages: [
+        { role: "user", text: "check auth" },
+        {
+          role: "assistant",
+          blocks: [{ type: "tool_use", id: "t1", name: "read", input: { path: "auth.ts" } }],
+        },
+        {
+          role: "tool",
+          blocks: [{ type: "tool_result", tool_use_id: "t1", content: "JWT_EXPIRY=15m" }],
+        },
+      ],
+      compactions: [],
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.[0]?.role).toBe("system");
+    expect(seen[0]?.[1]?.role).toBe("user");
+    expect(seen[0]?.[1]?.text).toContain("[tool_use read]");
+    expect(seen[0]?.[1]?.text).toContain("JWT_EXPIRY=15m");
+  });
 });

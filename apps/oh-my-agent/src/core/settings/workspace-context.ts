@@ -87,14 +87,17 @@ function deeperContextPointers(cwd: string, loaded: ReadonlySet<string>): string
  *  Byte-identical files collapse; the more prominent copy survives. */
 export function readWorkspaceSystemPrompt(
   cwd: string,
-  opts?: { home?: string },
+  opts?: { home?: string; includeIdentity?: boolean },
 ): string | undefined {
   const parts: string[] = [];
 
-  // Identity first (plain, unchanged semantics).
-  for (const f of IDENTITY_FILES) {
-    const text = readTextOrNull(join(cwd, f));
-    if (text?.trim()) parts.push(text.trim());
+  // Identity first (plain, unchanged semantics). Skipped when the host already
+  // supplies an authoritative systemPrompt carrying filtered SOUL/USER content.
+  if (opts?.includeIdentity !== false) {
+    for (const f of IDENTITY_FILES) {
+      const text = readTextOrNull(join(cwd, f));
+      if (text?.trim()) parts.push(text.trim());
+    }
   }
 
   // Context files: far ancestors first, cwd last, user scope after.

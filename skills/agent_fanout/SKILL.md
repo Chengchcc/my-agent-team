@@ -79,7 +79,11 @@ direct filesystem writes or network access.
 ```js
 const files = await phase("discover", async () => {
   const res = await tool("glob", { pattern: "src/**/*.ts" });
-  return (res.files ?? []).filter((f) => !f.endsWith(".test.ts")).slice(0, 20);
+  const lines = String(res.content ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("No files") && !line.endsWith(".test.ts"));
+  return lines.slice(0, 20);
 });
 
 const findings = await phase("audit", () =>

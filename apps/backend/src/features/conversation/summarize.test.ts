@@ -4,6 +4,7 @@ import {
   createConfiguredSummarizer,
   createSummarizer,
   createSummaryRuntime,
+  renderMessageForSummary,
   summarizerInput,
 } from "./summarize.js";
 
@@ -69,5 +70,34 @@ describe("conversation summarizer", () => {
     // Registration is deliberately not key-filtered: a configured model with no
     // credential must fail loudly at the call, not read as "provider not found".
     expect(createSummaryRuntime().getProvider("deepseek")).toBeTruthy();
+  });
+
+  test("renderMessageForSummary preserves speaker role and createSummarizer separates system vs transcript messages", async () => {
+    expect(renderMessageForSummary({ role: "user", text: "Deploy to staging" })).toBe(
+      "[user]\nDeploy to staging",
+    );
+    const seenMessages: unknown[][] = [];
+    const runtime = createModelRuntime();
+    runtime.registerProvider({
+      id: "spy",
+      name: "spy",
+      getModels: () => [{ id: "sum", name: "sum" }],
+      stream: function* (_model: unknown, messages: unknown[]) {
+        seenMessages.push(messages);
+        yield { delta: { type: "text", text: "summary" } };
+      },
+    } as unknown as Provider);
+    const summarize = createSummarizer({
+      runtime,
+      credentialFor: () => ({}),
+      providerId: "spy",
+      modelId: "sum",
+    });
+    expect(await summarize(["[user]\nhello"])).toBe("summary");
+    expect(seenMessages[0]?.[0]).toMatchObject({ role: "system" });
+    expect(seenMessages[0]?.[1]).toMatchObject({
+      role: "user",
+      text: "<transcript>\n[user]\nhello\n</transcript>",
+    });
   });
 });

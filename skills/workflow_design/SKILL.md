@@ -164,6 +164,9 @@ fix, return the corrected full DSL.
 
 ## Output contract
 
-When asked to author/edit, respond with **the entire updated DSL as a single
-JSON object** (no markdown fence, no prose). The caller parses it, runs
-`parseWorkflow` on it, and applies it as a patch.
+- When `workflow_save` or `workflow_write` is mounted (product runs), save or
+  propose changes through that tool and reply concisely with what changed and
+  whether human approval is required.
+- Only when invoked standalone with no workflow write tool mounted, respond with
+  **the entire updated DSL as a single JSON object** (no markdown fence, no
+  prose) so the caller can parse and apply it.

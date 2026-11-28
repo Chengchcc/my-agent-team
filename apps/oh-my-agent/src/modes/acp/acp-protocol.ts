@@ -28,6 +28,20 @@ export function readPermissionMode(
   return raw === "auto" || raw === "deny" || raw === "yolo" || raw === "ask" ? raw : "ask";
 }
 
+/** Authoritative host/product system prompt passed over ACP `_meta`
+ *  (ADR 0039 extension-vehicle rule 2). Absent for external ACP clients. */
+export function readSystemPrompt(meta: Record<string, unknown> | null | undefined): string | null {
+  const raw = meta?.["my-agent-team/systemPrompt"];
+  return typeof raw === "string" && raw.trim() !== "" ? raw.trim() : null;
+}
+
+/** Product-assigned skill pack roots passed over ACP `_meta`. */
+export function readSkillRoots(meta: Record<string, unknown> | null | undefined): string[] {
+  const raw = meta?.["my-agent-team/skillRoots"];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "");
+}
+
 export interface ResumeDecision {
   readonly callId: string;
   readonly kind: "approval" | "ask";

@@ -36,8 +36,8 @@ const MAX_SUMMARY_CHARS = 1200;
 const MIN_TEXT_CHARS = 1;
 
 const SYSTEM_PROMPT =
-  "You compress a software-engineering conversation for future context. " +
-  "Write plain prose in the conversation's own language (usually Chinese). " +
+  "You compress a conversation for future context. " +
+  "Write plain prose in the conversation's own language. " +
   "Keep: decisions with their why, current state, open threads, exact names " +
   "(files, commands, ids). Drop: greetings, restated plans, tool noise. " +
   `No preamble, no headings, at most ${MAX_SUMMARY_CHARS} characters.`;
@@ -95,7 +95,8 @@ export function renderMessageForSummary(message: Message): string {
       lines.push(`[tool_result${error}] ${block.content.trim()}`);
     }
   }
-  return lines.join("\n");
+  if (lines.length === 0) return "";
+  return `[${message.role}]\n${lines.join("\n")}`;
 }
 
 function safeJson(input: unknown): string {
@@ -113,7 +114,8 @@ export function createSummarizer(
     const input = summarizerInput(texts);
     if (input.length === 0) return "";
     const messages: Message[] = [
-      { role: "user", text: `${SYSTEM_PROMPT}\n\n--- transcript ---\n${input}` },
+      { role: "system", text: SYSTEM_PROMPT },
+      { role: "user", text: `<transcript>\n${input}\n</transcript>` },
     ];
     const credential = deps.credentialFor(deps.providerId);
     let out = "";

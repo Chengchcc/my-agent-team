@@ -57,12 +57,14 @@ import {
   readPermissionMode,
   readResumeDecisions,
   readResumeMeta,
+  readSkillRoots,
+  readSystemPrompt,
   resumeApprovals,
   STEER_METHOD,
   toAcpUsage,
 } from "./acp-protocol.js";
 
-export { readPermissionMode };
+export { readPermissionMode, readSkillRoots, readSystemPrompt };
 
 export interface AcpModeOptions {
   /** The assembled model runtime (main.ts registers built-in providers,
@@ -89,6 +91,10 @@ interface AcpSession {
   readonly cwd: string;
   readonly permissionMode: DeclaredPermissionMode;
   readonly acpMcpServers: readonly AcpMcpServerDeclaration[];
+  /** Authoritative host/product system prompt passed over `_meta` (ADR 0039 rule 2). */
+  readonly systemPrompt: string | null;
+  /** Product-assigned skill pack roots passed over `_meta`. */
+  readonly skillRoots: readonly string[];
   /** Decisions read off a session/load's `_meta` (ADR 0039
    *  extension-vehicle rule 2): the NEXT prompt completes the parked turn
    *  with them pre-supplied — the ACP shape of ADR 0038's resume. */
@@ -154,6 +160,8 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
         sessionId,
         cwd,
         acpMcpServers: readAcpMcpServers(ctx.params.mcpServers),
+        systemPrompt: readSystemPrompt(meta),
+        skillRoots: readSkillRoots(meta),
         resumeDecisions: resumeMeta?.decisions ?? null,
         permissionMode: readPermissionMode(meta),
         model: null,
@@ -169,6 +177,8 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
         sessionId: ctx.params.sessionId,
         cwd: ctx.params.cwd ?? process.cwd(),
         acpMcpServers: readAcpMcpServers(ctx.params.mcpServers),
+        systemPrompt: readSystemPrompt(meta),
+        skillRoots: readSkillRoots(meta),
         resumeDecisions: readResumeDecisions(meta),
         permissionMode: readPermissionMode(meta),
         model: null,
@@ -327,7 +337,14 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
     const promptMessage: Message = prompt;
 
     const cwdSkills = scanWorkspaceSkillRoots(session.cwd);
-    const cwdPrompt = readWorkspaceSystemPrompt(session.cwd);
+    const mergedSkillRoots = [...new Set([...session.skillRoots, ...cwdSkills])];
+    // When the product backend provides an authoritative systemPrompt (already
+    // carrying filtered SOUL/USER + front-desk discipline + recall), skip raw
+    // SOUL.md/USER.md re-reads from cwd so placeholders never leak and identity
+    // is never duplicated — while still loading repo AGENTS.md rules from cwd.
+    const cwdPrompt = readWorkspaceSystemPrompt(session.cwd, {
+      includeIdentity: session.systemPrompt === null,
+    });
     const pluginRt = await assemblePluginRuntime(session.cwd, "acp", {
       permissionMode: session.permissionMode,
     });
@@ -384,7 +401,7 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
       workspaceRoot: session.cwd,
       workspaceAccess: "read_write",
       modelRuntime,
-      skillRoots: cwdSkills,
+      skillRoots: mergedSkillRoots,
       // The client-declared policy (see readPermissionMode): a client that
       // declared "auto" runs its own classifier; one that declared nothing is
       // asked, because it IS the human surface.
@@ -443,6 +460,8 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
         return { stopReason: "cancelled" };
       }
 
+      const hasCodingTools =
+        !disabledTools.has("write") && !disabledTools.has("edit") && !disabledTools.has("bash");
       const input = {
         input: {
           inputId: `acp-in-${session.sessionId}-${Date.now()}`,
@@ -453,9 +472,15 @@ export function runAcpMode(opts: AcpModeOptions): AcpModeController {
           model: { backendKind: "oma", modelId },
           configRevision: 1,
           systemPrompt: buildSystemPrompt({
+            hostPrompt: session.systemPrompt ?? undefined,
             workspacePrompt: cwdPrompt,
-            memorySummary: readMemorySummary(session.cwd),
+            // External ACP clients (no backend hostPrompt) still get local
+            // workspace memory summaries; product ACP runs delegate recall &
+            // memory ownership to the backend (autonomousMemory: false).
+            memorySummary: session.systemPrompt ? undefined : readMemorySummary(session.cwd),
             cwd: session.cwd,
+            includeBase: hasCodingTools,
+            includeLocalMemory: false,
           }),
         },
         workspace: { root: session.cwd, access: "read_write" },

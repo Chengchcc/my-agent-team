@@ -159,7 +159,9 @@ export interface AcpMcpProvider {
    *  carries them to the wire, so the shape stays opaque here (a backend's
    *  descriptor interface has no index signature and would not match a
    *  `Record<string, unknown>`). */
-  listTools(): { readonly tools: readonly unknown[] };
+  listTools(caller?: { readonly runId: string; readonly agentId: string }): {
+    readonly tools: readonly unknown[];
+  };
   call(req: {
     readonly caller: { readonly runId: string; readonly agentId: string };
     readonly name: string;
@@ -307,7 +309,7 @@ export class AcpBackend implements AgentBackend<"acp"> {
     }
     const method = typeof req.method === "string" ? req.method : "";
     const params = (req.params ?? {}) as Record<string, unknown>;
-    if (method === "tools/list") return innerOk(provider.listTools());
+    if (method === "tools/list") return innerOk(provider.listTools(caller));
     if (method === "tools/call") {
       const name = typeof params.name === "string" ? params.name : "";
       if (name === "") {
@@ -556,35 +558,45 @@ export class AcpBackend implements AgentBackend<"acp"> {
                 : [];
             const cwd = input.workspace.root;
             let declaredOptions: readonly DeclaredConfigOption[];
+            const buildSessionMeta = (
+              mode: "new" | "load",
+            ): Record<string, unknown> | undefined => {
+              const decisions = input.resume?.decisions;
+              const meta: Record<string, unknown> = {};
+              if (input.run.permissionMode) {
+                meta["my-agent-team/permissionMode"] = input.run.permissionMode;
+              }
+              // ADR 0039 extension-vehicle rule 2: carry the backend-assembled
+              // system prompt (SOUL/USER, front-desk discipline, product context,
+              // current tasks, recall) and product skill roots over `_meta` so
+              // ACP servers that understand them apply them without altering the
+              // standard ACP v1 wire; external harnesses ignore unknown keys.
+              if (input.run.systemPrompt?.trim()) {
+                meta["my-agent-team/systemPrompt"] = input.run.systemPrompt;
+              }
+              if (input.run.skillRoots && input.run.skillRoots.length > 0) {
+                meta["my-agent-team/skillRoots"] = [...input.run.skillRoots];
+              }
+              if (mode === "load" && decisions && decisions.length > 0) {
+                meta["my-agent-team/resume"] = { decisions };
+              } else if (mode === "new" && input.resume) {
+                meta["my-agent-team/resume"] = {
+                  adopt: "last-interrupted",
+                  ...(decisions && decisions.length > 0 ? { decisions } : {}),
+                };
+              }
+              return Object.keys(meta).length > 0 ? meta : undefined;
+            };
             const resumeRef = input.run.cliSessionRef;
             if (resumeRef !== undefined && resumeRef !== "") {
               // session/load replays history and KEEPS the id we passed
               // (LoadSessionResponse carries no sessionId of its own).
-              // ADR 0039 extension-vehicle rule 2: replayed decisions ride
-              // the standard params' _meta under a namespaced key; agents
-              // that don't read it ignore it (today's entire population -
-              // oma's own server, P2, will define the semantics).
-              const decisions = input.resume?.decisions;
+              const loadMeta = buildSessionMeta("load");
               const loaded = (await ctx.request(acp.methods.agent.session.load, {
                 sessionId: resumeRef,
                 cwd,
                 mcpServers,
-                // Same declaration as session/new: a continuation run carries
-                // the agent's mode too, or every resumed run degrades back to
-                // per-action "ask" (a continuation is the COMMON case — every
-                // message after the first in a conversation).
-                ...(input.run.permissionMode || (decisions && decisions.length > 0)
-                  ? {
-                      _meta: {
-                        ...(input.run.permissionMode
-                          ? { "my-agent-team/permissionMode": input.run.permissionMode }
-                          : {}),
-                        ...(decisions && decisions.length > 0
-                          ? { "my-agent-team/resume": { decisions } }
-                          : {}),
-                      },
-                    }
-                  : {}),
+                ...(loadMeta ? { _meta: loadMeta } : {}),
               } as Parameters<typeof ctx.request<typeof acp.methods.agent.session.load>>[1])) as {
                 configOptions?: readonly DeclaredConfigOption[];
               };
@@ -603,31 +615,11 @@ export class AcpBackend implements AgentBackend<"acp"> {
               // extension vehicle instead of guessed: the agent adopts the
               // newest interrupted parked session in this cwd, and the
               // replayed decisions ride the same _meta.
-              const decisions = input.resume?.decisions;
+              const newMeta = buildSessionMeta("new");
               const created = (await ctx.request(acp.methods.agent.session.new, {
                 cwd,
                 mcpServers,
-                ...(input.resume || input.run.permissionMode
-                  ? {
-                      _meta: {
-                        // The agent's frozen permission mode (ADR 0020
-                        // decision 7: mapped per backend at dispatch). Without
-                        // it the child defaults to "ask" and every backend-
-                        // driven run degrades to per-action human approval.
-                        ...(input.run.permissionMode
-                          ? { "my-agent-team/permissionMode": input.run.permissionMode }
-                          : {}),
-                        ...(input.resume
-                          ? {
-                              "my-agent-team/resume": {
-                                adopt: "last-interrupted",
-                                ...(decisions && decisions.length > 0 ? { decisions } : {}),
-                              },
-                            }
-                          : {}),
-                      },
-                    }
-                  : {}),
+                ...(newMeta ? { _meta: newMeta } : {}),
               } as never)) as {
                 sessionId: string;
                 configOptions?: readonly DeclaredConfigOption[];

@@ -273,6 +273,7 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
       // text parser below.
       let yielded: unknown;
       const reused = liveSessions.get(handle);
+      const usesYield = Boolean(spec.schema && !reused);
       const session =
         reused ??
         createOmaSession({
@@ -293,10 +294,15 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
           maxForceContinues: 2,
           // Transient model failures (429/timeout) retry via the loop's
           // default retryStream policy (maxAttempts 3).
+          // When `yield` is mounted, do NOT also pass `responseFormat` to the
+          // provider: Anthropic injects a competing unmounted `report_result`
+          // tool and DeepSeek appends conflicting JSON-only prose rules.
           modelStream: opts.makeSubagentStream(
             sessionId,
             modelId,
-            spec.schema ? { name: "result", schema: spec.schema, strict: true } : undefined,
+            spec.schema && !usesYield
+              ? { name: "result", schema: spec.schema, strict: true }
+              : undefined,
           ),
           summarize: opts.summarize,
           contextBudget: opts.contextBudget,
@@ -402,10 +408,12 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
           // A2: one schema-correction turn — the same session re-runs with the
           // produced messages as history plus an explicit fix instruction. A
           // second violation is terminal.
-          const correction =
-            `Your previous final message did not match the required output schema. ` +
-            `Call the \`yield\` tool with the corrected payload (no markdown code fence, ` +
-            `no prose around it). Error: ${parseError}`;
+          const correction = usesYield
+            ? `Your previous final message did not match the required output schema. ` +
+              `Call the \`yield\` tool with the corrected payload (do not write JSON prose). Error: ${parseError}`
+            : `Your previous final message did not match the required output schema. ` +
+              `Reply with ONLY the corrected JSON object (no markdown code fence, ` +
+              `no prose around it). Error: ${parseError}`;
           result = await launch(
             (result.messages ?? []).map((message, i) => ({
               // Synthetic identity: the in-memory subagent store never
@@ -420,6 +428,10 @@ export function createDelegationExecutor(opts: DelegationExecutorOptions): Deleg
             },
           );
           ({ text, output, parseError } = parseAndValidate(result, spec.schema));
+          if (yielded !== undefined) {
+            output = yielded;
+            parseError = undefined;
+          }
         }
         const loopError =
           result.status !== "completed"

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { WorkerCard } from "../product-tools/pool.js";
+import { extractCues, needsRecall } from "./cues.js";
 import { type RecallPorts, recall } from "./recall.js";
 
 function worker(over: Partial<WorkerCard> & { id: string }): WorkerCard {
@@ -123,5 +124,17 @@ describe("ADR 0058 one recall entry for every source", () => {
       limit: 2,
     });
     expect(result.hits).toHaveLength(2);
+  });
+
+  test("English pronoun cues require word boundaries and do not trigger on ordinary words", () => {
+    const clean = extractCues("write a test with commit and edit history status");
+    expect(clean.cues).toEqual([]);
+    expect(needsRecall(clean)).toBe(false);
+
+    const fixIt = extractCues("fix it");
+    expect(fixIt.cues).toContain("it");
+    expect(needsRecall(fixIt)).toBe(true);
+    expect(extractCues("check that earlier error").cues).toContain("that");
+    expect(extractCues("上次那个分支").cues).toContain("上次");
   });
 });

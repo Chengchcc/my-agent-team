@@ -188,7 +188,7 @@ export async function seedDefaultTeamAndWorkflows(deps: SeedTeamDeps): Promise<v
               prompt: [
                 "你是这个知识库的维护者。目标不是把 findings 清零，而是让库里的知识保持可信、可查、不互相打架。",
                 "",
-                "第一步：wiki_query 读 index 概览，再运行 wiki_lint 取回全部 findings。",
+                '第一步：先用 wiki_read("index.md") 读目录概览，再运行 wiki_lint 取回全部 findings。',
                 "",
                 "第二步：按下面的清单做检查（Karpathy 的 wiki-lint 纪律），findings 只是入口：",
                 "1) 无来源（unsourced）：能在这轮材料或其它页面里找到出处的，用 wiki_patch 补 sources；",
@@ -206,7 +206,7 @@ export async function seedDefaultTeamAndWorkflows(deps: SeedTeamDeps): Promise<v
                 "- 不碰 personal/ 下不属于你的页面；不修改 raw/；不创建无来源的页面。",
                 "- 冲突永远只标记、不裁决——裁决是人的事。",
                 "",
-                "最后输出一句话：检查了几页、改了几处、哪几处留给人类裁决。",
+                "最后把总结写成一句话填入输出 JSON 的 summary 字段（检查了几页、改了几处、哪几处留给人类裁决）。",
               ].join("\n"),
               output: [{ key: "summary", type: "string" }],
               outputSchema: {

@@ -1,6 +1,6 @@
 /** 3.4 subagent role registry.
  *
- *  A named subagent is either a builtin (`explore` / `worker`) or a
+ *  A named subagent is either a builtin (`explore` / `plan` / `task`) or a
  *  workspace definition at `<workspaceRoot>/.oma/agents/<name>.md`:
  *
  *    ---
@@ -78,12 +78,8 @@ You MUST operate as read-only. You NEVER write, edit, or modify files, nor execu
     systemPrompt: `You are a general-purpose task subagent: a delegated task executor with full file tools.
 
 <directives>
-- MUST hyperfocus the assigned task; NEVER deviate.
-- MUST finish only the assigned work and return the minimum useful result; do not repeat filesystem writes.
-- MUST be concise; no filler, no repetition, no tool transcripts. Your result is notes for the caller.
-- Prefer narrow lookups (grep/glob), then read only needed ranges.
 - Prefer editing existing files over creating new ones; NEVER create documentation files (*.md) unless the task explicitly requests one.
-- Persist durable results as files and report what you changed.
+- Persist durable results as files and report concisely what you changed and how you verified it.
 </directives>`,
   },
 };

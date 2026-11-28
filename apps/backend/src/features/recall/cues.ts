@@ -2,7 +2,7 @@
  *
  *  Deliberately not a model decision: asking a model "do you need to recall?"
  *  reproduces the failure it prevents — the model does not know something is
- *  missing, but a pronoun is knowable in a regex. */
+ *  missing, but a pronoun or reference cue is knowable in a regex. */
 export interface Cues {
   /** Human-readable reasons the recall was triggered. */
   readonly cues: readonly string[];
@@ -12,7 +12,7 @@ export interface Cues {
   readonly query: string;
 }
 
-const PRONOUN_CUES: readonly string[] = [
+const ZH_PRONOUN_CUES: readonly string[] = [
   "这个",
   "那个",
   "那些",
@@ -28,14 +28,19 @@ const PRONOUN_CUES: readonly string[] = [
   "说过",
   "提过",
   "还是",
-  "this",
-  "that",
-  "those",
-  "it",
-  "earlier",
-  "previously",
-  "last time",
-  "the same",
+];
+
+/** English cues require word boundaries so ordinary words like "write", "with",
+ *  "edit", "commit", "history", or "status" do not falsely match "it"/"this"/"that". */
+const EN_PRONOUN_CUES: ReadonlyArray<{ readonly label: string; readonly re: RegExp }> = [
+  { label: "this", re: /\bthis\b/i },
+  { label: "that", re: /\bthat\b/i },
+  { label: "those", re: /\bthose\b/i },
+  { label: "it", re: /\bit\b/i },
+  { label: "earlier", re: /\bearlier\b/i },
+  { label: "previously", re: /\bpreviously\b/i },
+  { label: "last time", re: /\blast time\b/i },
+  { label: "the same", re: /\bthe same\b/i },
 ];
 
 /** Things that are already a pointer, so they are worth searching verbatim:
@@ -51,8 +56,13 @@ const IDENTIFIERS: ReadonlyArray<RegExp> = [
 const MAX_QUERY_CHARS = 200;
 
 export function extractCues(text: string): Cues {
-  const lower = text.toLowerCase();
-  const cues = PRONOUN_CUES.filter((cue) => lower.includes(cue));
+  const cues: string[] = [];
+  for (const cue of ZH_PRONOUN_CUES) {
+    if (text.includes(cue)) cues.push(cue);
+  }
+  for (const { label, re } of EN_PRONOUN_CUES) {
+    if (re.test(text)) cues.push(label);
+  }
   const identifiers = new Set<string>();
   for (const pattern of IDENTIFIERS) {
     for (const match of text.matchAll(pattern)) identifiers.add(match[0]);
@@ -63,7 +73,7 @@ export function extractCues(text: string): Cues {
   // problem — but keeping it bounded keeps the search predictable.
   const query = (ids.length > 0 ? ids.join(" ") : text).trim().slice(0, MAX_QUERY_CHARS);
   return {
-    cues: cues.length > 0 ? cues : ids.length > 0 ? ["标识符"] : [],
+    cues: cues.length > 0 ? cues : ids.length > 0 ? ["identifier"] : [],
     identifiers: ids,
     query,
   };

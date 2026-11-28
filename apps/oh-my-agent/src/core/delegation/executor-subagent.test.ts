@@ -299,26 +299,23 @@ describe("createDelegationExecutor", () => {
     ).rejects.toThrow(/budget exhausted/);
   });
 
-  test("spec schema is passed as responseFormat to the subagent stream (F5)", async () => {
+  test("fresh schema subagent uses yield without competing provider responseFormat (prevents report_result/JSON clash)", async () => {
     const seen: Array<{ modelId?: string; responseFormat?: unknown }> = [];
     const exec = createDelegationExecutor({
       ...makeDeps(),
       makeSubagentStream: (_sessionId, modelId, responseFormat) => {
         seen.push({ modelId, responseFormat });
-        return createEchoModelStream("ok");
+        return createEchoModelStream('{"ok":true}');
       },
     });
-    await exec.runSubagent({
+    const res = await exec.runSubagent({
       batchId: "wf-f5",
       agentId: "a1",
       prompt: "go",
       schema: { type: "object" },
     });
-    expect(seen[0]?.responseFormat).toEqual({
-      name: "result",
-      schema: { type: "object" },
-      strict: true,
-    });
+    expect(res.ok).toBe(true);
+    expect(seen[0]?.responseFormat).toBeUndefined();
   });
 
   test("a subagent's yielded payload IS the result — no text parsing (omp yield parity)", async () => {

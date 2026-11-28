@@ -175,10 +175,18 @@ export function describeMissing(
   }
   lines.push(
     verb === "operate"
-      ? "An irreversible action still needs the human's confirmation in this turn."
+      ? "Ask the human only for what is still missing — call ask_question once for all of them at once; do not invent values. An irreversible action still needs the human's confirmation in this turn."
       : "Ask the human only for what is still missing — call ask_question once for all of them at once; do not invent values.",
   );
   return lines.join("\n");
+}
+
+function escapeXmlAttr(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 /** Irreversible work may only leave the desk on a human's authority from THIS
@@ -218,13 +226,13 @@ export function frameBrief(input: {
   workspace?: { root: string; worktree?: string };
 }): string {
   const { fromAgentId, brief, instruction, note, findings, meta, workspace } = input;
-  const lines = [`<dispatch from="${fromAgentId}">`];
+  const lines = [`<dispatch from="${escapeXmlAttr(fromAgentId)}">`];
   const attrs = [
     `verb="${brief.verb}"`,
     `deliverable="${brief.deliverable}"`,
     `object-kind="${brief.objectKind}"`,
   ];
-  if (brief.object !== "") attrs.push(`object="${brief.object}"`);
+  if (brief.object !== "") attrs.push(`object="${escapeXmlAttr(brief.object)}"`);
   if (brief.verb === "operate") attrs.push(`reversibility="${brief.reversibility}"`);
   lines.push(`<task ${attrs.join(" ")}>`);
 
@@ -245,33 +253,49 @@ export function frameBrief(input: {
     lines.push("<front_findings>", ...findings.map((line) => `- ${line}`), "</front_findings>");
   }
   if (meta !== undefined) {
-    const attrs = Object.entries(meta)
+    const metaAttrs = Object.entries(meta)
       .filter(([, value]) => value !== "")
-      .map(([key, value]) => `${key}="${value}"`);
-    if (attrs.length > 0) lines.push(`<meta ${attrs.join(" ")} />`);
+      .map(([key, value]) => `${key}="${escapeXmlAttr(value)}"`);
+    if (metaAttrs.length > 0) lines.push(`<meta ${metaAttrs.join(" ")} />`);
   }
   if (workspace !== undefined && workspace.root !== "") {
     lines.push(
-      `<workspace root="${workspace.root}">`,
+      `<workspace root="${escapeXmlAttr(workspace.root)}">`,
       ...(workspace.worktree !== undefined
-        ? [`项目工作副本：${workspace.worktree}（你的改动落在这里）`]
-        : []),
-      "所有写入都必须在这个目录内；brief 里出现的其它绝对路径是【人的】路径，不是你该写的地方。",
+        ? [
+            `项目工作副本：${workspace.worktree}（你的改动落在这里）`,
+            "所有代码改动和写入都必须落在项目工作副本目录内；brief 里出现的其它绝对路径是【人的】路径，不是你该写的地方。",
+          ]
+        : [
+            "所有写入都必须在这个目录内；brief 里出现的其它绝对路径是【人的】路径，不是你该写的地方。",
+          ]),
       "</workspace>",
     );
   }
-  if (brief.deliverable !== "answer") {
+  if (brief.deliverable === "report") {
     lines.push(
       "<delivery>",
       "成品用 artifact_upload 上传（folder 用需求 id 或任务名），并在最终回答里附上 artifacts:// 路径。",
       "交接给下一步时，对方要的是那个 URL，不是你的复述。",
       "</delivery>",
     );
+  } else if (brief.deliverable === "change") {
+    lines.push(
+      "<delivery>",
+      "代码改动在工作副本中完成后，验证结果并用 project_push 推送到 agent/<runId> 分支；若有补充文档/报告成品，可用 artifact_upload 上传并附上 artifacts:// 路径。",
+      "</delivery>",
+    );
+  } else if (brief.deliverable === "state-change") {
+    lines.push("<delivery>", "执行完成后回报实际变更结果、验证输出与回滚方案。", "</delivery>");
   }
-  if (note) lines.push(`<note>${note}</note>`);
+  if (note) lines.push(`<note>${note.replaceAll("</note>", "&lt;/note&gt;")}</note>`);
+  const safeInstruction = instruction.replaceAll(
+    "</original_request>",
+    "&lt;/original_request&gt;",
+  );
   lines.push(
     "<original_request>",
-    instruction,
+    safeInstruction,
     "</original_request>",
     // The one line that must survive any prompt rewrite: the request above is
     // what the human said, everything else in this message is the front's

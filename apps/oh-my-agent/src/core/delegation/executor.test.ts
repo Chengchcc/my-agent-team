@@ -71,9 +71,13 @@ describe("createDelegationExecutor", () => {
   });
 
   test("schema output is parsed from the final JSON text", async () => {
+    const seenResponseFormats: unknown[] = [];
     const exec = createDelegationExecutor({
       ...makeDeps(),
-      makeSubagentStream: () => createEchoModelStream('{"ok":true}'),
+      makeSubagentStream: (_sid, _model, responseFormat) => {
+        seenResponseFormats.push(responseFormat);
+        return createEchoModelStream('{"ok":true}');
+      },
     });
     const result = await exec.runSubagent({
       batchId: "wf4",
@@ -84,6 +88,9 @@ describe("createDelegationExecutor", () => {
     });
     expect(result.output).toEqual({ ok: true });
     expect(result.ok).toBe(true);
+    // When yield tool is mounted on a fresh subagent, responseFormat must NOT
+    // also be sent to the provider (avoids Anthropic report_result / DeepSeek clash).
+    expect(seenResponseFormats).toEqual([undefined]);
   });
 
   test("malformed schema output marks the agent failed with the error", async () => {

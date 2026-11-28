@@ -1497,3 +1497,50 @@ describe("ADR 0072: writes stay inside the run's own workspace", () => {
     expect(allow.some((p) => p.includes("worker-one"))).toBe(false);
   });
 });
+
+describe("ACP systemPrompt and skillRoots transmission (_meta)", () => {
+  test("passes my-agent-team/systemPrompt and skillRoots on both session/new and session/load", async () => {
+    const newParams: unknown[] = [];
+    const loadParams: unknown[] = [];
+    const obs: FakeAgentObservations = {
+      newSessionCalls: 0,
+      loadedSessionIds: [],
+      prompts: [],
+      permissionOutcomes: [],
+      elicitationOutcome: undefined,
+    };
+    const backend = new AcpBackend({
+      spawnImpl: startFakeAgent({ newSessionParams: newParams, loadParams }, obs),
+    });
+
+    const first = await backend.execute({
+      ...makeInput(),
+      run: {
+        ...makeInput().run,
+        runId: "run-meta-new",
+        systemPrompt: "FRONT_DESK_DISCIPLINE_MARKER",
+        skillRoots: ["/skills/pack-a", "/skills/pack-b"],
+      },
+    });
+    expect((await first.outcome).status).toBe("completed");
+    const firstMeta = (newParams[0] as { _meta?: Record<string, unknown> })?._meta;
+    expect(firstMeta?.["my-agent-team/systemPrompt"]).toBe("FRONT_DESK_DISCIPLINE_MARKER");
+    expect(firstMeta?.["my-agent-team/skillRoots"]).toEqual(["/skills/pack-a", "/skills/pack-b"]);
+
+    const second = await backend.execute({
+      ...makeInput(),
+      run: {
+        ...makeInput().run,
+        runId: "run-meta-load",
+        cliSessionRef: "sess-fake-1",
+        systemPrompt: "UPDATED_RECALL_MARKER",
+        skillRoots: ["/skills/pack-c"],
+      },
+    });
+    expect((await second.outcome).status).toBe("completed");
+    const secondMeta = (loadParams[0] as { _meta?: Record<string, unknown> })?._meta;
+    expect(secondMeta?.["my-agent-team/systemPrompt"]).toBe("UPDATED_RECALL_MARKER");
+    expect(secondMeta?.["my-agent-team/skillRoots"]).toEqual(["/skills/pack-c"]);
+    await backend.dispose();
+  });
+});

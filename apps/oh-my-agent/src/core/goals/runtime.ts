@@ -301,7 +301,7 @@ export class GoalRuntime {
     return [
       "<todo_context>",
       "Persisted todos: live progress state for the current goal, not old transcript decoration; goal continuations lack a visible user nudge → treat as live state.",
-      "Before substantial work: compare the next action with the todos. If an item is stale, already finished, or no longer the active pointer, call `todo` first: mark it done or rewrite the list. Do not leave a stale in_progress while working on later phases.",
+      "Before substantial work: compare the next action with the todos. If an item is stale, already finished, or no longer the active pointer, call `todo_write` first: mark it done or rewrite the list. Do not leave a stale in_progress while working on later phases.",
       "",
       `Overall: ${done}/${items.length} done, ${open} open.`,
       ...rows,

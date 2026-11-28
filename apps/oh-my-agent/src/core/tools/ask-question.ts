@@ -69,7 +69,7 @@ export function createAskQuestionTool(): PluginTool {
   return {
     name: "ask_question",
     description:
-      "Ask the user structured questions and wait for answers. Questions are select (options, optional multi/recommended/other) or text (free input). Returns {answers:[{id,selectedValues,freeText?,note?,timedOut?}]}. `timedOut` marks an answer that was auto-selected on timeout rather than chosen by the user — treat it as a guess, not consent.",
+      "Ask the user structured questions and wait for answers. Questions are select (options, optional multi/recommended/allowOther) or text (free input, optional placeholder/multiline). Returns {answers:[{id,selectedValues,freeText?,note?,timedOut?}]}. `timedOut` marks an answer that was auto-selected on timeout rather than chosen by the user — treat it as a guess, not consent.",
     inputSchema: {
       type: "object",
       properties: {
@@ -80,7 +80,25 @@ export function createAskQuestionTool(): PluginTool {
             properties: {
               id: { type: "string", description: "Unique id for this question" },
               question: { type: "string", description: "The question text" },
+              header: {
+                type: "string",
+                description: "Optional grouping header above the question",
+              },
               kind: { type: "string", enum: ["select", "text"] },
+              multi: {
+                type: "boolean",
+                description: "Allow selecting multiple options (kind=select)",
+              },
+              recommended: {
+                type: "string",
+                description: "option.value to badge as recommended (kind=select)",
+              },
+              allowOther: {
+                type: "boolean",
+                description: "Show an Other free-text choice (kind=select)",
+              },
+              placeholder: { type: "string", description: "Input placeholder text (kind=text)" },
+              multiline: { type: "boolean", description: "Use a multi-line input (kind=text)" },
               options: {
                 type: "array",
                 items: {

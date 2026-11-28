@@ -160,7 +160,7 @@ export function buildTitleContext(msgs: Message[], maxTurns = 4): string {
   const lines: string[] = [];
   let totalChars = 0;
   for (const item of conversational.slice(startIdx)) {
-    const line = `${item.role === "user" ? "用户" : "助手"}: ${item.text}`;
+    const line = `${item.role === "user" ? "User" : "Assistant"}: ${item.text}`;
     if (totalChars + line.length > MAX_TITLE_CONTEXT_CHARS && lines.length > 0) {
       const remaining = MAX_TITLE_CONTEXT_CHARS - totalChars;
       if (remaining > 40) lines.push(clipExcerpt(line, remaining));

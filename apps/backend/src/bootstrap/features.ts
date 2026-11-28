@@ -409,6 +409,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     omaAcpArgv,
     productTools,
     productToolsTokenRegistry,
+    roleOfAgent,
     recallByRun,
     notifyDispatcher,
     onRequestCreated,

@@ -358,10 +358,16 @@ export async function surfaceParkedRequest(
   const worker =
     run.agentId === null ? null : await agentSvc.getById(run.agentId).catch(() => null);
   const workerName = worker?.config.name ?? run.agentId ?? "worker";
+  const askQuestions =
+    input.kind === "ask"
+      ? ((input.payload.questions as Array<{ question?: string }> | undefined) ?? [])
+          .map((q) => String(q.question ?? "").trim())
+          .filter(Boolean)
+      : [];
   const detail =
     input.kind === "approval"
       ? `审批：${String(input.payload.toolName ?? "动作")} — ${String(input.payload.reason ?? "").slice(0, 200)}`
-      : `提问：${String((input.payload.questions as Array<{ question?: string }> | undefined)?.[0]?.question ?? "").slice(0, 200)}`;
+      : `提问：${askQuestions.join("；").slice(0, 400)}`;
 
   if (owner.agentId === null) {
     // Human-owned. A root room already reaches the inbox (and the Lark card
@@ -371,12 +377,16 @@ export async function surfaceParkedRequest(
     if (!parentId) return;
     const frontDesk = convPort.getConversation(parentId)?.agentId ?? null;
     if (frontDesk === null) return;
+    const escalationRule =
+      input.kind === "approval"
+        ? "用 ask_question 在本房间升级给人：写清谁在问、在做什么、要执行什么、为什么必须由人决定、影响范围，并给出允许/拒绝选项。"
+        : "用 ask_question 在本房间升级给人：写清谁在问、在做什么，把全部待决问题和选项一次性转交给人类决定。";
     await convSvc.postMessage({
       conversationId: parentId,
       senderMemberId: run.agentId ?? "system",
       content: [
         `【需要人类决定】${workerName} 在子会话「${room.title ?? "未命名"}」停下了：${detail}`,
-        "用 ask_question 在本房间升级给人：写清谁在问、在做什么、要执行什么、为什么必须由人决定、影响范围，并给出允许/拒绝选项。",
+        escalationRule,
       ].join("\n"),
     });
     return;
@@ -551,6 +561,7 @@ export interface AgentRunExecutionWiringDeps {
   omaAcpArgv: ReturnType<typeof resolveOmaAcpArgv>;
   productTools: ProductToolsService;
   productToolsTokenRegistry: RunTokenRegistry;
+  roleOfAgent: (agentId: string) => "worker" | "front" | null;
   recallByRun: Map<string, readonly RecallHit[]>;
   notifyDispatcher: ReturnType<typeof createNotifyDispatcher>;
   onRequestCreated: (input: {
@@ -592,6 +603,7 @@ export async function wireAgentRunExecution(deps: AgentRunExecutionWiringDeps) {
     omaAcpArgv,
     productTools,
     productToolsTokenRegistry,
+    roleOfAgent,
     recallByRun,
     notifyDispatcher,
     onRequestCreated,
@@ -742,7 +754,7 @@ export async function wireAgentRunExecution(deps: AgentRunExecutionWiringDeps) {
           acpMcpProvider: {
             name: "product-tools",
             serverId: "product-tools",
-            ...createProductToolsDispatch({ service: productTools }),
+            ...createProductToolsDispatch({ service: productTools, roleOf: roleOfAgent }),
           },
         }
       : {}),
@@ -864,14 +876,18 @@ export async function wireAgentRunExecution(deps: AgentRunExecutionWiringDeps) {
           outcome?.status === "completed"
             ? extractText(finalAnswerMessage(outcome.messages) ?? {})
             : (outcome?.error ?? "（没有记录失败原因）");
+        const parentConversationId =
+          convPort.getConversation(run.conversationId)?.parentConversationId ?? null;
         await notifyDispatcher({
           fromAgentId: run.agentId,
-          conversationId: run.conversationId,
+          conversationId: parentConversationId ?? run.conversationId,
           runId: run.runId,
           text: frameResultInput(
             await agentNameOf(run.agentId),
             outcome?.status === "completed" ? "completed" : (outcome?.status ?? "failed"),
             text,
+            readRunArtifactUrls(db, run.runId),
+            readDispatcherPlan(db, parentConversationId),
           ),
           wake: true,
         });

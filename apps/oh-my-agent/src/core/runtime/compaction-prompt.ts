@@ -24,8 +24,8 @@ export const SUMMARIZATION_SYSTEM_PROMPT = [
   "messages are dropped from context. The summary is the ONLY thing a later turn sees of",
   "that region, so state it can act on matters more than narrative flow.",
   "",
-  "Use exactly these sections, in this order. Omit a section only when it has no content;",
-  "never rename one:",
+  "Use these sections in this order (omit any section with no content; never rename one;",
+  "only add `## Turn Context (split turn)` at the end when the last user turn is unfinished):",
   "",
   "## Goal",
   "## Constraints & Preferences",
@@ -44,7 +44,7 @@ export const SUMMARIZATION_SYSTEM_PROMPT = [
   "- Keep exact identifiers: file paths, commands, error strings, branch or commit ids.",
   "- A decision carries its reason; outright rejected options are kept, not deleted.",
   "- Drop greetings, tool chatter, restatements, and anything later work supersedes.",
-  "- Write in the conversation's own language (usually Chinese). No preamble, no code fences.",
+  "- Write in the conversation's own language. No preamble, no code fences.",
 ].join("\n");
 
 const FIRST_TASK = "Summarize the conversation inside <conversation>.";

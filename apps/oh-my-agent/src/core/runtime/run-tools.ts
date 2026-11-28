@@ -65,6 +65,7 @@ async function withToolTimeout(
     ).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       if (!message.includes("timed out after")) throw err;
+      if (tool.name !== "bash") throw err;
       throw new Error(
         `${message}. If the command waits for input (password, confirmation), it needs the ` +
           "interactive pty console: re-run it with pty: true, or use a non-interactive form " +

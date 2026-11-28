@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
@@ -896,5 +896,50 @@ describe("session model selection (ADR 0040 R3)", () => {
       }),
     ).rejects.toThrow(/not found in catalog/);
     mode.stop();
+  }, 20_000);
+
+  test("honors _meta host systemPrompt, skips raw SOUL placeholder and memory.md, and drops coding base when write/edit/bash are disabled", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "acp-mode-sysprompt-"));
+    writeFileSync(join(cwd, "SOUL.md"), "RAW_PLACEHOLDER_SHOULD_NOT_LEAK");
+    writeFileSync(join(cwd, "AGENTS.md"), "REPO_AGENTS_RULE_MARKER");
+    const prevDisabled = process.env.OMA_DISABLED_TOOLS;
+    process.env.OMA_DISABLED_TOOLS = "bash,write,edit";
+    const modelCalls: Array<readonly Message[]> = [];
+    const c2a = streamPair();
+    const a2c = streamPair();
+    const mode = runAcpMode({
+      modelRuntime: recordingRuntime(modelCalls),
+      stream: acp.ndJsonStream(c2a.writable, a2c.readable),
+      log: () => {},
+    });
+    try {
+      const client = await startClient(mode, c2a, a2c);
+      const created = await client.request<{ sessionId: string }>(acp.methods.agent.session.new, {
+        cwd,
+        mcpServers: [],
+        _meta: {
+          "my-agent-team/systemPrompt": "AUTHORITATIVE_FRONT_DESK_PROMPT",
+        },
+      });
+      const reply = await client.request<acp.PromptResponse>(acp.methods.agent.session.prompt, {
+        sessionId: created.sessionId,
+        prompt: [{ type: "text", text: "hi" }],
+      });
+      expect(reply.stopReason).toBe("end_turn");
+      const systemMsg = modelCalls
+        .flatMap((call) => call.filter((m) => m.role === "system"))
+        .find((m) => m.text?.includes("AUTHORITATIVE_FRONT_DESK_PROMPT"));
+      expect(systemMsg?.text).toContain("AUTHORITATIVE_FRONT_DESK_PROMPT");
+      expect(systemMsg?.text).toContain("REPO_AGENTS_RULE_MARKER");
+      expect(systemMsg?.text).not.toContain("RAW_PLACEHOLDER_SHOULD_NOT_LEAK");
+      // Front desk has write/edit/bash disabled -> no coding-agent base.md.
+      expect(systemMsg?.text).not.toContain("You are oma, a coding agent");
+      // ACP disables localMemory -> no memory.md / learn tool instructions.
+      expect(systemMsg?.text).not.toContain("call the learn tool");
+    } finally {
+      if (prevDisabled === undefined) delete process.env.OMA_DISABLED_TOOLS;
+      else process.env.OMA_DISABLED_TOOLS = prevDisabled;
+      mode.stop();
+    }
   }, 20_000);
 });

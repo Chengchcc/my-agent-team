@@ -16,7 +16,7 @@ describe("roles", () => {
     expect(plan?.systemPrompt).toContain("plan");
     const task = await resolveAgent("task", async () => null);
     expect(task?.tools).toBeUndefined();
-    expect(task?.systemPrompt).toContain("hyperfocus");
+    expect(task?.systemPrompt).toContain("general-purpose task subagent");
     expect(builtinAgentNames().sort()).toEqual(["explore", "plan", "task"]);
   });
 
