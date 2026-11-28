@@ -50,10 +50,14 @@ describe("remarkArtifactUrls", () => {
     expect(links.map((l) => l.url)).toEqual(["artifacts://a/one.txt", "artifacts://b/two.txt"]);
   });
 
-  test("whitespace and parentheses terminate the URL", () => {
+  test("whitespace, parentheses, and CJK punctuation terminate the URL", () => {
     const kids = transform(para("(grab artifacts://x/y.bin)")).children!;
     const link = kids.find((c) => c.type === "link");
     expect(link!.url).toBe("artifacts://x/y.bin");
+
+    const cjk = transform(para("see artifacts://a/card.html\u3002")).children!;
+    const cjkLink = cjk.find((c) => c.type === "link");
+    expect(cjkLink!.url).toBe("artifacts://a/card.html");
   });
 
   test("code spans and code blocks are left untouched", () => {

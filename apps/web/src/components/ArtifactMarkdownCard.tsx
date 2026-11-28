@@ -2,10 +2,10 @@
 
 import { FileText } from "lucide-react";
 import { useState } from "react";
+import { fmtBytes } from "@/components/ops/format";
+import { fileBadge } from "@/features/artifacts/artifact-view";
 import { useArtifactMeta } from "@/features/artifacts/hooks";
 import type { ArtifactMeta } from "@/lib/api";
-import { ArtifactCard } from "./ArtifactCard";
-import { downloadArtifact } from "./ArtifactPreview";
 import { ArtifactPreviewSheet } from "./ArtifactPreviewSheet";
 import { useChatInspector } from "./chat-inspector-context";
 
@@ -17,15 +17,19 @@ function synthesizeArtifact(url: string): ArtifactMeta {
   return { url, folder, filename, size: 0, mimeType: "", encoding: "utf8", updatedAt: 0 };
 }
 
-/** Inline artifact card inside chat Markdown (ADR 0082 D8): reads single-item
- *  metadata on demand (`GET /api/artifacts/meta`) instead of scanning the entire
- *  gallery, and always opens the in-app preview sheet rather than a broken link. */
+/** Inline artifact chip inside chat Markdown (ADR 0082 D8): replaces raw
+ *  `artifacts://` URIs with a compact clickable chip (`[TYPE] filename`) that
+ *  stays valid inside `<p>` and `<li>` prose and opens the in-app preview
+ *  drawer on click. Full visual previews live on turn-level `ArtifactCard`s. */
 export function ArtifactMarkdownCard({ url }: { url: string }) {
   const { data: artifact } = useArtifactMeta(url);
   const inspector = useChatInspector();
   const [preview, setPreview] = useState<ArtifactMeta | null>(null);
 
-  const handlePreview = (target: ArtifactMeta) => {
+  const target = artifact ?? synthesizeArtifact(url);
+  const badge = fileBadge(target.filename);
+
+  const handlePreview = () => {
     if (inspector) {
       inspector.openArtifact(target);
       return;
@@ -33,27 +37,25 @@ export function ArtifactMarkdownCard({ url }: { url: string }) {
     setPreview(target);
   };
 
-  if (!artifact) {
-    const fallback = synthesizeArtifact(url);
-    return (
-      <>
-        <button
-          type="button"
-          title={url}
-          onClick={() => handlePreview(fallback)}
-          className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-(--hairline) bg-(--canvas-soft) px-2 py-0.5 text-xs font-medium text-(--primary-deep) transition-colors hover:border-(--primary)/40 hover:text-(--primary)"
-        >
-          <FileText className="size-3 shrink-0" aria-hidden />
-          <span className="truncate">{fallback.filename || url}</span>
-        </button>
-        {!inspector && <ArtifactPreviewSheet artifact={preview} onClose={() => setPreview(null)} />}
-      </>
-    );
-  }
-
   return (
     <>
-      <ArtifactCard artifact={artifact} onPreview={handlePreview} onDownload={downloadArtifact} />
+      <button
+        type="button"
+        title={url}
+        onClick={handlePreview}
+        className="mx-0.5 inline-flex max-w-full items-center gap-1.5 rounded-md border border-(--hairline) bg-(--canvas-soft) px-2 py-0.5 align-baseline text-xs font-medium text-(--ink) transition-colors hover:border-(--primary)/45 hover:bg-(--panel2) hover:text-(--ink-strong)"
+      >
+        <FileText className="size-3 shrink-0 text-(--primary-deep)" aria-hidden />
+        <span className="shrink-0 font-mono text-[10px] uppercase text-(--primary-deep)">
+          {badge}
+        </span>
+        <span className="truncate">{target.filename || url}</span>
+        {target.size > 0 && (
+          <span className="shrink-0 font-mono text-[10px] text-(--faint)">
+            {fmtBytes(target.size)}
+          </span>
+        )}
+      </button>
       {!inspector && <ArtifactPreviewSheet artifact={preview} onClose={() => setPreview(null)} />}
     </>
   );

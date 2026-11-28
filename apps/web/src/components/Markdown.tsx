@@ -2,15 +2,31 @@
 
 import Link from "next/link";
 import { memo, useMemo } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, { type Components, defaultUrlTransform } from "react-markdown";
 import rehypeRaw from "rehype-raw";
-import rehypeSanitize from "rehype-sanitize";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { remarkArtifactUrls } from "@/lib/remark-artifact-url";
 import { ArtifactMarkdownCard } from "./ArtifactMarkdownCard";
 import { RequirementMarkdownChip } from "./RequirementMarkdownChip";
 
 const REQUIREMENT_HREF_RE = /^\/requirements\/([^/?#]+)$/;
+
+/** Extend the default sanitize schema to preserve our internal `artifacts://`
+ *  scheme so `remarkArtifactUrls` links survive sanitization and reach the
+ *  custom `a` renderer instead of being stripped to dead unlinked text. */
+const SANITIZE_SCHEMA = {
+  ...defaultSchema,
+  protocols: {
+    ...defaultSchema.protocols,
+    href: [...(defaultSchema.protocols?.href ?? []), "artifacts"],
+  },
+};
+
+function transformUrl(url: string): string {
+  if (url.startsWith("artifacts://")) return url;
+  return defaultUrlTransform(url);
+}
 
 interface MarkdownProps {
   text: string;
@@ -189,7 +205,8 @@ export const Markdown = memo(function Markdown({ text, tone = "default" }: Markd
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkArtifactUrls]}
-      rehypePlugins={[rehypeRaw, rehypeSanitize]}
+      rehypePlugins={[rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA]]}
+      urlTransform={transformUrl}
       components={components}
     >
       {text}

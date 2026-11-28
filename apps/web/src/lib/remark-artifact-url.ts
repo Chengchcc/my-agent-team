@@ -5,7 +5,9 @@ interface MdastNode {
   url?: string;
 }
 
-const ARTIFACT_URL = /(artifacts:\/\/[^\s<>()]+)/;
+// Stop before whitespace, angle/round brackets, and CJK/ASCII trailing punctuation.
+const ARTIFACT_URL =
+  /(artifacts:\/\/[^\s<>()\u3001\u3002\uff0c\uff1b\uff1a\uff01\uff1f\uff09\u3011\u300f\u300d]+)/;
 
 function splitArtifactLinks(value: string): MdastNode[] {
   const parts = value.split(ARTIFACT_URL);
