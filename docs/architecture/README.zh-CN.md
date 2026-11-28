@@ -25,7 +25,7 @@ tags: [index, overview, conventions, zh]
 | 改 Run 生命周期、排队、HITL 或重启恢复 | [Agent Run Execution](./agent-run-execution.md) → [ACP Backend Contract](./acp-backend-contract.md) → [Data Model](./data-model.md) |
 | 改 ACP 引擎接入（`oma` / `claude` / `pi` / `omp`） | [ACP Backend Contract](./acp-backend-contract.md) → [Workspaces & Projects](./workspaces-and-projects.md) → [Oma Runtime](./oma-runtime.md) |
 | 改 PA+Worker 派单、Product MCP 或 Proposal | [Team Coordination](./team-coordination.md) → [Agent Run Execution](./agent-run-execution.md) → [Proactive & Knowledge](./proactive-and-knowledge.md) |
-| 改环境规则、事项、Git Wiki、统一召回或提醒 | [Proactive & Knowledge](./proactive-and-knowledge.md) → [Data Model](./data-model.md) → [Team Coordination](./team-coordination.md) |
+| 改事项、Git Wiki、统一召回、提醒或注意力债 | [Proactive & Knowledge](./proactive-and-knowledge.md) → [Data Model](./data-model.md) → [Team Coordination](./team-coordination.md) |
 | 改工作区、MCP 加密目录、Worktree 或 Coding 终端 | [Workspaces & Projects](./workspaces-and-projects.md) → [Security Model](./security-model.md) → [Web Surface](./web-surface.md) |
 | 改 Agentic Workflow 或 `artifacts://` | [Workflow Engine](./workflow.md) → [Data Model](./data-model.md) → [Workspaces & Projects](./workspaces-and-projects.md) |
 | 改技能、技能包、Oma 插件或审批门控 | [Skills & Plugins](./skills-and-plugins.md) → [Oma Runtime](./oma-runtime.md) → [Security Model](./security-model.md) |
@@ -47,12 +47,12 @@ tags: [index, overview, conventions, zh]
 - [DB Type-Safe Rules](./db-typesafe-rules.md) — Drizzle Schema → Service → HTTP 类型链与迁移生成纪律
 
 ### 后端控制面与团队协作
-- [Data Model](./data-model.md) — `backend.db` 全部 32 张表、部分唯一索引、幂等键、原子事务与库外文件
-- [Conversation & Context](./conversation-and-context.md) — 对话账本、多成员路由、子会话、AgentContext 树/分支与 `cli_session_ref`
-- [Agent Run Execution](./agent-run-execution.md) — `enqueueAndAcquire`、9 阶段派单状态机、看门狗、持久化 HITL 与崩溃恢复
+- [Data Model](./data-model.md) — `backend.db` 全部 30 张表、部分唯一索引、幂等键、原子事务与库外文件
+- [Conversation & Context](./conversation-and-context.md) — 对话账本、1:1 房间路由、子会话、AgentContext 树/分支与 `cli_session_ref`
+- [Agent Run Execution](./agent-run-execution.md) — `enqueueAndAcquire`、9 阶段派单状态机、看门狗、持久化 HITL、`retry-commit` 与崩溃恢复
 - [ACP Backend Contract](./acp-backend-contract.md) — 单一 `acp` 协议边界、四引擎注册表、事件映射与 `HeldPermission`
 - [Team Coordination](./team-coordination.md) — PA/Worker 隔离、Product Tools MCP（32+3+2 工具）、意图维度派单、全双工协作、验收门与 Proposal
-- [Proactive & Knowledge](./proactive-and-knowledge.md) — 环境规则与语义研判、提醒、事项（Requirement）、Git Wiki、统一召回、跨进程记忆与注意力债
+- [Proactive & Knowledge](./proactive-and-knowledge.md) — 提醒、事项（Requirement）、Git Wiki、统一召回、跨进程记忆与注意力债
 
 ### 工作区、编排与扩展
 - [Workspaces & Projects](./workspaces-and-projects.md) — Agent 工作区布局、Workspace Bridge、加密 MCP 目录、Worktree 与安全推送、Coding 终端
@@ -81,7 +81,7 @@ tags: [index, overview, conventions, zh]
 | **Agent** | 团队成员：身份（`SOUL.md`/`USER.md`）、配置（`agent.yml`）、技能与记忆都存在工作区文件中；`role` 为 `"front"`（PA）或 `"worker"`。 |
 | **PA（前台 / Front Desk）** | 面向人的超级助理（`role !== "worker"`），负责管注意力、建事项、选人派单、答阻塞问题与维护 Git Wiki；代码层物理移除所有代码/Shell 工具。 |
 | **Worker（工人）** | 专职执行成员（`role === "worker"`），在独立子会话与隔离 Git worktree 中干活，可混用 4 个 ACP 引擎。 |
-| **Conversation** | 依托 `conversation_ledger` 的房间，支持 `1..N` 成员（`conversation_member`）；根房间面向人，子房间（`parent_conversation_id`）承载派单执行。 |
+| **Conversation** | 依托 `conversation_ledger` 的 1:1 房间（由 `conversation.agent_id` 归属）；根房间面向人，子房间（`parent_conversation_id`）承载派单执行。 |
 | **Agent Context** | 按 `(conversation, agent)` 隔离的只追加树（`agent_context_tree`/`entry`/`branch`），指向账本消息与摘要节点。 |
 | **Agent Run** | 分支上的唯一产品级执行身份（`agent_run`），每次 Run 启动一个一次性 ACP 子进程。 |
 | **ACP Harness** | 注册在 `ACP_AGENTS` 中的四个 CLI 引擎（`oma`、`claude`、`pi`、`omp`），共用唯一的 `acp` 后端客户端。 |

@@ -621,6 +621,28 @@ export function agentRunRoutes(input: {
         await agentRunExecution.stop(runId);
         return { ok: true, state: "abort_sent", runId };
       })
+      .post("/api/agent-runs/:runId/retry-commit", async ({ params: { runId }, set }) => {
+        const run = await agentRunService.getRun(runId);
+        if (!run) {
+          set.status = 404;
+          return { error: "Run not found" };
+        }
+        if (TERMINAL_STATUSES.includes(run.status)) {
+          return { ok: true, state: "already_terminal", runId, status: run.status };
+        }
+        if (run.status !== "commit_failed") {
+          set.status = 409;
+          return { error: `Run ${runId} is ${run.status}, not commit_failed` };
+        }
+        await agentRunExecution.retryTerminalCommit(runId);
+        const updated = await agentRunService.getRun(runId);
+        return {
+          ok: true,
+          state: "committed",
+          runId,
+          status: updated?.status ?? "completed",
+        };
+      })
       .post(
         "/api/agent-runs/:runId/approval",
         async ({ params: { runId }, body, set }) => {

@@ -379,6 +379,37 @@ for (const rel of walkDocs(join(ROOT, "docs/architecture")).map((p) => p.replace
   frontmatterPages++;
 }
 
+// 16. Data-model table parity: docs/architecture/data-model.md must track
+// every sqliteTable() in apps/backend/src/infra/db/schema.ts (exact count,
+// zero missing tables, and zero retired tables lingering in its inventory).
+const schemaTableNames = new Set(
+  Array.from(schema.matchAll(/sqliteTable\(\s*"([a-z0-9_]+)"/g), (m) => m[1]!),
+);
+const dataModelPath = join(ROOT, "docs/architecture/data-model.md");
+if (existsSync(dataModelPath)) {
+  const dataModel = readFileSync(dataModelPath, "utf8");
+  const dmCount = dataModel.match(/Table Inventory \((\d+) Tables\)/);
+  if (!dmCount || Number(dmCount[1]) !== schemaTableNames.size) {
+    fail(
+      `docs/architecture/data-model.md says "${dmCount?.[0] ?? "?"}", actual schema tables: ${schemaTableNames.size}`,
+    );
+  }
+  const inventoryBlock = dataModel.split("## Table Inventory")[1]?.split(/\n## /)[0] ?? "";
+  const docTableNames = new Set(
+    Array.from(inventoryBlock.matchAll(/^\|\s*`([a-z0-9_]+)`\s*\|/gm), (m) => m[1]!),
+  );
+  for (const t of schemaTableNames) {
+    if (!docTableNames.has(t)) {
+      fail(`docs/architecture/data-model.md is missing schema table: ${t}`);
+    }
+  }
+  for (const t of docTableNames) {
+    if (!schemaTableNames.has(t)) {
+      fail(`docs/architecture/data-model.md lists non-existent/retired table: ${t}`);
+    }
+  }
+}
+
 if (failures.length > 0) {
   console.error(`audit:docs FAILED (${failures.length})`);
   for (const f of failures) console.error(`  - ${f}`);

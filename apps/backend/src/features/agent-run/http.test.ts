@@ -366,4 +366,46 @@ describe("agent-run routes over seeded runs", () => {
     });
     expect(conflict.status).toBe(409);
   });
+
+  test("retry-commit handles 404, already_terminal, 409 on running, and commits a commit_failed run", async () => {
+    const missing = await api(harness, "POST", "/api/agent-runs/no-such-run/retry-commit");
+    expect(missing.status).toBe(404);
+
+    const terminal = await api(harness, "POST", `/api/agent-runs/${runPass.runId}/retry-commit`);
+    expect(terminal.status).toBe(200);
+    expect(await terminal.json()).toEqual({
+      ok: true,
+      state: "already_terminal",
+      runId: runPass.runId,
+      status: "completed",
+    });
+
+    const active = await api(harness, "POST", `/api/agent-runs/${runLive.runId}/retry-commit`);
+    expect(active.status).toBe(409);
+
+    const stuck = await seedRun("completed", false, true);
+    const savedOutcome: BackendRunOutcome = {
+      status: "completed",
+      messages: [
+        {
+          id: "m-retry-1",
+          role: "assistant",
+          blocks: [{ type: "text", text: "recovered answer" }],
+        },
+      ],
+    };
+    await runPort.failCommit(stuck.runId, savedOutcome);
+
+    const retried = await api(harness, "POST", `/api/agent-runs/${stuck.runId}/retry-commit`);
+    expect(retried.status).toBe(200);
+    expect(await retried.json()).toEqual({
+      ok: true,
+      state: "committed",
+      runId: stuck.runId,
+      status: "completed",
+    });
+
+    const after = await runPort.getRun(stuck.runId);
+    expect(after?.status).toBe("completed");
+  });
 });

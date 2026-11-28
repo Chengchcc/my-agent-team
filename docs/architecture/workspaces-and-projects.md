@@ -15,11 +15,11 @@ Agent configuration, identity, skills, MCP endpoints, and Git repositories live 
 - `apps/backend/src/features/agent/agent-identity.ts` — `SOUL.md` / `USER.md` reader (`identityTextOf`)
 - `apps/backend/src/features/agent/workspace-bridge.ts` — `reconcileAgentResources`, `extractMcpSecrets`, `writeMcpConfig`, `writeProductToolsManifest`, `bridgeWorktreeRoot`
 - `apps/backend/src/features/mcp/adapter-file.ts` & `apps/backend/src/infra/mcp-secrets.ts` — `<dataDir>/mcp-servers.json` and AES-256-GCM encryption
-- `apps/backend/src/features/project/worktree.ts` & `worktree-ops.ts` — Bare mirrors, agent/task worktrees, diff/FF/merge
+- `apps/backend/src/features/project/worktree.ts` — Bare mirrors and git identity / exclude setup
 - `apps/backend/src/features/project/requirement-workspace.ts` & `apps/backend/src/features/workspace/service.ts` — Requirement-owned checkouts (`req/<requirementId>`)
 - `apps/backend/src/features/project/push.ts` — Safe worker push (`agent/<runId>`)
 - `apps/backend/src/features/project/workspace-lock.ts` — Per-root promise-chain mutex
-- `apps/backend/src/features/coding/terminal-registry.ts` & `task-worktrees.ts` & `adapter-sqlite.ts` & `http.ts` — `bun-pty` registry, worktree whitelist, `coding_terminal` table, `/ws/coding/:id`
+- `apps/backend/src/features/coding/terminal-registry.ts` & `adapter-sqlite.ts` & `http.ts` — `bun-pty` registry, `coding_terminal` table, `/ws/coding/:id`
 
 ## Agent Workspace Layout & Config
 
@@ -45,7 +45,7 @@ Agent configuration, identity, skills, MCP endpoints, and Git repositories live 
     <projectId>.<slug>    # Task worktree (branch agent/<agentId>/<projectId>.<slug>)
 ```
 
-- **`agent.yml` (`schema_version: "1"`):** defines `enabled`, `id`, `name`, `title`, `description`, `skills[]`, `role` (`front | worker`), `runtime_config` (`harness`, `model`, `reasoning_effort`, `permission_mode`, `deny_write_paths`, `allow_write_paths`, `deny_commands`, `max_steps`, `mcp_servers[]`, `projects[]`), and `lark` (`enabled`, `app_id`, `bot_display_name`, `allowed_senders`, `group_policy`, `groups`, `require_mention`, `respond_to_mention_all`, `ambient.rules[]`, `policy_rev`, `profile_ref`, `web_url`).
+- **`agent.yml` (`schema_version: "1"`):** defines `enabled`, `id`, `name`, `title`, `description`, `skills[]`, `role` (`front | worker`), `runtime_config` (`harness`, `model`, `reasoning_effort`, `permission_mode`, `deny_write_paths`, `allow_write_paths`, `deny_commands`, `max_steps`, `mcp_servers[]`, `projects[]`), and `lark` (`enabled`, `app_id`, `bot_display_name`, `allowed_senders`, `group_policy`, `groups`, `require_mention`, `respond_to_mention_all`, `policy_rev`, `profile_ref`, `web_url`).
 - **Workspace viewer security:** `GET /api/agents/:id/workspace/{entries,file}` checks realpaths against `[realRoot, ...extraReadRoots]`, blocks `.mcp.json` with `403`, and caps file reads at `256_000` bytes. `purgeWorkspace()` rejects symlinks and realpath escapes.
 
 ## Workspace Bridge (`workspace-bridge.ts`)
@@ -76,7 +76,7 @@ Every registered `project` (`project` table; `repoUrl` rejects leading `-` and s
 | **Agent main worktree** | `<agentWorkspace>/projects/<projectId>` | `agent/<agentId>/<projectId>` | Materialized on demand for Coding terminals and legacy worktree ops (`diff` / `fast-forward` / `merge`). |
 | **Task worktree** | `<agentWorkspace>/projects/<projectId>.<slug>` (`TASK_SLUG_RE`: `/^[a-z0-9][a-z0-9-]{0,39}$/`) | `agent/<agentId>/<projectId>.<slug>` | Explicit Coding parallel branches. Removal without `force: true` refuses dirty trees, unmerged commits, or running Coding terminals (`409`). |
 
-- **Worktree ops (`worktree-ops.ts`, HTTP `/api/projects/:id/worktrees/:agentId/{diff,fast-forward,merge}`):** run directly in the bare mirror; require the agent to be attached (`409`); `merge` uses `git merge-tree --write-tree` and refuses two-sided divergence (`409`); `push: true` rolls back `branch -f` if remote push fails.
+- **Requirement checkouts (`requirement-workspace.ts`):** all worker runs against a project share the requirement-owned worktree `<dataDir>/workspaces/<requirementId>/<projectId>` on branch `req/<requirementId>` (legacy agent/task worktree ops were retired in Wave 3).
 - **Safe worker push (`project/push.ts`, product tool `project_push`, ADR 0076):**
   - Strictly pushes to `agent/<sanitizedRunId.slice(0, 60)>` (explicitly refuses `agent/master` and `agent/main`).
   - Stages dirty files and commits with `--no-verify` (bypasses untrusted repo hooks); requires ≥1 commit ahead of default branch.
@@ -87,9 +87,9 @@ Every registered `project` (`project` table; `repoUrl` rejects leading `-` and s
 
 - **Process ownership (`terminal-registry.ts`):** real `bun-pty` (`xterm-256color`, default `80x24`, clamped `2..500 × 2..300`, `400_000`-char scrollback ring buffer) owned by the backend process.
 - **Secret stripping:** strips `BACKEND_AUTH_TOKEN`, `PROJECT_PUSH_TOKEN`, `MOCK_PASSWORD`, `MCP_ENCRYPTION_KEY`, `LARK_APP_SECRET`, `LARK_ENCRYPT_KEY`, and `LARK_VERIFICATION_TOKEN` from PTY env.
-- **Target resolution (`bootstrap/features.ts`, `task-worktrees.ts`):**
+- **Target resolution (`bootstrap/wiring-coding.ts`):**
   - `projectId: null` (ADR 0073) opens directly in `agent.workspacePath` (no project binding required).
-  - Non-null `projectId` requires agent attachment (`409`) and validates `worktreePath` strictly against main or task worktrees (`422` otherwise).
+  - Non-null `projectId` requires agent attachment (`409`) and opens in the requirement or project worktree.
   - `launch-oma` sends `<omaLaunch>\n` and flips `kind = "oma"`; `GET /api/coding/terminals` overlays live `agentState` from `readAgentStatusFor(cwd)`.
 - **Persistence & WS protocol:** layout & ADR 0082 linkage (`project_id`, `workspace_id`, `conversation_id`, `requirement_id`) persist in SQLite `coding_terminal`; boot respawns shells (`oma` panes respawn with `oma --continue; exec /bin/bash`). `WS /ws/coding/:id?ticket=<hex>` validates a 60s single-use ticket (`4001` invalid, `4404` missing), replays `{ t: "o", d }` + `{ t: "s", status, exitCode }`, accepts `{ t: "i", d }` and `{ t: "r", cols, rows }`, and **detaches without killing the PTY** on socket close.
 

@@ -98,18 +98,20 @@ export async function proxyRequest(
       signal: isSsePath(pathSegments) ? undefined : req.signal,
     });
 
-    // ADR 0069: the AHP socket address the backend reports is ITS bind address
+    // ADR 0069: the WS socket address the backend reports is ITS bind address
     // (`ws://127.0.0.1:3000`). A browser that reached this page through a
-    // forward or a proxy would dial its OWN loopback and the room would stay
-    // empty while every HTTP call works. Rewrite the host to the one the page
+    // forward or a proxy would dial its OWN loopback and rooms/terminals would
+    // fail while every HTTP call works. Rewrite the host to the one the page
     // was served from, keeping the backend's port; AHP_PUBLIC_WS_BASE wins
-    // verbatim for a real reverse proxy that terminates both.
-    if (segments.join("/") === "ahp/ws-ticket" && upstream.ok) {
+    // verbatim for ahp/ws-ticket when a reverse proxy terminates it on a
+    // dedicated path.
+    const route = segments.join("/");
+    if ((route === "ahp/ws-ticket" || route === "coding/ws-ticket") && upstream.ok) {
       const body = (await upstream.clone().json()) as { ticket?: string; wsBase?: string };
       const rewritten = rewriteWsTicket(body, {
         host: req.headers.get("host") ?? "",
         proto: url.protocol,
-        override: env().AHP_PUBLIC_WS_BASE,
+        override: route === "ahp/ws-ticket" ? env().AHP_PUBLIC_WS_BASE : undefined,
       });
       return Response.json(rewritten, { headers: { "Cache-Control": "no-store" } });
     }

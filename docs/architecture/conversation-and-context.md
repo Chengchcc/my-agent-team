@@ -78,7 +78,7 @@ When no continuation ref resolves (first turn on a branch, or after switching ha
 
 1. `conversation_ledger.seq` is the sole message ordering key in a conversation.
 2. Context entries reference `ledger_seq`; they never duplicate canonical message bodies.
-3. Removing a member from `conversation_member` removes routing only; its `agent_context_tree` is preserved.
+3. Each room is 1:1 with `conversation.agent_id`; child dispatch rooms isolate worker transcripts via `parent_conversation_id`.
 4. `cli_session_ref` is opaque to Product Backend and strictly scoped to `(backendKind, harness)`; cross-harness session transfer is never attempted.
 5. Branch mutations always serialize through `revision` CAS; no out-of-band update may advance `leaf_entry_id` or `ledger_cursor`.
 

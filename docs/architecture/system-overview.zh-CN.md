@@ -31,7 +31,7 @@ CrewDesk 控制面
 Web 控制台 (Next.js 15, :3001) ──HTTP BFF + /ws/ahp + /ws/coding──┐
                                                                   ├─→ Product Backend (Elysia, :3000)
 飞书 Bot (每 PA 独立进程, SDK WS) ──HTTP + /ws/ahp────────────────┘     │
-                                                                        ├── SQLite backend.db（32 张表）
+                                                                        ├── SQLite backend.db（30 张表）
                                                                         ├── 文件系统：workspaces/、projects/*.git、
                                                                         │            artifacts/、wiki/（Git）、skill-packs/、
                                                                         │            workflows/、mcp-servers.json
@@ -77,12 +77,12 @@ CrewDesk 在代码层（而非仅靠提示词）硬隔离两类 Agent 角色（A
 
 ## 唯一执行链
 
-无论触发源是 Web、飞书、PA 派单、Workflow 节点、环境规则还是定时提醒，都会走同一条链路：
+无论触发源是 Web、飞书、PA 派单、Workflow 节点还是定时提醒，都会走同一条链路：
 
 ```text
-输入（人 / 派单 / Workflow / 环境规则 / 提醒）
+输入（人 / 派单 / Workflow / 提醒）
   1. 规范 MessageRevision 先落 conversation_ledger
-  2. 触发路由（conversation_member 成员数 + ADR 0049 前台重路由 + ADR 0046 环境规则缝）
+  2. 路由到 conversation.agent_id（叠加 ADR 0049 前台不变量守卫）
   3. enqueueAndAcquire（单 SQLite 事务：入队 + 活跃 Run 守卫 + 分支 CAS + 同步最新 20 条 + 建 agent_run）
   4. 9 阶段派单状态机（execution-dispatch.ts）：
        load_run → budget_gate → model_preflight → claim_input
@@ -120,7 +120,7 @@ CrewDesk 在代码层（而非仅靠提示词）硬隔离两类 Agent 角色（A
 
 ## 延伸阅读（英文权威规范）
 
-- [Data Model](./data-model.md) — 32 张 SQLite 表与事务边界
+- [Data Model](./data-model.md) — 30 张 SQLite 表与事务边界
 - [Agent Run Execution](./agent-run-execution.md) — 9 阶段派单机、HITL 停靠与重启恢复
 - [ACP Backend Contract](./acp-backend-contract.md) — 5 个契约方法与 4 个引擎的 ACP 接入
 - [Team Coordination](./team-coordination.md) — PA + Worker 协作、Product MCP 与派单闭环

@@ -221,4 +221,30 @@ describe("ADR 0069: the AHP socket follows the page's host", () => {
       ).wsBase,
     ).toBe("wss://ops.example.com/ahp");
   });
+
+  test("proxyRequest rewrites both ahp/ws-ticket and coding/ws-ticket with no-store", async () => {
+    for (const segs of [
+      ["api", "ahp", "ws-ticket"],
+      ["api", "coding", "ws-ticket"],
+      ["coding", "ws-ticket"],
+    ]) {
+      stubFetch(
+        new Response(JSON.stringify({ ticket: "tok", wsBase: "ws://127.0.0.1:3000" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      const req = new Request(`https://ops.example.com/api/bff/${segs.join("/")}`, {
+        method: "POST",
+        headers: { host: "ops.example.com:3001" },
+      });
+      const res = await proxyRequest(req, segs, "u1");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+      expect(await res.json()).toEqual({
+        ticket: "tok",
+        wsBase: "wss://ops.example.com:3000",
+      });
+    }
+  });
 });

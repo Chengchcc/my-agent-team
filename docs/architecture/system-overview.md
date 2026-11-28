@@ -31,7 +31,7 @@ CrewDesk Control Plane
 Web Console (Next.js 15, :3001) ──HTTP BFF + /ws/ahp + /ws/coding──┐
                                                                    ├─→ Product Backend (Elysia, :3000)
 Lark Bot (per-PA process, SDK WS) ──HTTP + /ws/ahp─────────────────┘     │
-                                                                         ├── SQLite backend.db (32 tables)
+                                                                         ├── SQLite backend.db (30 tables)
                                                                          ├── Disk: workspaces/, projects/*.git,
                                                                          │         artifacts/, wiki/ (Git), skill-packs/,
                                                                          │         workflows/, mcp-servers.json
@@ -87,12 +87,12 @@ Cross-package imports must go through package barrels (`index.ts`). Enforced by 
 
 ## The Single Execution Pipeline
 
-Every agent turn — whether triggered by Web, Lark, a PA `dispatch`, a `workflow` agent node, an ambient rule, or a `reminder` — runs through the same pipeline:
+Every agent turn — whether triggered by Web, Lark, a PA `dispatch`, a `workflow` agent node, or a `reminder` — runs through the same pipeline:
 
 ```text
-Input (Human / Dispatch / Workflow / Ambient Rule / Reminder)
+Input (Human / Dispatch / Workflow / Reminder)
   1. Persist canonical MessageRevision to conversation_ledger
-  2. Route targets (conversation_member count + ADR 0049 front-desk reroute + ADR 0046 ambient seam)
+  2. Route to conversation.agent_id (with ADR 0049 front-desk invariant for worker rooms)
   3. enqueueAndAcquire (single SQLite txn: queue row + active-run guard + branch CAS + 20-entry sync + agent_run row)
   4. 9-stage dispatch machine (execution-dispatch.ts):
        load_run → budget_gate → model_preflight → claim_input

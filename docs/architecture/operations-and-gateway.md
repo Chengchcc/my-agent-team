@@ -12,7 +12,8 @@ This document covers how CrewDesk is assembled in-process (composition-root DI),
 
 - `apps/backend/src/main.ts` — Boot sequence and `SIGTERM`/`SIGINT` graceful shutdown
 - `apps/backend/src/bootstrap/services.ts` — Process-level infrastructure (`openDb`, `settingsSvc`, `mcpClientManager`, `opsStore`, `larkBotRegistry`)
-- `apps/backend/src/bootstrap/features.ts` — Composition root wiring all 22 feature routers, late-bound seams, startup recovery, and `dispose()`
+- `apps/backend/src/bootstrap/features.ts` & `apps/backend/src/bootstrap/wiring-*.ts` — Composition root and domain wiring modules (`wiring-agent-run`, `wiring-ahp`, `wiring-catalog`, `wiring-coding`, `wiring-lifecycle`, `wiring-ops-mcp`, `wiring-product-tools`, `wiring-routes`, `wiring-seed`, `wiring-workflows`, `wiring-workspace`)
+- `apps/backend/src/infra/retention.ts` & `apps/backend/src/infra/rate-limit.ts` — 30-day terminal telemetry/queue retention sweeper (every 6h) and in-memory token-bucket rate limiter
 - `apps/oh-my-agent/src/cli/gateway-commands.ts` & `update-command.ts` — `oma gateway <up|down|fetch|status|doctor|passwd>` and `oma update`
 - `apps/oh-my-agent/src/core/gateway/artifact.ts` & `manifest.ts` & `supervisor.ts` & `daemon.ts` & `doctor.ts` — Artifact download/SHA-256 verification, manifest placeholder resolution, process supervision, diagnostics
 - `apps/oh-my-agent/src/core/update/release.ts` — npm dist-tag checks (`latest`, `rc`) and install-owner detection
@@ -26,7 +27,7 @@ Product Backend uses **plain factory DI with no DI container**. Every feature fo
 **Boot order (`main.ts`):**
 1. `loadConfig()` → warns if non-loopback `BACKEND_HOST` uses default `"dev-token"`.
 2. `createBackendServices(config)` (`bootstrap/services.ts`): opens `backend.db` + runs Drizzle migrations, builds `settingsSvc`, `mcpClientManager` (`allowPrivateHosts` = true only on loopback), `opsStore`, and `larkBotRegistry`.
-3. `installFeatures(services)` (`bootstrap/features.ts`): constructs all 22 feature domains, seeds builtin role-scoped skill packs, seeds default agents (`default`, `coder`, `researcher`) and `SOUL.md` templates (only when absent), backfills `artifact` index, and wires late-bound holders (`dispatchRun`, `injectSteer`, `onSessionBound`, `onContinuityRecorded`, `onMessagesUndone`) to break circular references between `conversation`, `agent-run`, `ahp`, and `proactive`.
+3. `installFeatures(services)` (`bootstrap/features.ts` + `wiring-*.ts`): constructs all feature domains, seeds builtin role-scoped skill packs, seeds default agents (`default`, `coder`, `researcher`) and `SOUL.md` templates (only when absent), backfills `artifact` index, and starts the 30-day `createRetentionSweeper` (runs every `6 h` to prune terminal telemetry/queue/proposal/reminder rows without touching ledgers or active runs).
 4. `createApp(token, featureSet)` + `server.start()` — begins serving HTTP/WS.
 5. `installed.start()` — runs startup recovery in **strict order**:
    1. `agentRunExecution.recover()` (settles `delivering`, `commit_failed`, orphaned live runs, and unnotified worker results FIRST so branches are clean).
@@ -76,7 +77,7 @@ Enable verbose stage tracing with `OMA_DEBUG=1` (logs all 9 dispatch stages in `
 |---|---|---|
 | **Message posted, no Run starts** | Conversation routing / Queue | Check `GET /api/conversations/:id/members` (>1 member requires mention unless room fallback), `GET /api/tasks` (branch occupied by `running` / `waiting` / `commit_failed` Run), or `422` at `model_preflight`. |
 | **Run fails immediately with 422 / unknown model** | ACP harness catalog | Check `GET /api/models/readiness` and `GET /api/harnesses`. Missing CLI (`oma`/`claude`/`pi`/`omp`) on `PATH` or missing provider key yields empty catalog. |
-| **Branch stuck permanently after DB error** | `commit_failed` Run | Query `GET /api/agent-runs?status=commit_failed`. No runtime retry HTTP exists yet; restarting backend invokes `recover()` to retry `commitCompletedRun` from saved `terminal_result`. |
+| **Branch stuck permanently after DB error** | `commit_failed` Run | Query `GET /api/agent-runs?status=commit_failed` and call `POST /api/agent-runs/:runId/retry-commit` to retry `commitCompletedRun` from saved `terminal_result` without re-spawning the child (boot `recover()` also retries all `commit_failed` runs automatically). |
 | **Run stuck in `waiting` with no card in UI** | Durable HITL (`pending_action`) | Check `GET /api/pending-actions` and `GET /api/attention`. Resolve via `POST /api/agent-runs/:runId/approval` or `/api/product-tools/ask/resolve`, or cancel via `/cancel`. |
 | **Web chat connects then drops with `4001`** | AHP WS ticket / BFF host | Verify `AHP_PUBLIC_WS_BASE` behind reverse proxies; ensure single-use tickets aren't replayed and `SESSION_SECRET` / `BACKEND_AUTH_TOKEN` match between Web and Backend. |
 | **Lark bot online in systemd, silent in chat** | Inbound policy / Heartbeat | Inspect `GET /api/agents/:id/lark` (`LarkSurfaceView` issues), verify `allowed_senders` (empty denies all), group `group_policy` + `@mention`, and `<stateRoot>/lark-bot/<agent>/bindings.sqlite`. |

@@ -109,6 +109,7 @@ In `finally`, dispatch unconditionally clears `inflight`/`liveRuns` maps, revoke
 |---|---|
 | `GET /api/agent-runs` / `GET /api/agent-runs/:runId` | List runs (`status`, `agentId`, `conversationId`, `parentRunId`, `limit` 1..500) and inspect run detail (`verdict`, `verification`, `pendingActions`, `inputs`). |
 | `POST /api/agent-runs/:runId/cancel` | Cancel live run or abort DB zombie. |
+| `POST /api/agent-runs/:runId/retry-commit` | Retry atomic terminal commit for a `commit_failed` run from its saved `terminal_result` (without re-spawning the child) and promote the next queued input; `200 already_terminal` if already settled, `409` if still `running`/`waiting`. |
 | `POST /api/agent-runs/:runId/approval` | Resolve approval (`allow \| allow_always \| deny \| deny_always`); 400 bad body, 404 missing, 409 terminal/consumed. |
 | `GET /api/tasks` | Combined view of `branch_input_queue` + `agent_run` (default 100, max 300). |
 | `GET /api/pending-actions` | All open `pending_action` rows on active runs (limit 200). |

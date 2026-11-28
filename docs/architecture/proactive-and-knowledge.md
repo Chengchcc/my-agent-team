@@ -1,7 +1,7 @@
 ---
-title: Proactive & Knowledge
-description: Ambient rules & semantic assessment (proactive_event), reminders, Requirements (stored vs derived status), Git-backed shared Wiki, unified recall & cross-process memory, and attention debt
-tags: [backend, proactive, wiki, recall, requirements]
+title: Knowledge, Recall & Scheduling
+description: Reminders, Requirements (stored vs derived status), Git-backed shared Wiki, unified recall & cross-process memory, and attention debt
+tags: [backend, wiki, recall, requirements, reminders]
 ---
 
 # Proactive & Knowledge
@@ -80,4 +80,4 @@ Derived read model tracking everything demanding or awaiting operator attention:
 
 - [Team Coordination](./team-coordination.md) — How PA uses Wiki recall, Requirements, and `answer_worker_request`
 - [Oma Runtime](./oma-runtime.md) — Standalone autonomous memory (`.oma/memory/memory.db` and `learn`)
-- [Data Model](./data-model.md) — `requirement`, `proactive_event`, `reminder`, `pending_action`, `answer_draft` schemas
+- [Data Model](./data-model.md) — `requirement`, `reminder`, `pending_action`, `answer_draft` schemas

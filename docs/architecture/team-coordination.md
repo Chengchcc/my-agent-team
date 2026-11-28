@@ -64,8 +64,6 @@ Every Run carries a frozen `agent_run.authorization` string (preserved across `b
 | `"dispatch:<fromAgentId>"` | `dispatch` / `steer_worker` | Sets `parent_run_id`; unlocks `report` and `handback`; routes non-irreversible worker questions to front desk. |
 | `"handback:<fromAgentId>"` | `handback` | Wakes parent dispatcher with worker's decline reason. |
 | `"result:<workerAgentId>"` | `notify-dispatcher.ts` | Delivers worker completion/attention notice; deliberately barred from calling `report` (prevents ping-pong). |
-| `"ambient:<ruleId>"` | Deterministic ambient rule | Audit trail of rule-promoted run. |
-| `"ambient:assessment"` | Background semantic assessment | Audit trail of LLM-promoted run. |
 | `"system"` | Reminders & Workflow agent nodes | Automated execution; cannot authorize `remember` or irreversible dispatches. |
 
 ## Intent-Faceted Dispatch & Capability Pool Selection

@@ -27,7 +27,7 @@ Find the exact pages to read before editing a subsystem:
 | Run lifecycle, queue, HITL, or crash recovery | [Agent Run Execution](./agent-run-execution.md) → [ACP Backend Contract](./acp-backend-contract.md) → [Data Model](./data-model.md) |
 | ACP harnesses (`oma`, `claude`, `pi`, `omp`) | [ACP Backend Contract](./acp-backend-contract.md) → [Workspaces & Projects](./workspaces-and-projects.md) → [Oma Runtime](./oma-runtime.md) |
 | PA + Worker dispatch, product MCP, or proposals | [Team Coordination](./team-coordination.md) → [Agent Run Execution](./agent-run-execution.md) → [Proactive & Knowledge](./proactive-and-knowledge.md) |
-| Ambient rules, requirements, wiki, recall, or reminders | [Proactive & Knowledge](./proactive-and-knowledge.md) → [Data Model](./data-model.md) → [Team Coordination](./team-coordination.md) |
+| Requirements, wiki, recall, reminders, or attention debt | [Proactive & Knowledge](./proactive-and-knowledge.md) → [Data Model](./data-model.md) → [Team Coordination](./team-coordination.md) |
 | Agent workspaces, MCP catalog, worktrees, or Coding PTY | [Workspaces & Projects](./workspaces-and-projects.md) → [Security Model](./security-model.md) → [Web Surface](./web-surface.md) |
 | Declarative workflows, triggers, or `artifacts://` | [Workflow Engine](./workflow.md) → [Data Model](./data-model.md) → [Workspaces & Projects](./workspaces-and-projects.md) |
 | Skills, skill packs, Oma plugins, or permission gates | [Skills & Plugins](./skills-and-plugins.md) → [Oma Runtime](./oma-runtime.md) → [Security Model](./security-model.md) |
@@ -49,12 +49,12 @@ Find the exact pages to read before editing a subsystem:
 - [DB Type-Safe Rules](./db-typesafe-rules.md) — `schema.ts` → `$inferSelect`/`$inferInsert` → `drizzle-zod` → service → HTTP chain and Drizzle migration rules
 
 ### Backend Control Plane & Coordination
-- [Data Model](./data-model.md) — All 32 `backend.db` SQLite tables, partial unique indexes, idempotency keys, atomic transactions, and off-DB files
-- [Conversation & Context](./conversation-and-context.md) — `conversation_ledger`, multi-member routing, child rooms, `AgentContext` trees/branches, projection, `cli_session_ref`
-- [Agent Run Execution](./agent-run-execution.md) — `enqueueAndAcquire`, 9-stage dispatch machine, watchdogs, durable HITL (`pending_action`), terminal commit, crash recovery
+- [Data Model](./data-model.md) — All 30 `backend.db` SQLite tables, partial unique indexes, idempotency keys, atomic transactions, and off-DB files
+- [Conversation & Context](./conversation-and-context.md) — `conversation_ledger`, 1:1 room routing, child rooms, `AgentContext` trees/branches, projection, `cli_session_ref`
+- [Agent Run Execution](./agent-run-execution.md) — `enqueueAndAcquire`, 9-stage dispatch machine, watchdogs, durable HITL (`pending_action`), terminal commit, `retry-commit`, crash recovery
 - [ACP Backend Contract](./acp-backend-contract.md) — Single `acp` backend boundary, 4 harnesses (`oma`/`claude`/`pi`/`omp`), stdio JSON-RPC lifecycle, event mapping, `HeldPermission`
 - [Team Coordination](./team-coordination.md) — PA + Worker boundaries, Product Tools MCP (32+3+2 tools), dispatch facets & pool recall, duplex loop, request ownership, delivery gate, proposals
-- [Proactive & Knowledge](./proactive-and-knowledge.md) — Ambient rules & semantic assessment, reminders, requirements, Git-backed Wiki, unified recall & cross-process memory, attention debt
+- [Proactive & Knowledge](./proactive-and-knowledge.md) — Reminders, requirements, Git-backed Wiki, unified recall & cross-process memory, attention debt
 
 ### Workspaces, Workflows & Extensibility
 - [Workspaces & Projects](./workspaces-and-projects.md) — Agent workspace layout, Workspace Bridge, encrypted MCP file catalog, Git mirrors & worktrees, safe `project_push`, Coding PTY terminals
@@ -85,7 +85,7 @@ Terms across the codebase follow these definitions:
 | **Agent** | A team member whose identity (`SOUL.md`/`USER.md`), config (`agent.yml`), skills, and memory live as files in its workspace; `role` is `"front"` (PA) or `"worker"`. |
 | **PA (Front Desk)** | Human-facing agent (`role !== "worker"`) that manages attention, tracks requirements, dispatches workers, and maintains the Git Wiki. Physically stripped of code/shell tools (`FRONT_DESK_DISABLED_TOOLS`). |
 | **Worker** | Specialist agent (`role === "worker"`) executing in isolated child conversations and requirement/project worktrees across any of the 4 ACP harnesses. |
-| **Conversation** | A room backed by `conversation_ledger` with `1..N` members (`conversation_member`). Root rooms face humans; child rooms (`parent_conversation_id`) hold dispatched worker runs. |
+| **Conversation** | A 1:1 room backed by `conversation_ledger` and owned by `conversation.agent_id`. Root rooms face humans; child rooms (`parent_conversation_id`) hold dispatched worker runs. |
 | **Message** | Canonical domain turn object (`@chengchenccc/message`) shared across ledger, context projection, AHP, and surfaces. |
 | **Agent Context** | Per-`(conversation, agent)` append-only tree (`agent_context_tree`/`entry`/`branch`) referencing ledger messages and product summaries. |
 | **Agent Run** | Unique product execution identity (`agent_run`) pinned to a context branch; every Run spawns one ephemeral ACP child process. |

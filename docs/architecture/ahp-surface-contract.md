@@ -24,9 +24,8 @@ Agent Host Protocol (**AHP**, ADRs 0040, 0069, 0082) is the **sole** real-time s
 
 1. **Ticket minting (`POST /api/ahp/ws-ticket`):** authenticated via `x-auth-token` (or Web BFF cookie). Mints a 32-byte hex single-use ticket (`DEFAULT_WS_TICKET_TTL_MS = 60_000`) and returns `{ ticket, wsBase }`.
 2. **BFF host rewriting (`apps/web/src/lib/bff.ts` → `rewriteWsTicket`, ADR 0069):**
-   - Intercepts `POST /api/bff/api/ahp/ws-ticket` (`Cache-Control: no-store`).
-   - If `AHP_PUBLIC_WS_BASE` is set, returns it verbatim. Otherwise rewrites `wsBase` to `${proto === "https:" ? "wss" : "ws"}://${pageHost}:${backendPort}` so remote browsers connect to the page's host instead of `127.0.0.1`.
-   - *Known gap:* `coding/ws-ticket` is not yet rewritten by `rewriteWsTicket`; behind a reverse proxy or SSH tunnel, Coding terminals receive backend's raw `ws://127.0.0.1:<port>`.
+   - Intercepts both `POST /api/bff/api/ahp/ws-ticket` and `POST /api/bff/api/coding/ws-ticket` (`Cache-Control: no-store`).
+   - Rewrites `wsBase` to `${proto === "https:" ? "wss" : "ws"}://${pageHost}:${backendPort}` so remote browsers connect to the page's host instead of `127.0.0.1`. If `AHP_PUBLIC_WS_BASE` is set, it overrides `ahp/ws-ticket` verbatim.
 3. **WebSocket upgrade (`WS /ws/ahp?ticket=<hex>`):** exempt from `x-auth-token` because browsers cannot send custom WS headers; validates and consumes the one-time ticket (invalid/expired/reused closes with **`4001 "invalid ticket"`**). Connection state lives on `ws.data.ahp`.
 4. **Client transport (`packages/ahp-client/src/transport.ts`):** buffers `send()` frames during handshake until `open`, handles `string` / `Uint8Array` / `ArrayBuffer` / `Blob`, and tracks `maxQueueDepth` on its uncapped `FrameQueue` (exposed on Web as `window.__ahpQueueDepth`).
 
@@ -72,7 +71,7 @@ Product-specific facts ride upstream AHP envelopes via `_meta` without inventing
 ## Cross-Surface Linkage & Human Labels (`entity-labels.ts`, ADR 0082)
 
 - `createEntityLabelResolver(db, { workflowDir })` resolves human-readable names in **≤1 SQL `IN (...)` query per entity kind** (`agentName` from `agents.config.name`, `conversationTitle`, `requirementTitle`, `projectName`, and `workflowName` from `<workflowId>.workflow.json` `meta.name`).
-- Wired into `artifact`, `coding`, `conversation`, `requirement`, and `workflow` HTTP routes so Web renders human names via `<EntityLink />` rather than raw ULIDs. *(Known gap: `apps/backend/src/features/agent-run/http.ts` does not yet attach `labels` to `AgentRun` DTOs.)*
+- Wired into `agent-run`, `artifact`, `coding`, `conversation`, `requirement`, and `workflow` HTTP routes so Web renders human names via `<EntityLink />` rather than raw ULIDs.
 - Cross-surface filter queries supported by backend:
   - `GET /api/artifacts`: `?folder`, `requirementId`, `conversationId`, `workflowExecutionId`, `agentId`, `projectId`
   - `GET /api/conversations`: `?agentId`, `requirementId`, `projectId`

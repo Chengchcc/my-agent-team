@@ -12,7 +12,7 @@ This document governs the internal type chain inside `apps/backend`: `schema.ts 
 
 ## Authoritative files
 
-- `apps/backend/src/infra/db/schema.ts` — All 32 `sqliteTable(...)` definitions, `createSelectSchema` codecs, and `boolToInt`
+- `apps/backend/src/infra/db/schema.ts` — All 30 `sqliteTable(...)` definitions, `createSelectSchema` codecs, and `boolToInt`
 - `apps/backend/src/infra/sqlite/db.ts` — SQLite open (`WAL`, `foreign_keys = ON`) and Drizzle migration runner
 - `apps/backend/src/infra/sqlite/db.test.ts` — Schema assertions (expected tables, dropped legacy tables, active-run partial index)
 - `apps/backend/drizzle/backend/` — Committed SQL migrations and `meta/_journal.json`
@@ -88,6 +88,6 @@ Do not add new debt in touched features; when refactoring an adapter, migrate it
 
 ## See also
 
-- [Data Model](./data-model.md) — Complete catalog of all 32 tables, indexes, and atomic transactions
+- [Data Model](./data-model.md) — Complete catalog of all 30 tables, indexes, and atomic transactions
 - [E2E Contract Rules](./e2e-contract-rules.md) — Cross-process contract rules and CI gates
 - [Design Philosophy](./design-philosophy.md) — Single-ontology principles

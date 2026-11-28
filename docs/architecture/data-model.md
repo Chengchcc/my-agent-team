@@ -1,12 +1,12 @@
 ---
 title: Data Model
-description: Authoritative catalog of all 32 SQLite tables in backend.db — domain groupings, semantic columns, partial unique indexes, idempotency keys, atomic transactions, and off-DB files
+description: Authoritative catalog of all 30 SQLite tables in backend.db — domain groupings, semantic columns, partial unique indexes, idempotency keys, atomic transactions, and off-DB files
 tags: [backend, data, sqlite, schema]
 ---
 
 # Data Model
 
-`backend.db` is the single SQLite database (`WAL` mode, `foreign_keys = ON`, file mode `0600`) for Product Backend. `apps/backend/src/infra/db/schema.ts` defines **32 `sqliteTable` tables** and is the sole schema source of truth. (`apps/lark-bot` maintains its own separate 10-table SQLite database per PA agent; see [Lark Surface](./lark-surface.md).)
+`backend.db` is the single SQLite database (`WAL` mode, `foreign_keys = ON`, file mode `0600`) for Product Backend. `apps/backend/src/infra/db/schema.ts` defines **30 `sqliteTable` tables** and is the sole schema source of truth. (`apps/lark-bot` maintains its own separate 10-table SQLite database per PA agent; see [Lark Surface](./lark-surface.md).)
 
 ## Authoritative files
 
@@ -19,15 +19,14 @@ tags: [backend, data, sqlite, schema]
 - `apps/backend/src/features/conversation/adapter-sqlite.ts` — Ledger, members, bookmarks, and cascade deletes
 - `apps/backend/src/features/agent-context/adapter-sqlite.ts` — Context tree, entries, and branch revision CAS
 
-## Table Inventory (32 Tables)
+## Table Inventory (30 Tables)
 
-### Product Facts & Team State (10 tables)
+### Product Facts & Team State (9 tables)
 
 | Table | Purpose & Key Semantics |
 |---|---|
 | `agents` | Agent registry (`id`, unique `workspace_path`, `archived_at`). `config` JSON is a **materialized cache** of workspace `agent.yml`, never the primary source. |
-| `conversation` | Rooms (`conversation_id`, default `agent_id`, `origin`, `title`, `fork_source`/`fork_from_seq`, `project_id` FK `RESTRICT`, `current_requirement_id` FK, `parent_conversation_id` self-FK `CASCADE` for child worker rooms). |
-| `conversation_member` | Multi-member room roster `(conversation_id, agent_id)` (ADR 0041). Member count (`1` vs `>=2`) derives response routing. |
+| `conversation` | Rooms (`conversation_id`, `agent_id` 1:1 room owner, `origin`, `title`, `fork_source`/`fork_from_seq`, `project_id` FK `RESTRICT`, `current_requirement_id` FK, `parent_conversation_id` self-FK `CASCADE` for child worker rooms). |
 | `conversation_ledger` | Append-only canonical message & control log (`seq` autoinc PK, `kind`: `message \| surface.control \| undo`, `content` JSON, `agent_run_id`, `message_index`, `undone`, `saved`). |
 | `agent_context_tree` | One isolated context tree per `(conversation_id, agent_id)` (`idx_context_tree_conversation_agent`). |
 | `agent_context_entry` | Append-only tree nodes (`entry_id`, self-FK `parent_id`, `type`: `ledger_message \| summary`, `payload` JSON, `ledger_seq`). |
@@ -65,7 +64,7 @@ tags: [backend, data, sqlite, schema]
 | `workflow_execution_event` | Execution event audit stream (`node_started`, `node_completed`, `node_failed`, `store_write`, `human_task_requested`, `rework_requested`, `budget_exhausted`, `execution_terminal`). |
 | `workflow_pending_human` | Open human-gate or `#budget` gate prompts keyed by `(execution_id, node_id)`. |
 
-### Cross-Surface Linkage, Proactive, Proposals & System (8 tables)
+### Cross-Surface Linkage, Proposals & System (7 tables)
 
 | Table | Purpose & Key Semantics |
 |---|---|
@@ -73,10 +72,9 @@ tags: [backend, data, sqlite, schema]
 | `coding_terminal` | ADR 0082 persisted Coding terminal layout & linkage (`terminal_id` PK, nullable FKs `project_id`, `workspace_id`, `conversation_id`, `requirement_id` `ON DELETE SET NULL`, `agent_id`, `cwd`, `title`, `kind`: `shell \| oma`). |
 | `proposal` | Unapplied agent suggestions (`id`, `kind`: `agent_config \| workflow_definition \| project_creation \| project_update`, `target_id`, `payload` JSON, `status`: `pending \| adopted \| discarded`). |
 | `reminder` | One-shot and 5-field cron nudges (`id`, `conversation_id` FK `CASCADE`, `created_by`, `recurrence`, `text`, `fire_at`, `fired_at`). |
-| `proactive_event` | Append-only ambient rule & semantic assessment audit log (`id`, `ts`, `agent_id`, `conversation_id`, `rule_id`, `mode`: `record \| act \| assessment`, `outcome`, `chat_id`, `sender_member_id`, `snippet`). Intentionally has no FK to `conversation` so audit facts outlive deleted rooms. |
 | `lark_setup_session` | Persisted Lark setup wizard sessions (`setup_id`, `agent_id`, `profile_ref`, `brand`, `status`: `pending \| completed \| failed \| expired \| cancelled`, `url`, `expires_at`). Tombstones retained for 24h so UI explains expired links. |
 | `surface_health` | Per-`(agent_id, surface)` heartbeat and status snapshot (`status`, `last_seen_at`, `payload`, `last_error`). |
-| `settings` | Global JSON KV store (`key`, `value`, `updated_at`): auth password hash (`auth.password_hash`), encrypted provider credentials (`provider.*`, `providerEnv`), `proactiveAssessment`, `cost.dailyBudgetUsd`, `workflow.trigger_token.*`. |
+| `settings` | Global JSON KV store (`key`, `value`, `updated_at`): auth password hash (`auth.password_hash`), encrypted provider credentials (`provider.*`, `providerEnv`), `cost.dailyBudgetUsd`, `workflow.trigger_token.*`. |
 
 ## Critical Unique Indexes & Idempotency Keys
 

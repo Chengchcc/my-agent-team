@@ -26,7 +26,7 @@ tags: [lark, surfaces, backend, cards]
 - **3-layer inbound gate (`inbound-policy.ts`):**
   1. **Bot-loop guard:** drops any event where `sender_type !== "user"`.
   2. **DM (`chatType !== "group"`):** fail-closed against `allowedSenders` (**empty denies everyone**; `"*"` allows everyone, case-insensitive). Denied stranger DMs insert into `access_request`, reply once to the stranger, and DM every explicit (non-`"*"`) owner with `/approve <openId>` and `/deny <openId>`. Owner `/approve <openId>` PATCHes `agent.lark.allowedSenders` via backend HTTP.
-  3. **Group (`chatType === "group"`):** resolves `groups[chatId]` override → `groupPolicy` (default `disabled`; explicit `disabled` overrides `chatInUse`, default `disabled` preserves pre-existing `chatInUse` rooms; `allowlist` checks per-chat or agent `allowedSenders`). Unmentioned admitted messages return `outcome: "observe"` (posted with `addressedTo: []` so ambient rules and semantic assessment can evaluate them).
+  3. **Group (`chatType === "group"`):** resolves `groups[chatId]` override → `groupPolicy` (default `disabled`; explicit `disabled` overrides `chatInUse`, default `disabled` preserves pre-existing `chatInUse` rooms; `allowlist` checks per-chat or agent `allowedSenders`). Unmentioned admitted messages return `outcome: "observe"` (posted to ledger without triggering a Run).
 - **Slash commands (`ingest.ts`):** `/stop` cancels active `run_card` runs in the chat; `/run` lists runnable workflows; `/run <workflowId> [prompt]` starts an execution and streams progress/human-gate replies.
 - **Doc comment threads (`ingest-comment.ts`, `comment-scope.ts`):** ignores `fromAgent === true`; checks `maybeResolveCommentPending()` for natural approval replies before requiring `@bot`; subscribes the file once (`comment_subscription`); maps each thread to synthetic chat ID `comment:<fileToken>:<commentId>` so `conversation_binding`, `ahp-watcher`, and `message_delivery` reuse the exact IM pipeline. *(Note: `commentAckReplyIds`, `commentRunIds`, and `commentPending` are in-memory only and reset across bot restarts.)*
 
@@ -90,5 +90,5 @@ Each bot stores its own WAL SQLite DB at `<stateRoot>/lark-bot/<safeAgentId>/bin
 ## See also
 
 - [AHP Surface Contract](./ahp-surface-contract.md) — `/ws/ahp` protocol and `_meta.authorAgentId`
-- [Proactive & Knowledge](./proactive-and-knowledge.md) — Ambient rules triggered on `outcome: "observe"` messages
+- [Proactive & Knowledge](./proactive-and-knowledge.md) — Reminders, Requirements, Wiki, and Attention Debt
 - [Operations & Gateway](./operations-and-gateway.md) — Systemd unit template `lark-bot@.service.template`
