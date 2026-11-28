@@ -213,10 +213,16 @@ export function agentRunRoutes(input: {
             where.push("ar.parent_run_id = ?");
             args.push(query.parentRunId);
           }
+          if (query.scope === "production") {
+            where.push("(ar.authorization IS NULL OR ar.authorization NOT LIKE 'eval:%')");
+          } else if (query.scope === "eval") {
+            where.push("ar.authorization LIKE 'eval:%'");
+          }
           const sql = `SELECT ar.run_id, ar.conversation_id, ar.agent_id, ar.status,
                             ar.model_ref, ar.created_at, ar.terminal_at, ar.terminal_result,
                             ar.authorization, ar.parent_run_id, ar.requirement_id,
-                            req.title AS requirement_title
+                            req.title AS requirement_title,
+                            (SELECT COUNT(*) FROM agent_run c WHERE c.parent_run_id = ar.run_id) AS child_count
                        FROM agent_run ar
                        LEFT JOIN requirement req ON req.requirement_id = ar.requirement_id
                        ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
@@ -235,6 +241,7 @@ export function agentRunRoutes(input: {
             parent_run_id: string | null;
             requirement_id: string | null;
             requirement_title: string | null;
+            child_count: number;
           }>;
           const labelMaps = input.labelResolver?.resolveBatch({
             agentIds: rows.map((r) => r.agent_id),
@@ -273,6 +280,7 @@ export function agentRunRoutes(input: {
                 // (audit 2026-11-24).
                 requirementId: r.requirement_id,
                 requirementTitle: r.requirement_title,
+                childCount: Number(r.child_count ?? 0),
                 ...(labels ? { labels } : {}),
               };
             }),
@@ -294,6 +302,9 @@ export function agentRunRoutes(input: {
             agentId: t.Optional(t.String()),
             conversationId: t.Optional(t.String()),
             parentRunId: t.Optional(t.String()),
+            scope: t.Optional(
+              t.Union([t.Literal("production"), t.Literal("eval"), t.Literal("all")]),
+            ),
             limit: t.Optional(t.String()),
             offset: t.Optional(t.String()),
           }),

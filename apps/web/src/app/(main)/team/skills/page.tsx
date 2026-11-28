@@ -8,6 +8,7 @@ import { type AskPaRequest, AskPaSheet } from "@/components/AskPaSheet";
 import { InstallPackForm } from "@/components/InstallPackForm";
 import { badgeVariantOfTone as badgeOf, Note, type FactTone as Tone } from "@/components/ops/kit";
 import { QueryState } from "@/components/ops/QueryState";
+import { TargetEvalStrip } from "@/components/ops/TargetEvalStrip";
 import { PackFileSearch } from "@/components/PackFileSearch";
 import { PackFileViewer } from "@/components/PackFileViewer";
 import { Page, PageBody, PageHeader } from "@/components/page";
@@ -757,6 +758,9 @@ export default function SkillPacksPage() {
             )}
           </p>
         </section>
+        <div className="mb-4">
+          <TargetEvalStrip targetKind="skill" />
+        </div>
         <QueryState
           query={packs}
           empty={(data) => data.length === 0}

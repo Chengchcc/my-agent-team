@@ -4,7 +4,7 @@
 // /api/agent-runs (see features/agent-run/http.ts).
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import type { RuntimeOpsStore } from "./store.js";
+import type { RuntimeOpsStore, TelemetryQueryOptions } from "./store.js";
 
 export interface SurfaceRuntimeStatus {
   status: string;
@@ -170,8 +170,12 @@ export function createRuntimeOpsService(deps: {
       return opsStore.listRunEvents(runId, limit);
     },
 
-    telemetrySummary(since?: number) {
-      return opsStore.telemetrySummary(since);
+    telemetrySummary(input?: number | TelemetryQueryOptions) {
+      return opsStore.telemetrySummary(input);
+    },
+
+    getRunTrace(runId: string) {
+      return opsStore.getRunTrace(runId);
     },
   };
 }

@@ -46,80 +46,13 @@ export type ProviderInfo = {
 };
 export type McpServerRow = ApiReturn<typeof api.listMcpServers>["mcpServers"][number];
 export type PendingInput = ApiReturn<typeof api.listConversationInputs>["inputs"][number];
-export type TelemetrySummary = {
-  since: number;
-  runs: number;
-  inputTokens: number;
-  outputTokens: number;
-  costUsd: number;
-  toolCalls: number;
-  avgDurationMs: number;
-  recent: Array<{
-    runId: string;
-    status: string;
-    modelId: string;
-    createdAt: number;
-    durationMs: number | null;
-    toolCalls: number;
-    inputTokens: number;
-    outputTokens: number;
-  }>;
-  byAgent: Array<{
-    agentId: string;
-    runs: number;
-    completed: number;
-    failed: number;
-    successRate: number | null;
-  }>;
-  failures: Array<{
-    runId: string;
-    agentId: string;
-    status: string;
-    modelId: string;
-    createdAt: number;
-    durationMs: number | null;
-    inputTokens: number;
-    outputTokens: number;
-    error: string | null;
-  }>;
-  costByHour: Array<{
-    hour: number;
-    costUsd: number;
-    tokens: number;
-  }>;
-  byModel: Array<{
-    modelId: string;
-    runs: number;
-    completed: number;
-    failed: number;
-    costUsd: number;
-    tokens: number;
-  }>;
-  successRateByDay: Array<{
-    dayStart: number;
-    runs: number;
-    completed: number;
-    failed: number;
-    successRate: number | null;
-  }>;
-  durationByDay: Array<{
-    dayStart: number;
-    runs: number;
-    avgDurationMs: number | null;
-  }>;
-  failureCauses: Array<{
-    cause: string;
-    count: number;
-  }>;
-  spinningRuns: Array<{
-    runId: string;
-    status: string;
-    modelId: string;
-    toolCalls: number;
-    durationMs: number | null;
-    outputTokens: number;
-  }>;
-};
+export type TelemetrySummary = ApiReturn<typeof api.getTelemetrySummary>;
+export type RunTraceBundle = ApiReturn<typeof api.getRunTrace>;
+export type EvalSuiteRow = ApiReturn<typeof api.listEvalSuites>["suites"][number];
+export type EvalRunRow = ApiReturn<typeof api.listEvalRuns>["runs"][number];
+export type EvalRunDetail = ApiReturn<typeof api.getEvalRun>;
+export type EvalRunDiff = ApiReturn<typeof api.diffEvalRuns>;
+export type RunFeedbackRow = ApiReturn<typeof api.listRunFeedback>["feedback"][number];
 
 export type ChatModelOverride = {
   backendKind: string;
@@ -280,6 +213,7 @@ export const api = {
     /** ADR 0066: the runs a given run dispatched (Lark card → front desk run
      *  page → the worker's own record). */
     parentRunId?: string;
+    scope?: "production" | "eval" | "all";
     limit?: number;
     /** React Query aborts a cancelled query; without this the request runs on
      *  and its response lands in a component that is gone (audit B5). */
@@ -297,6 +231,7 @@ export const api = {
               // console (audit 2026-11-24 — the page was right, the request
               // was not).
               parentRunId: params.parentRunId,
+              scope: params.scope,
               limit: params.limit != null ? String(params.limit) : undefined,
             }
           : undefined,
@@ -341,14 +276,113 @@ export const api = {
   getAgentRuntime: (agentId: string) =>
     unwrap(client.api.ops.agents({ id: agentId }).runtime.get()),
   listSurfaces: () => unwrap(client.api.ops.surfaces.get()),
-  getTelemetrySummary: (since?: number) =>
-    fetch(`/api/bff/telemetry/summary${since ? `?since=${since}` : ""}`, {
-      credentials: "include",
-    }).then((r) => r.json()) as Promise<TelemetrySummary>,
+  getTelemetrySummary: (
+    params?:
+      | number
+      | {
+          since?: number;
+          agentId?: string;
+          modelId?: string;
+          status?: string;
+          skill?: string;
+          scope?: "production" | "eval" | "all";
+        },
+  ) => {
+    const opts = typeof params === "number" ? { since: params } : params;
+    return unwrap(
+      client.api.telemetry.summary.get({
+        query: opts
+          ? {
+              since: opts.since != null ? String(opts.since) : undefined,
+              agentId: opts.agentId || undefined,
+              modelId: opts.modelId || undefined,
+              status: opts.status || undefined,
+              skill: opts.skill || undefined,
+              scope: opts.scope,
+            }
+          : {},
+      }),
+    );
+  },
   getRunTelemetry: (runId: string) =>
-    fetch(`/api/bff/agent-runs/${runId}/telemetry`, { credentials: "include" }).then((r) =>
-      r.json(),
+    unwrap(client.api["agent-runs"]({ runId }).telemetry.get({ query: {} })),
+  getRunTrace: (runId: string) => unwrap(client.api["agent-runs"]({ runId }).trace.get()),
+  // ADR 0085: Evals & Feedback
+  listEvalSuites: () => unwrap(client.api["eval-suites"].get()),
+  getEvalSuite: (suiteId: string) => unwrap(client.api["eval-suites"]({ suiteId }).get()),
+  saveEvalSuite: (suiteId: string, body: Record<string, unknown>) =>
+    unwrap(client.api["eval-suites"]({ suiteId }).put(body)),
+  deleteEvalSuite: (suiteId: string) => unwrap(client.api["eval-suites"]({ suiteId }).delete()),
+  revertEvalSuite: (suiteId: string, commit: string) =>
+    unwrap(client.api["eval-suites"]({ suiteId }).revert.post({ commit })),
+  startEvalRun: (
+    suiteId: string,
+    body?: {
+      label?: string;
+      modelOverride?: string;
+      trials?: number;
+      concurrency?: number;
+      maxTotalCostUsd?: number | null;
+      caseIds?: string[];
+      rerunFailedFrom?: string;
+    },
+  ) => unwrap(client.api["eval-suites"]({ suiteId }).runs.post(body ?? {})),
+  listEvalRuns: (params?: {
+    suiteId?: string;
+    targetKind?: "skill" | "workflow" | "agent";
+    targetRef?: string;
+    limit?: number;
+  }) =>
+    unwrap(
+      client.api["eval-runs"].get({
+        query: {
+          suiteId: params?.suiteId,
+          targetKind: params?.targetKind,
+          targetRef: params?.targetRef,
+          limit: params?.limit != null ? String(params.limit) : undefined,
+        },
+      }),
     ),
+  getEvalRun: (evalRunId: string) => unwrap(client.api["eval-runs"]({ evalRunId }).get()),
+  cancelEvalRun: (evalRunId: string) =>
+    unwrap(client.api["eval-runs"]({ evalRunId }).cancel.post()),
+  diffEvalRuns: (baseline: string, candidate: string) =>
+    unwrap(client.api["eval-runs"].diff.get({ query: { baseline, candidate } })),
+  listRunFeedback: (params?: {
+    runId?: string;
+    workflowExecutionId?: string;
+    rating?: "up" | "down";
+    limit?: number;
+  }) =>
+    unwrap(
+      client.api["run-feedback"].get({
+        query: {
+          runId: params?.runId,
+          workflowExecutionId: params?.workflowExecutionId,
+          rating: params?.rating,
+          limit: params?.limit != null ? String(params.limit) : undefined,
+        },
+      }),
+    ),
+  saveRunFeedback: (body: {
+    feedbackId?: string;
+    runId?: string;
+    workflowExecutionId?: string;
+    rating: "up" | "down";
+    tags?: string[];
+    note?: string | null;
+  }) => unwrap(client.api["run-feedback"].post(body)),
+  promoteRunToEval: (body: {
+    runId?: string;
+    workflowExecutionId?: string;
+    suiteId: string;
+    suiteName?: string;
+    caseId?: string;
+    caseName?: string;
+    tags?: string[];
+    note?: string;
+    expectedContains?: string;
+  }) => unwrap(client.api["run-feedback"].promote.post(body)),
   // Projects
   listProjects: () => unwrap(client.api.projects.get()),
   getProject: (id: string) => unwrap(client.api.projects({ id }).get()),

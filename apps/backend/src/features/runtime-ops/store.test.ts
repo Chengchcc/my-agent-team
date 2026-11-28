@@ -246,5 +246,166 @@ describe("RuntimeOpsStore", () => {
         durationMs: 120_000,
       });
     });
+
+    test("ADR 0085: aggregates cacheHitRate, active duration (stripping HITL wait), TTFT, toolStats, skillStats, qualitySignals, and scope isolation", () => {
+      const now = Date.now();
+      // Production run with 10s wall time, 6s pending_action wait => 4s active duration, 75% cache hit
+      db.query(
+        `INSERT INTO agent_run (run_id, branch_id, conversation_id, agent_id, model_ref, status, authorization, idempotency_key, config_revision, terminal_result, created_at, terminal_at)
+         VALUES (?, 'b1', 'c1', 'a1', ?, 'completed', 'user', 'kp1', 1, ?, ?, ?)`,
+      ).run(
+        "r-prod",
+        JSON.stringify({ backendKind: "oma", modelId: "anthropic/sonnet" }),
+        JSON.stringify({
+          status: "completed",
+          usage: {
+            inputTokens: 1000,
+            outputTokens: 200,
+            cacheReadTokens: 3000,
+            cacheWriteTokens: 500,
+            costUsd: 0.02,
+          },
+        }),
+        now - 10_000,
+        now,
+      );
+      db.query(
+        `INSERT INTO pending_action (action_id, run_id, kind, payload, status, created_at, resolved_at, owner)
+         VALUES ('act-1', 'r-prod', 'approval', '{}', 'resolved', ?, ?, 'user')`,
+      ).run(now - 8_000, now - 2_000);
+      db.query(`INSERT INTO agent_run_event (run_id, type, data, ts) VALUES (?, ?, ?, ?)`).run(
+        "r-prod",
+        "llm_turn_started",
+        JSON.stringify({ turn: 0, ttftMs: 420 }),
+        now - 9_500,
+      );
+      db.query(`INSERT INTO agent_run_event (run_id, type, data, ts) VALUES (?, ?, ?, ?)`).run(
+        "r-prod",
+        "native_tool_started",
+        JSON.stringify({ toolName: "bash", callId: "c1" }),
+        now - 9_000,
+      );
+      db.query(`INSERT INTO agent_run_event (run_id, type, data, ts) VALUES (?, ?, ?, ?)`).run(
+        "r-prod",
+        "native_tool_completed",
+        JSON.stringify({ toolName: "bash", callId: "c1", result: { isError: true } }),
+        now - 8_200,
+      );
+      db.query(`INSERT INTO agent_run_event (run_id, type, data, ts) VALUES (?, ?, ?, ?)`).run(
+        "r-prod",
+        "skill_activated",
+        JSON.stringify({ skillName: "workflow_design", path: "/skills/workflow_design/SKILL.md" }),
+        now - 8_500,
+      );
+      db.query(`INSERT INTO agent_run_event (run_id, type, data, ts) VALUES (?, ?, ?, ?)`).run(
+        "r-prod",
+        "unasked_question",
+        JSON.stringify({}),
+        now - 1_000,
+      );
+
+      // Eval run that MUST be excluded from default scope="production"
+      db.query(
+        `INSERT INTO agent_run (run_id, branch_id, conversation_id, agent_id, model_ref, status, authorization, idempotency_key, config_revision, terminal_result, created_at, terminal_at)
+         VALUES (?, 'b2', 'c2', 'a1', ?, 'failed', 'eval:ev1', 'ke1', 1, ?, ?, ?)`,
+      ).run(
+        "r-eval",
+        JSON.stringify({ backendKind: "oma", modelId: "anthropic/sonnet" }),
+        JSON.stringify({
+          status: "failed",
+          error: "eval fail",
+          usage: { inputTokens: 500, outputTokens: 50 },
+        }),
+        now - 5_000,
+        now,
+      );
+
+      const prod = store.telemetrySummary({ sinceMs: now - 60_000 });
+      expect(prod.runs).toBe(1);
+      expect(prod.cacheReadTokens).toBe(3000);
+      expect(prod.cacheHitRate).toBeCloseTo(0.75);
+      expect(prod.totalHumanWaitMs).toBe(6000);
+      expect(prod.p50DurationMs).toBe(4000);
+      expect(prod.p50TtftMs).toBe(420);
+      expect(prod.toolStats[0]).toMatchObject({
+        toolName: "bash",
+        calls: 1,
+        errors: 1,
+        errorRate: 1,
+        p50Ms: 800,
+      });
+      expect(prod.skillStats[0]).toMatchObject({
+        skillName: "workflow_design",
+        activations: 1,
+        runs: 1,
+        completed: 1,
+      });
+      expect(prod.qualitySignals).toMatchObject({ unaskedQuestion: 1, total: 1 });
+
+      const evalOnly = store.telemetrySummary({ sinceMs: now - 60_000, scope: "eval" });
+      expect(evalOnly.runs).toBe(1);
+      expect(evalOnly.failures[0]?.runId).toBe("r-eval");
+
+      const all = store.telemetrySummary({ sinceMs: now - 60_000, scope: "all" });
+      expect(all.runs).toBe(2);
+    });
+
+    test("ADR 0085: getRunTrace builds recursive dispatch tree, wait intervals, redacted tool payloads, and prompt snapshot", () => {
+      const now = Date.now();
+      db.query(
+        `INSERT INTO agent_run (run_id, parent_run_id, branch_id, conversation_id, agent_id, model_ref, status, system_prompt, skill_roots, idempotency_key, config_revision, terminal_result, created_at, terminal_at)
+         VALUES ('r-root', NULL, 'b1', 'c1', 'front', ?, 'completed', 'FRONT PROMPT', '["/skills"]', 'kr1', 1, ?, ?, ?)`,
+      ).run(
+        JSON.stringify({ backendKind: "oma", modelId: "m1" }),
+        JSON.stringify({ status: "completed", usage: { inputTokens: 10, outputTokens: 5 } }),
+        now - 20_000,
+        now,
+      );
+      db.query(
+        `INSERT INTO agent_run (run_id, parent_run_id, branch_id, conversation_id, agent_id, model_ref, status, system_prompt, skill_roots, idempotency_key, config_revision, terminal_result, created_at, terminal_at)
+         VALUES ('r-child', 'r-root', 'b2', 'c2', 'coder', ?, 'completed', 'CODER PROMPT', '["/skills"]', 'kr2', 1, ?, ?, ?)`,
+      ).run(
+        JSON.stringify({ backendKind: "oma", modelId: "m2" }),
+        JSON.stringify({
+          status: "completed",
+          messages: [
+            {
+              role: "assistant",
+              blocks: [
+                {
+                  type: "tool_use",
+                  id: "tc-1",
+                  name: "read",
+                  input: { path: "/skills/refactor/SKILL.md", apiKey: "sk-secret-1234567890" },
+                },
+              ],
+            },
+            {
+              role: "tool",
+              blocks: [
+                { type: "tool_result", tool_use_id: "tc-1", content: "Bearer abcdef1234567890" },
+              ],
+            },
+          ],
+        }),
+        now - 15_000,
+        now - 2_000,
+      );
+
+      const trace = store.getRunTrace("r-child");
+      expect(trace).not.toBeNull();
+      expect(trace!.rootRunId).toBe("r-root");
+      expect(trace!.focusRunId).toBe("r-child");
+      expect(trace!.tree.children).toHaveLength(1);
+      expect(trace!.tree.children[0]!.runId).toBe("r-child");
+      expect(trace!.systemPrompt).toBe("CODER PROMPT");
+      expect(trace!.skillRoots).toEqual(["/skills"]);
+      expect(trace!.skillsActivated).toEqual([
+        { skillName: "refactor", path: "/skills/refactor/SKILL.md" },
+      ]);
+      expect(trace!.toolPayloads["tc-1"]?.input).toContain("[REDACTED]");
+      expect(trace!.toolPayloads["tc-1"]?.input).not.toContain("sk-secret");
+      expect(trace!.toolPayloads["tc-1"]?.output).toContain("[REDACTED]");
+    });
   });
 });

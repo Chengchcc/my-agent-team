@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Note, PanelCell, PanelRow, PanelTable } from "@/components/ops/kit";
+import { TargetEvalStrip } from "@/components/ops/TargetEvalStrip";
 import { Page, PageBody, PageHeader } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -201,6 +202,7 @@ export function WorkflowOverview({ workflowId, raw, row, initialTab }: WorkflowO
 
         {tab === "overview" && (
           <div className="space-y-5">
+            <TargetEvalStrip targetKind="workflow" targetRef={workflowId} />
             {definition === null && (
               <p
                 role="alert"

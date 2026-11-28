@@ -23,6 +23,7 @@ import {
 } from "../features/coding/index.js";
 import { conversationRoutes } from "../features/conversation/index.js";
 import type { ConversationService } from "../features/conversation/service.js";
+import { type EvalService, evalRoutes } from "../features/evals/index.js";
 import type { LarkBotRegistry, LarkSetupManager } from "../features/lark-bot/index.js";
 import { type McpService, mcpRoutes } from "../features/mcp/index.js";
 import {
@@ -80,6 +81,7 @@ export interface FeatureRoutesWiringDeps {
   reminderSvc: ReminderService;
   opsSvc: RuntimeOpsService;
   opsStore: RuntimeOpsStore;
+  evalSvc: EvalService;
   agentRunPort: AgentRunPort;
   agentRunService: AgentRunService;
   agentRunExecution: AgentRunExecutionService;
@@ -131,6 +133,7 @@ export function wireFeatureSet(deps: FeatureRoutesWiringDeps): FeatureSet {
     reminderSvc,
     opsSvc,
     opsStore,
+    evalSvc,
     agentRunPort,
     agentRunService,
     agentRunExecution,
@@ -211,6 +214,7 @@ export function wireFeatureSet(deps: FeatureRoutesWiringDeps): FeatureSet {
     ),
     reminders: reminderRoutes(reminderSvc),
     ops: opsRoutes(opsSvc),
+    evals: evalRoutes(evalSvc),
     agentRuns: agentRunRoutes({
       db,
       agentRunService,

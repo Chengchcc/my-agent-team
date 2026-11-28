@@ -7,14 +7,16 @@ import { type ReactNode, useState } from "react";
 import { fmtUsage } from "@/components/ops/format";
 import { Note, PanelCell, PanelRow, PanelTable, StatusBadge } from "@/components/ops/kit";
 import { eventLine, Fact, type RunEvent } from "@/components/ops/RunEventsDialog";
+import { RunFeedbackBar } from "@/components/ops/RunFeedbackBar";
 import { RunWaterfall } from "@/components/ops/RunWaterfall";
+import { TraceTreePanel } from "@/components/ops/TraceTreePanel";
 import { Page, PageBody, PageHeader } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useAgentList } from "@/features/agents/hooks";
 import { classifyAuthorization } from "@/features/ops/authority-ledger";
 import { useAgentRunDetail, useAgentRuns } from "@/features/ops/hooks";
-import { runEventsQuery } from "@/features/ops/queries";
+import { runEventsQuery, runTraceQuery } from "@/features/ops/queries";
 import { api } from "@/lib/api";
 import { formatDurationMs } from "@/lib/duration";
 import { t } from "@/lib/i18n";
@@ -87,9 +89,8 @@ function FloorVisit({ conversationId }: { conversationId: string }) {
   );
 }
 
-/** `/system/runs/<id>`: the record of one run — what it was, what it did, and how it ended.
- *  Reading it changes nothing. The one write on the page is the floor visit, and only for a
- *  worker; approve, cancel and export live elsewhere. */
+/** `/system/runs/<id>`: the record of one run — full dispatch trace, three-phase
+ *  waterfall with expandable tool I/O, frozen context snapshot, and event log. */
 export default function SystemRunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const from = useSearchParams().get("from");
@@ -97,14 +98,15 @@ export default function SystemRunDetailPage() {
   const detailQuery = useAgentRunDetail(runId);
   const run = detailQuery.data?.run;
   const inputs = detailQuery.data?.inputs ?? [];
-  // ADR 0066: the "shop floor" hop. A Lark card links to this run (the front
-  // desk's turn); the units it dispatched are the next step down.
   const childrenQuery = useAgentRuns({ parentRunId: runId, limit: 50 });
   const children = childrenQuery.data?.runs ?? [];
   const { data: agents } = useAgentList();
   const member = agents?.find((a) => a.id === run?.agentId);
+  const agentName = (agentId: string) => agents?.find((a) => a.id === agentId)?.name ?? agentId;
   const events = useQuery({ ...runEventsQuery(run?.runId ?? ""), enabled: run !== undefined });
+  const traceQuery = useQuery({ ...runTraceQuery(run?.runId ?? ""), enabled: run !== undefined });
   const log = (events.data?.events ?? []) as RunEvent[];
+  const trace = traceQuery.data;
 
   const back = from ? (
     <Link href={from} className="text-(--primary) hover:underline">
@@ -172,6 +174,23 @@ export default function SystemRunDetailPage() {
 
         {isWorker && run !== undefined && <FloorVisit conversationId={run.conversationId} />}
 
+        <RunFeedbackBar runId={run.runId} />
+
+        {trace && <TraceTreePanel trace={trace} agentName={agentName} />}
+
+        <Panel
+          title={t("Phases")}
+          note={t("Click any tool span to inspect sanitized input and output.")}
+        >
+          <RunWaterfall
+            runId={run.runId}
+            startTs={run.createdAt}
+            endTs={run.terminalAt ?? null}
+            waitIntervals={trace?.waitIntervals}
+            toolPayloads={trace?.toolPayloads}
+          />
+        </Panel>
+
         <Panel
           title={t("Events")}
           note={t("What the run recorded, in order. Reading this changes nothing.")}
@@ -204,9 +223,7 @@ export default function SystemRunDetailPage() {
             >
               {children.map((child) => (
                 <PanelRow key={child.runId}>
-                  <PanelCell label={t("Member")}>
-                    {agents?.find((a) => a.id === child.agentId)?.name ?? child.agentId}
-                  </PanelCell>
+                  <PanelCell label={t("Member")}>{agentName(child.agentId)}</PanelCell>
                   <PanelCell label={t("Status")}>
                     <StatusBadge look={executionStatus(child.status)} />
                   </PanelCell>
@@ -225,10 +242,6 @@ export default function SystemRunDetailPage() {
               ))}
             </PanelTable>
           )}
-        </Panel>
-
-        <Panel title={t("Phases")}>
-          <RunWaterfall runId={run.runId} startTs={run.createdAt} endTs={run.terminalAt ?? null} />
         </Panel>
 
         <Panel title={t("Queued inputs")}>

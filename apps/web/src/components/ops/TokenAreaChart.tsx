@@ -9,16 +9,26 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { OpsWindow } from "@/features/ops/queries";
 import type { TelemetrySummary } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { fmtTokens } from "./format";
 
+const WINDOW_LABEL: Record<OpsWindow, string> = {
+  "1h": "60 minutes ago",
+  "24h": "24 hours ago",
+  "7d": "7 days ago",
+  "30d": "30 days ago",
+};
+
 /** Token use per hour in the chosen window, from the telemetry summary's own
- *  `costByHour` buckets. One real series: the summary carries no per-provider
- *  split. An empty window says so instead of drawing a flat line. */
-export function TokenAreaChart({ data, range }: { data: TelemetrySummary; range: "1h" | "24h" }) {
+ *  `costByHour` buckets. An empty window says so instead of drawing a flat line. */
+export function TokenAreaChart({ data, range }: { data: TelemetrySummary; range: OpsWindow }) {
+  const multiDay = range === "7d" || range === "30d";
   const rows = data.costByHour.map((bucket) => ({
-    hour: new Date(bucket.hour).toLocaleTimeString(undefined, { hour: "numeric" }),
+    hour: multiDay
+      ? new Date(bucket.hour).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })
+      : new Date(bucket.hour).toLocaleTimeString(undefined, { hour: "numeric" }),
     tokens: bucket.tokens,
     costUsd: bucket.costUsd,
   }));
@@ -80,7 +90,7 @@ export function TokenAreaChart({ data, range }: { data: TelemetrySummary; range:
         )}
       </div>
       <div className="mt-2 flex justify-between font-mono text-[10px] text-(--mute)">
-        <span>{range === "1h" ? t("60 minutes ago") : t("24 hours ago")}</span>
+        <span>{t(WINDOW_LABEL[range])}</span>
         <span>{t("now")}</span>
       </div>
     </div>

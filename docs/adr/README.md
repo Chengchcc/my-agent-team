@@ -12,6 +12,7 @@
 | 0082 | cross-surface-linkage-human-labels-and-channels(跨工作面关联索引、全站名称优先展示与 Channels 新增 Lark 入口) | **Accepted**（2026-11-26 确认实施：`artifact` 与 `coding_terminal` 新表、`workflow_execution` 归属列、五大工作面 URL 深链筛选、读模型带名与 `<EntityLink />`、`/channels` 守住 ADR 0068 新增向导、会话上下文侧栏重做与 Markdown 实体预览） |
 | 0083 | coding-workspace-herdr-dual-view(Coding 工作台对标 Herdr：双视角统一本体、多 Harness 终端与语义状态聚合) | **Implemented**（2026-11-28 落地：`GET /api/coding/workspaces` 统一读模型与 ACP/PTY 防撞感知、多 Harness `launch`/`respawn` 与 `workspaceId` 透传、非 oma PTY 语义状态推导 `pty-state.ts`、Herdr 工作区树与 `Conversation ↔ Coding` 双视角切换、打开页面自动 Resume 终端 + 执行完成/阻塞全局站内与桌面通知） |
 | 0084 | workflow-as-pa-managed-team-sop(Workflow 作为 PA 自主管理的可复用团队 SOP：Git 留痕、script/cron 分级授权与沙箱验证、共享工作区与统一收件箱) | **Implemented**（2026-11-28 全 4 期落地：Git 留痕与回滚、PA 7 个 workflow 工具与 script/cron 分级提议授权 + 前端沙箱验证、共享 Requirement/Worktree 与去 yolo、统一 `/api/attention` 与房间/熔断回流、能力池路由与并发策略） |
+| 0085 | observability-telemetry-and-evals(可观测性与功能评测体系：性能遥测闭环与 Skill / Workflow 回归评测) | **Implemented**（2026-11-28 全 3 期落地：性能观察补齐 Cache 命中率、TTFT、三段耗时、Tool/Skill 聚合与递归 Trace 树；功能评测落地 `<dataDir>/evals/*.eval.json` Git 留痕 + SQLite `eval_run`/`eval_case_result`、三层 Grader、`pass@k`/`pass^k` 与 `/system/evals` A/B Diff；生产反馈 `run_feedback` 与一键沉淀用例打通 Run/Workflow/Skill 页） |
 | # | 标题 | 状态 |
 |---|---|---|
 | 0001 | loop-prune-is-post-processing | **Obsolete**（Loop 已删，2026-08-28） |

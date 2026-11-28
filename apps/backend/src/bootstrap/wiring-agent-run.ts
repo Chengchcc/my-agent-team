@@ -901,6 +901,9 @@ export async function wireAgentRunExecution(deps: AgentRunExecutionWiringDeps) {
       opsStore.appendRunEvent(runId, event.type, event as unknown as Record<string, unknown>);
       return Promise.resolve();
     },
+    observeRunEvent: (runId, type, data) => {
+      opsStore.appendRunEvent(runId, type, data);
+    },
     onMcpMountResult: (result) => {
       mcpRuntimeStatus.record({ ...result, at: Date.now() });
     },

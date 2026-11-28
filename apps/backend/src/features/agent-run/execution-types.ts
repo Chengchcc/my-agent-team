@@ -157,6 +157,10 @@ export interface AgentRunExecutionDeps {
    *  workflow steps). Wired to the RuntimeOps event store; failures are
    *  swallowed — telemetry never affects the run. */
   readonly persistRunEvent?: (runId: string, event: BackendEvent) => Promise<void>;
+  /** ADR 0085: auxiliary observability events (TTFT, waiting markers, skill
+   *  activations) written straight to agent_run_event without polluting the
+   *  surface-facing BackendEvent wire union. */
+  readonly observeRunEvent?: (runId: string, type: string, data: Record<string, unknown>) => void;
   /** Runtime MCP mount observation (backend.oma.mcp_mount_result). Wired to
    *  the MCP catalog's runtime-status store; absent = observation dropped. */
   readonly onMcpMountResult?: (input: {

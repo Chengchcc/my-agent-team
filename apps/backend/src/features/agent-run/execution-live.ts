@@ -23,6 +23,7 @@ export interface LiveEventBus {
 
 export function createLiveEventBus(deps: {
   persistRunEvent?: (runId: string, event: BackendEvent) => Promise<void>;
+  observeRunEvent?: (runId: string, type: string, data: Record<string, unknown>) => void;
   onMcpMountResult?: (input: {
     serverName: string;
     ok: boolean;
@@ -42,6 +43,17 @@ export function createLiveEventBus(deps: {
 }): LiveEventBus {
   const lastEventByRun = new Map<string, number>();
   const openCallsByRun = new Map<string, number>();
+  // ADR 0085 D2: per-turn TTFT tracker (works uniformly across all ACP harnesses).
+  const turnClockByRun = new Map<string, { turn: number; startedAt: number; recorded: boolean }>();
+
+  function safeObserve(runId: string, type: string, data: Record<string, unknown>): void {
+    if (!deps.observeRunEvent) return;
+    try {
+      deps.observeRunEvent(runId, type, data);
+    } catch {
+      /* telemetry is best-effort */
+    }
+  }
 
   /** Extract a runtime MCP mount observation from the oma extension event.
    *  Returns undefined for every other event shape. */
@@ -84,7 +96,23 @@ export function createLiveEventBus(deps: {
   }
 
   async function broadcast(runId: string, event: BackendEvent): Promise<void> {
-    lastEventByRun.set(runId, Date.now());
+    const now = Date.now();
+    lastEventByRun.set(runId, now);
+    // ADR 0085 D2: measure time-to-first-token (or first tool invocation) for each model turn.
+    const turnClock = turnClockByRun.get(runId);
+    if (
+      turnClock &&
+      !turnClock.recorded &&
+      (event.type === "text_delta" ||
+        event.type === "thinking_delta" ||
+        event.type === "native_tool_started")
+    ) {
+      turnClock.recorded = true;
+      safeObserve(runId, "llm_turn_started", {
+        turn: turnClock.turn,
+        ttftMs: Math.max(0, now - turnClock.startedAt),
+      });
+    }
     // ACP reports tool lifecycle as events (event-mapping's tool_call /
     // tool_result), and the ACP transport has no liveness channel of its own
     // (the child's heartbeat is mapped for the oma protocol only). So a tool
@@ -96,8 +124,24 @@ export function createLiveEventBus(deps: {
       openCallsByRun.set(runId, (openCallsByRun.get(runId) ?? 0) + 1);
     } else if (event.type === "native_tool_completed") {
       const open = (openCallsByRun.get(runId) ?? 0) - 1;
-      if (open > 0) openCallsByRun.set(runId, open);
-      else openCallsByRun.delete(runId);
+      if (open > 0) {
+        openCallsByRun.set(runId, open);
+      } else {
+        openCallsByRun.delete(runId);
+        // Next LLM turn starts once the last in-flight tool returns.
+        if (turnClock) {
+          turnClockByRun.set(runId, {
+            turn: turnClock.turn + 1,
+            startedAt: now,
+            recorded: false,
+          });
+        }
+      }
+    } else if (event.type === "approval_requested" || event.type === "ask_requested") {
+      safeObserve(runId, "waiting_started", {
+        kind: event.type === "approval_requested" ? "approval" : "ask",
+        callId: event.payload.callId,
+      });
     }
     // Durable telemetry: persist the normalized event log (tool calls,
     // status, workflow steps). Transient text/thinking deltas are skipped, and
@@ -147,11 +191,15 @@ export function createLiveEventBus(deps: {
   function forgetRun(runId: string): void {
     lastEventByRun.delete(runId);
     openCallsByRun.delete(runId);
+    turnClockByRun.delete(runId);
   }
 
   /** Drain the segment's live events through `broadcast`. A closing event stream is not a run
    *  failure, so it is swallowed here. */
   function forwardEvents(runId: string, segment: BackendRunSegment): Promise<void> {
+    if (!turnClockByRun.has(runId)) {
+      turnClockByRun.set(runId, { turn: 0, startedAt: Date.now(), recorded: false });
+    }
     return (async () => {
       try {
         for await (const ev of segment.events) await broadcast(runId, ev);

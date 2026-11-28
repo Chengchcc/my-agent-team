@@ -894,3 +894,86 @@ export const codingTerminal = sqliteTable(
     index("idx_coding_terminal_agent").on(table.agentId),
   ],
 );
+
+/** ADR 0085 D5: Functional evaluation experiment runs over file-backed
+ *  `<dataDir>/evals/*.eval.json` suites. */
+export const evalRun = sqliteTable(
+  "eval_run",
+  {
+    evalRunId: text("eval_run_id").primaryKey(),
+    suiteId: text("suite_id").notNull(),
+    suiteCommit: text("suite_commit"),
+    label: text(),
+    targetKind: text("target_kind").notNull(), // skill | workflow | agent
+    targetRef: text("target_ref").notNull(),
+    modelRef: text("model_ref"),
+    status: text().notNull().default("running"), // running | completed | failed | cancelled | budget_stopped
+    trials: integer().notNull().default(1),
+    concurrency: integer().notNull().default(2),
+    maxTotalCostUsd: text("max_total_cost_usd"), // decimal string or null
+    summaryJson: text("summary_json"),
+    error: text(),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+    terminalAt: integer("terminal_at", { mode: "number" }),
+  },
+  (table) => [
+    index("idx_eval_run_suite_created").on(table.suiteId, table.createdAt),
+    index("idx_eval_run_target").on(table.targetKind, table.targetRef, table.createdAt),
+    index("idx_eval_run_status").on(table.status, table.createdAt),
+  ],
+);
+
+/** ADR 0085 D5: Individual case-trial outcomes inside an `eval_run`, linked
+ *  back to the real `agent_run` or `workflow_execution` that produced them. */
+export const evalCaseResult = sqliteTable(
+  "eval_case_result",
+  {
+    resultId: text("result_id").primaryKey(),
+    evalRunId: text("eval_run_id")
+      .notNull()
+      .references(() => evalRun.evalRunId, { onDelete: "cascade" }),
+    caseId: text("case_id").notNull(),
+    trialIndex: integer("trial_index").notNull().default(0),
+    runId: text("run_id"),
+    workflowExecutionId: text("workflow_execution_id"),
+    passed: integer().notNull().default(0), // 0 | 1
+    score: text().notNull().default("0"), // 0..1 decimal string
+    graderResultsJson: text("grader_results_json").notNull().default("[]"),
+    activeDurationMs: integer("active_duration_ms", { mode: "number" }),
+    toolCalls: integer("tool_calls").notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    costUsd: text("cost_usd").notNull().default("0"),
+    error: text(),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+    terminalAt: integer("terminal_at", { mode: "number" }),
+  },
+  (table) => [
+    index("idx_eval_case_result_run").on(table.evalRunId, table.caseId, table.trialIndex),
+    index("idx_eval_case_result_agent_run").on(table.runId),
+  ],
+);
+
+/** ADR 0085 D7: Lightweight human feedback & production-to-eval promotion
+ *  record attached to an Agent Run or Workflow Execution. */
+export const runFeedback = sqliteTable(
+  "run_feedback",
+  {
+    feedbackId: text("feedback_id").primaryKey(),
+    runId: text("run_id"),
+    workflowExecutionId: text("workflow_execution_id"),
+    rating: text().notNull(), // up | down
+    tagsJson: text("tags_json").notNull().default("[]"),
+    note: text(),
+    promotedSuiteId: text("promoted_suite_id"),
+    promotedCaseId: text("promoted_case_id"),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("idx_run_feedback_run").on(table.runId),
+    index("idx_run_feedback_exec").on(table.workflowExecutionId),
+    index("idx_run_feedback_created").on(table.createdAt),
+  ],
+);

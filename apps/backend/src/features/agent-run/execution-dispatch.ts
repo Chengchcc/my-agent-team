@@ -3,6 +3,7 @@ import type { Message } from "@chengchenccc/message";
 import { DomainError } from "../../infra/domain-errors.js";
 import { projectAgentContext } from "../agent-context/projection.js";
 import { buildHistoryTools } from "../product-tools/manifest.js";
+import { extractSkillsFromMessages } from "../runtime-ops/telemetry-helpers.js";
 import { continuationPrefix, resolveContinuationRef } from "./continuation-ref.js";
 import type { AgentRun, ClaimedBranchInput } from "./domain.js";
 import { isActiveStatus } from "./domain.js";
@@ -329,6 +330,19 @@ export function createExecutionDispatcher(ctx: ExecutionDispatchCtx): {
   /** Terminal handling for one outcome: completed -> atomic Product commit;
    *  failed/aborted/timeout -> terminal Run without an assistant message. */
   async function settleOutcome(run: AgentRun, outcome: BackendRunOutcome): Promise<void> {
+    // ADR 0085 D2: record every skill read during this run (across all ACP harnesses).
+    if (deps.observeRunEvent && outcome.messages && outcome.messages.length > 0) {
+      for (const sk of extractSkillsFromMessages(outcome.messages)) {
+        try {
+          deps.observeRunEvent(run.runId, "skill_activated", {
+            skillName: sk.skillName,
+            path: sk.path,
+          });
+        } catch {
+          /* telemetry is best-effort */
+        }
+      }
+    }
     // CLI session reference (ADR 0020 decision 6): kind-scoped on the
     // branch so a backend switch never hands a foreign id to the next CLI.
     if (outcome.cliSessionRef) {

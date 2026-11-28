@@ -53,6 +53,7 @@ import {
 import { wireAhp } from "./wiring-ahp.js";
 import { wireCatalogs } from "./wiring-catalog.js";
 import { wireCodingAndWorktrees } from "./wiring-coding.js";
+import { wireEvals } from "./wiring-evals.js";
 import { wireLifecycle } from "./wiring-lifecycle.js";
 import { wireOpsAndMcp } from "./wiring-ops-mcp.js";
 import { wireProductTools } from "./wiring-product-tools.js";
@@ -457,6 +458,17 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   });
   workflowToolsRef = workflowProductTools;
 
+  const { evalSvc } = wireEvals({
+    config,
+    db,
+    ulid,
+    agentSvc,
+    agentRunPort,
+    convPort,
+    convSvc: conv.convSvc,
+    workflowExecutionService,
+  });
+
   const { passwordSvc, prepare, start, dispose } = await wireLifecycle({
     config,
     db,
@@ -495,6 +507,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     reminderSvc,
     opsSvc,
     opsStore: services.opsStore,
+    evalSvc,
     agentRunPort,
     agentRunService,
     agentRunExecution,
@@ -523,6 +536,15 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   });
 
   await seedDefaultTeamAndWorkflows({ config, agentSvc, codingAgentCatalog });
+  const seededAgents = await agentSvc.list();
+  const defaultFront = seededAgents.find((a) => a.config.role !== "worker");
+  if (defaultFront) {
+    try {
+      evalSvc.seedDefaultRoutingSuite(defaultFront.id);
+    } catch (err) {
+      console.warn("[bootstrap] seed default eval suite failed:", err);
+    }
+  }
 
   for (const agent of await agentSvc.list()) {
     try {

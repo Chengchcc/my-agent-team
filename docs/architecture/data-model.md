@@ -1,16 +1,16 @@
 ---
 title: Data Model
-description: Authoritative catalog of all 30 SQLite tables in backend.db — domain groupings, semantic columns, partial unique indexes, idempotency keys, atomic transactions, and off-DB files
+description: Authoritative catalog of all 33 SQLite tables in backend.db — domain groupings, semantic columns, partial unique indexes, idempotency keys, atomic transactions, and off-DB files
 tags: [backend, data, sqlite, schema]
 ---
 
 # Data Model
 
-`backend.db` is the single SQLite database (`WAL` mode, `foreign_keys = ON`, file mode `0600`) for Product Backend. `apps/backend/src/infra/db/schema.ts` defines **30 `sqliteTable` tables** and is the sole schema source of truth. (`apps/lark-bot` maintains its own separate 10-table SQLite database per PA agent; see [Lark Surface](./lark-surface.md).)
+`backend.db` is the single SQLite database (`WAL` mode, `foreign_keys = ON`, file mode `0600`) for Product Backend. `apps/backend/src/infra/db/schema.ts` defines **33 `sqliteTable` tables** and is the sole schema source of truth. (`apps/lark-bot` maintains its own separate 10-table SQLite database per PA agent; see [Lark Surface](./lark-surface.md).)
 
 ## Authoritative files
 
-- `apps/backend/src/infra/db/schema.ts` — All 32 `sqliteTable` definitions and `drizzle-zod` select codecs
+- `apps/backend/src/infra/db/schema.ts` — All 33 `sqliteTable` definitions and `drizzle-zod` select codecs
 - `apps/backend/src/infra/sqlite/db.ts` — Database initialization and Drizzle migration runner
 - `apps/backend/src/infra/sqlite/db.test.ts` — Schema, dropped-table, and index assertions
 - `apps/backend/src/features/agent-run/adapter-sqlite-enqueue.ts` — Atomic `enqueueAndAcquire` transaction
@@ -19,7 +19,7 @@ tags: [backend, data, sqlite, schema]
 - `apps/backend/src/features/conversation/adapter-sqlite.ts` — Ledger, members, bookmarks, and cascade deletes
 - `apps/backend/src/features/agent-context/adapter-sqlite.ts` — Context tree, entries, and branch revision CAS
 
-## Table Inventory (30 Tables)
+## Table Inventory (33 Tables)
 
 ### Product Facts & Team State (9 tables)
 
@@ -76,6 +76,14 @@ tags: [backend, data, sqlite, schema]
 | `surface_health` | Per-`(agent_id, surface)` heartbeat and status snapshot (`status`, `last_seen_at`, `payload`, `last_error`). |
 | `settings` | Global JSON KV store (`key`, `value`, `updated_at`): auth password hash (`auth.password_hash`), encrypted provider credentials (`provider.*`, `providerEnv`), `cost.dailyBudgetUsd`, `workflow.trigger_token.*`. |
 
+### Observability Evals & Feedback (3 tables)
+
+| Table | Purpose & Key Semantics |
+|---|---|
+| `eval_run` | ADR 0085 functional eval experiment runs (`eval_run_id`, `suite_id`, `suite_commit`, `label`, `target_kind`, `target_ref`, `model_ref`, `status`: `running \| completed \| failed \| cancelled \| budget_stopped`, `trials`, `concurrency`, `max_total_cost_usd`, `summary_json`). |
+| `eval_case_result` | ADR 0085 per-case trial outcomes inside an `eval_run` (`result_id`, `eval_run_id` FK `CASCADE`, `case_id`, `trial_index`, linked `run_id` / `workflow_execution_id`, `passed`, `score`, `grader_results_json`, `active_duration_ms`, `tool_calls`, token/cost fields). |
+| `run_feedback` | ADR 0085 production human feedback & eval-flywheel records (`feedback_id`, `run_id`, `workflow_execution_id`, `rating`: `up \| down`, `tags_json`, `note`, `promoted_suite_id`, `promoted_case_id`). |
+
 ## Critical Unique Indexes & Idempotency Keys
 
 | Constraint / Index | Enforced Rule |
@@ -104,6 +112,7 @@ tags: [backend, data, sqlite, schema]
 | Artifact bytes | `<dataDir>/artifacts/<folder>/<filename>` (+ `.meta.json`) | Bytes on disk; `artifact` table is the query/linkage index. |
 | MCP server catalog | `<dataDir>/mcp-servers.json` (AES-256-GCM encrypted secrets) | File is truth; per-agent toggles live in `agent.yml`. |
 | Workflow definitions | `<dataDir>/workflows/*.workflow.json` | JSON files are truth; executions snapshot the definition JSON at start time. |
+| Eval suites | `<dataDir>/evals/*.eval.json` (Git repository) | JSON files + local Git history are truth (ADR 0085); experiment runs live in `eval_run` / `eval_case_result`. |
 | Encryption keys & gateway secrets | `~/.oma/gateway-secrets.json` (`0600`) | Stored outside `dataDir` so DB backups do not leak decryption keys. |
 
 ## See also

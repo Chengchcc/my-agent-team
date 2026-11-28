@@ -5,12 +5,17 @@ import { Gauge } from "lucide-react";
 import { fmtTokens } from "@/components/ops/format";
 import { PanelCell, PanelRow, PanelTable } from "@/components/ops/kit";
 import { EmptyState } from "@/components/ui/empty-state";
+import type { OpsWindow } from "@/features/ops/queries";
 import type { TelemetrySummary } from "@/lib/api";
+import { formatDurationMs } from "@/lib/duration";
 import { t } from "@/lib/i18n";
 
+function fmtPct(rate: number | null): string {
+  return rate === null ? "—" : `${Math.round(rate * 100)}%`;
+}
+
 /** Usage in the chosen window, as the telemetry summary aggregates it: per
- *  model, then per member. A window with no run says so; it does not show a
- *  table of zeros. */
+ *  model (with cache hit rate & P95 latency), then per member. */
 export function UsageTables({
   telemetry,
   agentName,
@@ -18,7 +23,7 @@ export function UsageTables({
 }: {
   telemetry: UseQueryResult<TelemetrySummary>;
   agentName: (agentId: string) => string;
-  range: "1h" | "24h";
+  range: OpsWindow;
 }) {
   if (telemetry.isPending) {
     return <p className="px-4 py-6 text-xs text-(--mute)">{t("Loading…")}</p>;
@@ -43,10 +48,18 @@ export function UsageTables({
     );
   }
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <PanelTable
         label={t("Usage by model")}
-        columns={[t("Model"), t("Runs"), t("Failed"), t("Tokens"), t("Cost")]}
+        columns={[
+          t("Model"),
+          t("Runs"),
+          t("Failed"),
+          t("Tokens"),
+          t("Cache hit"),
+          t("P95 latency"),
+          t("Cost"),
+        ]}
       >
         {summary.byModel.map((row) => (
           <PanelRow key={row.modelId}>
@@ -62,6 +75,12 @@ export function UsageTables({
             <PanelCell label={t("Tokens")} className="font-mono tabular-nums">
               {fmtTokens(row.tokens)}
             </PanelCell>
+            <PanelCell label={t("Cache hit")} className="font-mono tabular-nums">
+              {fmtPct(row.cacheHitRate)}
+            </PanelCell>
+            <PanelCell label={t("P95 latency")} className="font-mono tabular-nums">
+              {row.p95DurationMs !== null ? formatDurationMs(row.p95DurationMs) : "—"}
+            </PanelCell>
             <PanelCell label={t("Cost")} className="font-mono tabular-nums">
               ${row.costUsd.toFixed(4)}
             </PanelCell>
@@ -71,7 +90,15 @@ export function UsageTables({
 
       <PanelTable
         label={t("Usage by member")}
-        columns={[t("Member"), t("Runs"), t("Failed"), t("Success rate")]}
+        columns={[
+          t("Member"),
+          t("Runs"),
+          t("Failed"),
+          t("Success rate"),
+          t("Cache hit"),
+          t("Avg active"),
+          t("Cost"),
+        ]}
       >
         {summary.byAgent.map((row) => (
           <PanelRow key={row.agentId}>
@@ -85,7 +112,16 @@ export function UsageTables({
               {row.failed}
             </PanelCell>
             <PanelCell label={t("Success rate")} className="tabular-nums">
-              {row.successRate === null ? "—" : `${Math.round(row.successRate * 100)}%`}
+              {fmtPct(row.successRate)}
+            </PanelCell>
+            <PanelCell label={t("Cache hit")} className="font-mono tabular-nums">
+              {fmtPct(row.cacheHitRate)}
+            </PanelCell>
+            <PanelCell label={t("Avg active")} className="font-mono tabular-nums">
+              {row.avgDurationMs !== null ? formatDurationMs(row.avgDurationMs) : "—"}
+            </PanelCell>
+            <PanelCell label={t("Cost")} className="font-mono tabular-nums">
+              ${row.costUsd.toFixed(4)}
             </PanelCell>
           </PanelRow>
         ))}

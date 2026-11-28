@@ -48,6 +48,13 @@ export function runEventsQuery(runId: string) {
   });
 }
 
+export function runTraceQuery(runId: string) {
+  return queryOptions({
+    queryKey: [...opsKeys.runDetail(runId), "trace"] as const,
+    queryFn: () => api.getRunTrace(runId),
+  });
+}
+
 export function systemMetricsQuery() {
   return queryOptions({
     queryKey: [...opsKeys.all, "system-metrics"] as const,
@@ -70,15 +77,46 @@ export function backendPingQuery() {
   });
 }
 
-/** The telemetry of one window, for Observability's 1h / 24h switch. The
- *  default summary (`telemetrySummaryQuery`) stays what Today and the others read. */
-export type OpsWindow = "1h" | "24h";
+/** Observability time windows (ADR 0085 D3). */
+export type OpsWindow = "1h" | "24h" | "7d" | "30d";
+export type TelemetryScope = "production" | "eval" | "all";
 
-const WINDOW_MS: Record<OpsWindow, number> = { "1h": 3_600_000, "24h": 86_400_000 };
+export interface TelemetryFilter {
+  readonly window: OpsWindow;
+  readonly agentId?: string;
+  readonly modelId?: string;
+  readonly status?: string;
+  readonly skill?: string;
+  readonly scope?: TelemetryScope;
+}
 
-export function telemetryWindowQuery(window: OpsWindow) {
+const WINDOW_MS: Record<OpsWindow, number> = {
+  "1h": 3_600_000,
+  "24h": 86_400_000,
+  "7d": 7 * 86_400_000,
+  "30d": 30 * 86_400_000,
+};
+
+export function telemetryWindowQuery(input: OpsWindow | TelemetryFilter) {
+  const filter: TelemetryFilter = typeof input === "string" ? { window: input } : input;
   return queryOptions({
-    queryKey: [...opsKeys.telemetrySummary(), window] as const,
-    queryFn: () => api.getTelemetrySummary(Date.now() - WINDOW_MS[window]),
+    queryKey: [
+      ...opsKeys.telemetrySummary(),
+      filter.window,
+      filter.agentId ?? "",
+      filter.modelId ?? "",
+      filter.status ?? "",
+      filter.skill ?? "",
+      filter.scope ?? "production",
+    ] as const,
+    queryFn: () =>
+      api.getTelemetrySummary({
+        since: Date.now() - WINDOW_MS[filter.window],
+        agentId: filter.agentId,
+        modelId: filter.modelId,
+        status: filter.status,
+        skill: filter.skill,
+        scope: filter.scope ?? "production",
+      }),
   });
 }
