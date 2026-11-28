@@ -16,7 +16,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type MouseEvent as ReactMouseEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { ChatSidePreviewPane } from "@/components/ChatSidePreviewPane";
 import { ConversationPanel } from "@/components/ConversationPanel";
@@ -45,7 +52,6 @@ import { conversationDisplayName } from "@/lib/conversation-title";
 import { t } from "@/lib/i18n";
 import type { SkillCommand } from "@/lib/slash-commands";
 import { executionStatus } from "@/lib/status";
-import { StatusPill } from "./patterns";
 import { RunDiagnostics } from "./RunDiagnostics";
 import { UsagePanel } from "./UsagePanel";
 
@@ -164,8 +170,30 @@ export function ConversationCanvas({
   const sessionExecutions = workflowsQuery.data?.executions ?? [];
 
   const [inspectorTarget, setInspectorTarget] = useState<ChatInspectorTarget | null>(null);
-  const [asideVisible, setAsideVisible] = useState(true);
+  // Antigravity / Codex layout: keep the conversation calm and centered by default;
+  // right-hand context/preview opens on demand (or automatically when clicking an
+  // artifact / requirement chip) and supports drag-to-resize.
+  const [asideVisible, setAsideVisible] = useState(false);
+  const [asideWidth, setAsideWidth] = useState<number>(460);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const draggingRef = useRef(false);
+
+  const startResize = useCallback((e: ReactMouseEvent) => {
+    e.preventDefault();
+    draggingRef.current = true;
+    const onMove = (ev: MouseEvent) => {
+      if (!draggingRef.current) return;
+      const next = Math.min(720, Math.max(320, window.innerWidth - ev.clientX));
+      setAsideWidth(next);
+    };
+    const onUp = () => {
+      draggingRef.current = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, []);
 
   const openArtifact = useCallback((artifact: ArtifactMeta) => {
     setInspectorTarget({ kind: "artifact", artifact });
@@ -420,17 +448,43 @@ export function ConversationCanvas({
     </div>
   );
 
+  const contextCount =
+    sessionRequirements.length +
+    sessionArtifacts.length +
+    sessionTerminals.length +
+    sessionExecutions.length;
+
+  const effectiveAsideWidth = inspectorTarget ? asideWidth : Math.min(asideWidth, 360);
+
   const contextAside = (
     <>
       {asideVisible && (
         <aside
           aria-label={inspectorTarget ? t("Preview") : t("Session context")}
-          className={
-            inspectorTarget
-              ? "hidden w-[440px] shrink-0 flex-col overflow-hidden border-l border-(--hairline) bg-(--canvas) md:flex xl:w-[540px]"
-              : "hidden w-[308px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-(--hairline) bg-(--canvas) p-4 md:flex"
-          }
+          style={{ width: `${effectiveAsideWidth}px` }}
+          className="relative hidden shrink-0 flex-col overflow-hidden border-l border-(--hairline) bg-(--canvas) md:flex"
         >
+          {/* Drag-to-resize left handle (mouse + keyboard accessible) */}
+          <div
+            role="separator"
+            tabIndex={0}
+            aria-orientation="vertical"
+            aria-label={t("Resize side panel")}
+            aria-valuemin={320}
+            aria-valuemax={720}
+            aria-valuenow={effectiveAsideWidth}
+            onMouseDown={startResize}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft") {
+                e.preventDefault();
+                setAsideWidth((w) => Math.min(720, w + 32));
+              } else if (e.key === "ArrowRight") {
+                e.preventDefault();
+                setAsideWidth((w) => Math.max(320, w - 32));
+              }
+            }}
+            className="absolute inset-y-0 left-0 z-20 w-1 cursor-col-resize transition-colors hover:bg-(--primary)/45 focus-visible:bg-(--primary)/60 focus-visible:outline-none"
+          />
           {inspectorTarget ? (
             <ChatSidePreviewPane
               target={inspectorTarget}
@@ -443,7 +497,9 @@ export function ConversationCanvas({
               onOpenRequirement={openRequirement}
             />
           ) : (
-            contextPanels
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+              {contextPanels}
+            </div>
           )}
         </aside>
       )}
@@ -452,127 +508,131 @@ export function ConversationCanvas({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-(--canvas)">
-      {/* Prototype-aligned return toolbar + compact header (ADR 0082 D7/D8) */}
-      <div className="shrink-0 border-b border-(--hairline) px-5 pt-4 pb-4 sm:px-8">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <Link
-            href="/chat"
-            className="inline-flex items-center gap-1.5 text-[11px] text-(--mute) transition-colors hover:text-(--primary)"
+      {/* Antigravity / Codex single-row slim 48px session bar */}
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-(--hairline) px-3 sm:px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            nativeButton={false}
+            render={<Link href="/chat" />}
+            aria-label={t("All work sessions")}
+            title={t("All work sessions")}
+            className="shrink-0 text-(--mute) hover:text-(--ink)"
           >
-            <ArrowLeft className="size-3.5" />
-            {t("All work sessions")}
-          </Link>
-          <div className="flex items-center gap-2">
+            <ArrowLeft className="size-4" />
+          </Button>
+
+          <RoleAvatar kind={mark} name={agentName} size="sm" />
+
+          <div className="flex min-w-0 flex-1 items-baseline gap-2">
+            <h1
+              title={title}
+              className="min-w-0 truncate text-sm font-[550] tracking-[-0.2px] text-(--ink)"
+            >
+              {title}
+            </h1>
+            {primaryAgentId ? (
+              <Link
+                href={`/team/${encodeURIComponent(primaryAgentId)}`}
+                className="hidden shrink-0 text-xs text-(--mute) transition-colors hover:text-(--primary) sm:inline"
+              >
+                {agentName}
+              </Link>
+            ) : null}
             {roomProjectName && roomProjectId && (
-              <EntityLink
-                kind="project"
-                id={roomProjectId}
-                label={roomProjectName}
-                href={`/team/projects/${encodeURIComponent(roomProjectId)}`}
-                variant="pill"
-              />
+              <span className="hidden shrink-0 lg:inline-flex">
+                <EntityLink
+                  kind="project"
+                  id={roomProjectId}
+                  label={roomProjectName}
+                  href={`/team/projects/${encodeURIComponent(roomProjectId)}`}
+                  variant="pill"
+                />
+              </span>
             )}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="hidden md:inline-flex"
-              aria-label={asideVisible ? t("Hide context panel") : t("Show context panel")}
-              title={asideVisible ? t("Hide context panel") : t("Show context panel")}
-              onClick={() => setAsideVisible((v) => !v)}
-            >
-              {asideVisible ? (
-                <PanelRightClose className="size-4" />
-              ) : (
-                <PanelRight className="size-4" />
-              )}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setMobileDrawerOpen(true)}
-              className="md:hidden"
-            >
-              {t("Context")}
-            </Button>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 md:flex-nowrap">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <RoleAvatar kind={mark} name={agentName} />
-            <div className="min-w-0 flex-1">
-              <h1
-                title={title}
-                className="truncate text-base leading-snug font-[550] tracking-[-0.3px] text-(--ink) sm:text-lg"
-              >
-                {title}
-              </h1>
-              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-(--mute)">
-                {primaryAgentId ? (
-                  <Link
-                    href={`/team/${encodeURIComponent(primaryAgentId)}`}
-                    className="font-medium text-(--body) hover:text-(--primary)"
-                  >
-                    {agentName}
-                  </Link>
-                ) : (
-                  <span>{agentName}</span>
-                )}
-                <span>·</span>
-                <span>{t("Work session")}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            {label ? (
-              <>
-                <span
-                  className={`size-1.5 rounded-full transition-colors duration-500 ${
-                    busy ? "animate-dot-pulse bg-(--primary)" : "bg-(--mute)"
-                  }`}
-                />
-                <span className="text-[10px] uppercase tracking-[1.8px] text-(--mute)">
-                  {label}
-                </span>
-              </>
-            ) : (
-              <StatusPill tone="idle">{t("idle")}</StatusPill>
-            )}
-            {busy && currentRunId && (
-              <Button variant="destructive" size="sm" onClick={stopRun}>
-                {t("stop")}
-              </Button>
-            )}
-            {primaryAgentId && (
-              <Button
-                size="sm"
-                variant="outline"
-                nativeButton={false}
-                render={<Link href={terminalHref} />}
-              >
-                <Terminal className="size-3.5" /> {t("Terminal")}
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              nativeButton={false}
-              render={<Link href={artifactsHref} />}
-              title={t("Files this conversation produced (screenshots and other tool output)")}
-            >
-              <FolderOpen className="size-3.5" /> {t("Artifacts")}
+        <div className="flex shrink-0 items-center gap-1">
+          {label && (
+            <span className="mr-1 inline-flex items-center gap-1.5 rounded-full border border-(--primary)/25 bg-(--primary)/8 px-2.5 py-0.5 text-[11px] font-medium text-(--primary)">
+              <span
+                className={`size-1.5 rounded-full ${
+                  busy ? "animate-dot-pulse bg-(--primary)" : "bg-(--mute)"
+                }`}
+              />
+              {t(label)}
+            </span>
+          )}
+          {busy && currentRunId && (
+            <Button variant="destructive" size="xs" onClick={stopRun} className="mr-1">
+              {t("Stop")}
             </Button>
+          )}
+          {primaryAgentId && (
             <Button
-              variant="ghost"
               size="icon-sm"
-              onClick={handleExport}
-              disabled={exporting}
-              title={exporting ? t("Exporting…") : t("Export conversation")}
+              variant="ghost"
+              nativeButton={false}
+              render={<Link href={terminalHref} />}
+              aria-label={t("Terminal")}
+              title={t("Terminal")}
+              className="text-(--mute) hover:text-(--ink)"
             >
-              <Download size={14} />
+              <Terminal className="size-4" />
             </Button>
-          </div>
+          )}
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            nativeButton={false}
+            render={<Link href={artifactsHref} />}
+            aria-label={t("Artifacts")}
+            title={t("Files this conversation produced (screenshots and other tool output)")}
+            className="text-(--mute) hover:text-(--ink)"
+          >
+            <FolderOpen className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={handleExport}
+            disabled={exporting}
+            aria-label={t("Export conversation")}
+            title={exporting ? t("Exporting…") : t("Export conversation")}
+            className="text-(--mute) hover:text-(--ink)"
+          >
+            <Download className="size-4" />
+          </Button>
+          <Button
+            variant={asideVisible ? "secondary" : "ghost"}
+            size="sm"
+            className="hidden h-7 gap-1.5 px-2 text-xs text-(--mute) hover:text-(--ink) md:inline-flex"
+            aria-label={asideVisible ? t("Hide context panel") : t("Show context panel")}
+            title={asideVisible ? t("Hide context panel") : t("Show context panel")}
+            onClick={() => setAsideVisible((v) => !v)}
+          >
+            {asideVisible ? (
+              <PanelRightClose className="size-3.5" />
+            ) : (
+              <PanelRight className="size-3.5" />
+            )}
+            {contextCount > 0 && (
+              <span className="font-mono text-[10px] tabular-nums">{contextCount}</span>
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setMobileDrawerOpen(true)}
+            className="h-7 gap-1 px-2 text-xs text-(--mute) md:hidden"
+          >
+            <PanelRight className="size-3.5" />
+            {contextCount > 0 && (
+              <span className="font-mono text-[10px] tabular-nums">{contextCount}</span>
+            )}
+          </Button>
         </div>
       </div>
 
@@ -584,9 +644,15 @@ export function ConversationCanvas({
           skills={skills}
           emptyTitle={
             primaryAgent ? (
-              <p className="mb-1 text-base font-medium text-(--ink-strong)">{agentName}</p>
+              <div className="flex flex-col items-center gap-2.5">
+                <RoleAvatar kind={mark} name={agentName} size="lg" />
+                <p className="text-base font-[550] tracking-[-0.2px] text-(--ink-strong)">
+                  {agentName}
+                </p>
+              </div>
             ) : null
           }
+          emptyDescription={member?.description || undefined}
           aside={contextAside}
         />
       </ChatInspectorContext.Provider>

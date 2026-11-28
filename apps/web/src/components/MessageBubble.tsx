@@ -18,12 +18,12 @@ function fmtTime(ts: number | undefined): string {
 // User turns are left-aligned low-contrast surface cards so the eye scans down
 // a single axis; agent turns flow full-width as clean editorial Markdown.
 const USER_CARD = {
-  page: "w-full rounded-xl border border-(--hairline) bg-(--canvas-soft)/85 px-4 py-3 text-(--ink-strong)",
+  page: "w-full rounded-2xl border border-(--hairline) bg-(--panel)/85 px-4 py-3 text-(--ink-strong)",
   panel:
-    "w-full rounded-lg border border-(--primary)/20 bg-(--primary)/[0.06] px-3 py-2 text-(--ink-strong)",
+    "w-full rounded-xl border border-(--primary)/20 bg-(--primary)/[0.06] px-3 py-2 text-(--ink-strong)",
 };
-const BODY = { page: "text-[13px]/relaxed", panel: "text-[11px]/relaxed" };
-const GAP_FIRST = { page: "mt-5", panel: "mt-4" };
+const BODY = { page: "text-[13.5px]/relaxed", panel: "text-[11.5px]/relaxed" };
+const GAP_FIRST = { page: "mt-6", panel: "mt-4" };
 const GAP = { page: "mt-1.5", panel: "mt-1" };
 const NAME = { page: "mb-1.5 text-[11px] font-medium", panel: "mb-1 text-[10px] font-medium" };
 

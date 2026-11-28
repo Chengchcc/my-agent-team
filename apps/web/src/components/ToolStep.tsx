@@ -1,13 +1,23 @@
 "use client";
 
+import {
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Loader2,
+  XCircle,
+} from "lucide-react";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { t } from "@/lib/i18n";
 import { normalizeToolResultContent } from "@/lib/render-blocks";
+import { cn } from "@/lib/utils";
 import { inputPreview, toolIcon } from "./tool-icon";
 
-/** Single tool invocation rendered as a design card (`icon + name + status +
- *  inline args preview`), matching the Obsidian chat anatomy. The args are
- *  visible at a glance; fold reveals the full payload and result. */
+/** Compact single-line tool invocation row (Codex / Antigravity trace style).
+ *  Shows status glyph + tool icon + name + inline argument preview on one calm
+ *  line; clicking expands full input & output payloads on demand. */
 export function ToolStep({
   name,
   input,
@@ -17,89 +27,105 @@ export function ToolStep({
   input: unknown;
   result?: { content: string; isError?: boolean };
 }) {
-  const [inputOpen, setInputOpen] = useState(false);
-  const [resultOpen, setResultOpen] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const hasResult = !!result;
   const status = result?.isError ? "error" : hasResult ? "done" : "running";
   const Icon = toolIcon(name);
   const preview = inputPreview(input);
-
-  const statusStyle =
-    status === "error"
-      ? "border-(--err)/30 bg-(--err)/10 text-(--err)"
-      : status === "done"
-        ? "border-(--ok)/30 bg-(--ok)/10 text-(--ok)"
-        : "border-(--primary)/30 bg-(--primary)/10 text-(--primary)";
-  const edgeStyle =
-    status === "error" ? "bg-(--err)" : status === "done" ? "bg-(--ok)" : "bg-(--primary)";
+  const normalizedOutput = result ? normalizeToolResultContent(result.content) : "";
 
   return (
-    <div className="relative overflow-hidden rounded-lg border border-(--hairline) bg-(--panel) shadow-sm">
-      {/* Header: icon + name + status + folds */}
-      <div className="flex items-center gap-2 px-3 py-1.5">
-        <Icon size={14} className="shrink-0 text-(--primary)" />
-        <span className="min-w-0 truncate font-code-sm text-code-sm font-medium text-(--ink)">
-          {name}
-        </span>
-        <span
-          className={`shrink-0 rounded border px-1.5 py-0.5 font-label-caps text-label-caps font-bold uppercase ${statusStyle}`}
-        >
-          {status}
-        </span>
-        <span className="ml-auto flex shrink-0 items-center gap-1">
-          <Button
-            variant="ghost"
-            type="button"
-            onClick={() => setInputOpen((v) => !v)}
-            className="h-auto px-1.5 py-0 text-[10px] font-mono text-(--mute) hover:bg-transparent hover:text-(--ink)"
-          >
-            {inputOpen ? "▲ input" : "▼ input"}
-          </Button>
-          {hasResult && (
-            <Button
-              variant="ghost"
-              type="button"
-              onClick={() => setResultOpen((v) => !v)}
-              className="h-auto px-1.5 py-0 text-[10px] font-mono text-(--mute) hover:bg-transparent hover:text-(--ink)"
-            >
-              {resultOpen ? "▲ result" : "▼ result"}
-            </Button>
-          )}
-        </span>
-      </div>
-
-      {/* Inline args preview — always visible, one line */}
-      {preview && (
-        <div className="flex items-center gap-1.5 border-t border-(--hairline)/60 px-3 py-1.5">
-          <span className="font-code-sm text-code-sm font-medium text-(--primary)">args:</span>
-          <span className="min-w-0 truncate font-code-sm text-code-sm text-(--body)">
+    <div
+      data-slot="tool-step"
+      data-status={status}
+      className={cn(
+        "min-w-0 overflow-hidden rounded-lg border border-transparent transition-colors",
+        open
+          ? "border-(--hairline) bg-(--panel)/70"
+          : "hover:border-(--hairline)/60 hover:bg-(--panel)/40",
+        status === "error" && "border-(--err)/25 bg-(--err)/[0.04]",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full min-w-0 items-center gap-2 px-2 py-1 text-left text-xs"
+      >
+        {status === "error" ? (
+          <XCircle className="size-3.5 shrink-0 text-(--err)" aria-hidden />
+        ) : status === "done" ? (
+          <CheckCircle2 className="size-3.5 shrink-0 text-(--ok)/80" aria-hidden />
+        ) : (
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-(--primary)" aria-hidden />
+        )}
+        <Icon size={13} className="shrink-0 text-(--mute)" aria-hidden />
+        <span className="shrink-0 font-mono text-[11px] font-medium text-(--ink)">{name}</span>
+        {preview && (
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-(--faint)">
             {preview}
           </span>
-        </div>
-      )}
+        )}
+        <span className="ml-auto shrink-0 text-(--faint)">
+          {open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+        </span>
+      </button>
 
-      {/* Coloured status edge */}
-      <span className={`absolute inset-y-0 left-0 w-0.5 ${edgeStyle}`} aria-hidden />
-
-      {/* Full input payload */}
-      {inputOpen && (
-        <div className="border-t border-(--hairline) px-3 py-2">
-          <pre className="mt-1 max-h-40 overflow-x-auto whitespace-pre-wrap rounded bg-(--canvas-soft) p-2 text-[12px] leading-relaxed text-(--canvas-text-soft) wrap-anywhere">
-            {JSON.stringify(input, null, 2)}
-          </pre>
-        </div>
-      )}
-      {/* Result payload */}
-      {resultOpen && result && (
-        <div className="border-t border-(--hairline) px-3 py-2">
-          <pre
-            className={`max-h-40 overflow-x-auto whitespace-pre-wrap rounded bg-(--canvas-soft) p-2 text-[12px] leading-relaxed wrap-anywhere ${
-              result.isError ? "text-red-400" : "text-(--canvas-text-soft)"
-            }`}
-          >
-            {"⤷ "}
-            {normalizeToolResultContent(result.content)}
-          </pre>
+      {open && (
+        <div className="space-y-2 border-t border-(--hairline)/70 px-2.5 py-2">
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="font-mono text-[10px] uppercase tracking-[0.8px] text-(--faint)">
+                {t("Input")}
+              </span>
+            </div>
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-(--canvas) px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-(--body) wrap-anywhere">
+              {JSON.stringify(input, null, 2)}
+            </pre>
+          </div>
+          {result && (
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <span
+                  className={cn(
+                    "font-mono text-[10px] uppercase tracking-[0.8px]",
+                    result.isError ? "text-(--err)" : "text-(--faint)",
+                  )}
+                >
+                  {result.isError ? t("Error") : t("Output")}
+                </span>
+                {normalizedOutput && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(normalizedOutput).then(() => {
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 1500);
+                      });
+                    }}
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] text-(--mute) hover:bg-(--panel2) hover:text-(--ink)"
+                    title={t("Copy output")}
+                  >
+                    {copied ? (
+                      <Check className="size-2.5 text-(--ok)" />
+                    ) : (
+                      <Copy className="size-2.5" />
+                    )}
+                    {copied ? t("Copied") : t("Copy")}
+                  </button>
+                )}
+              </div>
+              <pre
+                className={cn(
+                  "max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-(--canvas) px-2.5 py-1.5 font-mono text-[11px] leading-relaxed wrap-anywhere",
+                  result.isError ? "text-(--err)" : "text-(--body)",
+                )}
+              >
+                {normalizedOutput || t("(empty)")}
+              </pre>
+            </div>
+          )}
         </div>
       )}
     </div>

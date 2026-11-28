@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { TurnSegment } from "@/lib/conversation-reducer";
-import { ReasoningTrace } from "./ReasoningTrace";
+import { ReasoningTrace, summarizeToolSteps } from "./ReasoningTrace";
 
 function makeTurnSegment(overrides?: {
   toolIsError?: boolean;
@@ -63,21 +63,32 @@ function makeTurnSegment(overrides?: {
   };
 }
 
+describe("summarizeToolSteps", () => {
+  test("groups reads, edits, commands, web, and generic tools into a Codex-style summary", () => {
+    expect(summarizeToolSteps([])).toBe("");
+    expect(summarizeToolSteps(["read_file", "grep", "edit_file", "bash"])).toBe(
+      "Explored 2 items, edited 1 file, ran 1 command",
+    );
+    expect(summarizeToolSteps(["custom_tool"])).toBe("Ran 1 tool");
+  });
+});
+
 describe("ReasoningTrace", () => {
-  test("renders the conclusion before the collapsed thinking & tooling footer drawer", () => {
+  test("renders the collapsed semantic trace drawer above the answer (chronological flow)", () => {
     const html = renderToStaticMarkup(<ReasoningTrace segment={makeTurnSegment()} />);
     expect(html).toContain("Final concise answer.");
     expect(html).toContain('data-slot="reasoning-trace-drawer"');
-    expect(html.indexOf("Final concise answer.")).toBeLessThan(
-      html.indexOf('data-slot="reasoning-trace-drawer"'),
+    expect(html.indexOf('data-slot="reasoning-trace-drawer"')).toBeLessThan(
+      html.indexOf("Final concise answer."),
     );
-    expect(html).toContain("1 steps");
+    expect(html).toContain("Explored 1 item");
+    expect(html).toContain("1 step");
     // Default collapsed: internal thinking/tool body is not expanded on initial render
     expect(html).not.toContain("Let me inspect README first.");
     expect(html).not.toContain("read_file");
   });
 
-  test("surfaces failed tool count in the collapsed footer bar and expands details when defaultOpen", () => {
+  test("surfaces failed tool count in the collapsed trace bar and expands details when defaultOpen", () => {
     const html = renderToStaticMarkup(
       <ReasoningTrace segment={makeTurnSegment({ toolIsError: true })} defaultOpen />,
     );

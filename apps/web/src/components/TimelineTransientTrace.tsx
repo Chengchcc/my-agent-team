@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { t } from "@/lib/i18n";
 import type { LiveToolCall } from "@/lib/transient-reducer";
 import { cn } from "@/lib/utils";
@@ -15,14 +15,22 @@ interface TimelineTransientTraceProps {
   ordered?: ReadonlyArray<{ type: "text" | "thinking"; text: string }>;
 }
 
-/** Live trace for an active streaming run:
- *  - While running, shows a single compact live status bar (`● Running … ▾`)
- *    so the user always sees live progress without flooding the canvas.
- *  - Clicking expands to inspect real-time thinking fragments and live tool
- *    steps; once the run settles, `ReasoningTrace` takes over in its default
- *    collapsed state below the final answer. */
+/** Live trace for an active streaming run (Codex / Antigravity style):
+ *  - Sits above the streaming reply so transitioning to the settled
+ *    `ReasoningTrace` keeps zero layout jump.
+ *  - Shows a single pulsing status line + live elapsed timer (`4s`); clicking
+ *    expands real-time thinking fragments and live tool steps. */
 export function TimelineTransientTrace({ thinking, tools, ordered }: TimelineTransientTraceProps) {
   const [open, setOpen] = useState(false);
+  const [elapsedSec, setElapsedSec] = useState(0);
+
+  useEffect(() => {
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      setElapsedSec(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const thinkingParts =
     ordered && ordered.length > 0
@@ -49,13 +57,13 @@ export function TimelineTransientTrace({ thinking, tools, ordered }: TimelineTra
   const hasDetails = tools.length > 0 || thinkingParts.length > 0;
 
   return (
-    <div data-slot="live-trace-bar" className="mt-2 min-w-0 w-full">
+    <div data-slot="live-trace-bar" className="mb-2 min-w-0 w-full">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger
           disabled={!hasDetails}
           className={cn(
-            "group inline-flex max-w-full items-center gap-2 rounded-md border border-(--hairline) bg-(--canvas-soft)/70 px-2.5 py-1 text-left transition-colors hover:bg-(--canvas-soft)",
-            errorCount > 0 && "border-(--err)/40 bg-(--err)/[0.04]",
+            "group inline-flex max-w-full items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-(--panel)",
+            errorCount > 0 && "text-(--err)",
           )}
         >
           <span
@@ -65,7 +73,12 @@ export function TimelineTransientTrace({ thinking, tools, ordered }: TimelineTra
             )}
             aria-hidden
           />
-          <span className="truncate text-[11px] font-medium text-(--ink)">{statusLine}</span>
+          <span className="truncate text-[12px] font-medium text-(--ink)">{statusLine}</span>
+          {elapsedSec > 0 && (
+            <span className="shrink-0 font-mono text-[10px] text-(--faint) tabular-nums">
+              {elapsedSec}s
+            </span>
+          )}
           {errorCount > 0 && (
             <span className="shrink-0 rounded bg-(--err)/12 px-1.5 py-0.5 font-mono text-[10px] font-medium text-(--err) tabular-nums">
               {t("{n} failed", { n: errorCount })}
@@ -73,19 +86,19 @@ export function TimelineTransientTrace({ thinking, tools, ordered }: TimelineTra
           )}
           {hasDetails &&
             (open ? (
-              <ChevronDown size={13} className="shrink-0 text-(--mute)" />
+              <ChevronDown size={13} className="shrink-0 text-(--faint)" />
             ) : (
-              <ChevronRight size={13} className="shrink-0 text-(--mute)" />
+              <ChevronRight size={13} className="shrink-0 text-(--faint)" />
             ))}
         </CollapsibleTrigger>
 
         {hasDetails && (
           <CollapsibleContent>
-            <div className="mt-2 space-y-1.5 border-l-2 border-(--primary)/30 pl-3">
+            <div className="mt-1.5 ml-1.5 space-y-1.5 border-l border-(--primary)/35 pl-3 pb-1">
               {thinkingParts.map((chunk, i) => (
                 <div
                   key={`live-think-${i}`}
-                  className="rounded-md bg-(--canvas-soft)/50 px-2.5 py-1.5 text-xs italic text-(--mute) whitespace-pre-wrap"
+                  className="rounded-md bg-(--panel)/50 px-2.5 py-1.5 text-xs italic text-(--mute) whitespace-pre-wrap"
                 >
                   {chunk}
                 </div>

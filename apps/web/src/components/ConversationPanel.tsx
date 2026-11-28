@@ -42,6 +42,8 @@ export interface ConversationPanelProps {
   anchorSeq?: number | null;
   /** Heading of the empty state. The chat page names the agent; an embedded view leaves it out. */
   emptyTitle?: ReactNode;
+  /** Optional secondary copy under the empty-state heading. */
+  emptyDescription?: ReactNode;
   /** Skills the conversation's agent can load, offered in the `/` picker. */
   skills?: readonly SkillCommand[];
   /** Domain skill pinned in the composer bar by default (e.g. /member_manage). */
@@ -69,6 +71,7 @@ export function ConversationPanel({
   conversation,
   anchorSeq,
   emptyTitle,
+  emptyDescription,
   skills,
   recommendedSkill,
   showSkillChips,
@@ -172,13 +175,20 @@ export function ConversationPanel({
     [transients],
   );
   const [scrolledUp, setScrolledUp] = useState(false);
+  const [hasNewBelow, setHasNewBelow] = useState(false);
+  const [starterDraft, setStarterDraft] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    if (items.length > prevLen.current && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    const grew = items.length > prevLen.current;
     prevLen.current = items.length;
-    // Streaming bubbles grow without changing items.length — follow them.
+    if (grew) {
+      if (!scrolledUp && scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      } else if (scrolledUp) {
+        setHasNewBelow(true);
+      }
+    }
+    // Streaming bubbles grow without changing items.length — follow them only when pinned to bottom.
     if (transientTextLen > 0 && !scrolledUp && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
@@ -204,6 +214,7 @@ export function ConversationPanel({
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+      setHasNewBelow(false);
     }
   }, []);
 
@@ -212,6 +223,7 @@ export function ConversationPanel({
     if (!el) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     setScrolledUp(!atBottom);
+    if (atBottom) setHasNewBelow(false);
   }, []);
 
   // Cmd+K ?at=seq: scroll to the message and flash-highlight it.
@@ -338,13 +350,35 @@ export function ConversationPanel({
                 // room with 400 messages (audit 2026-11-24).
                 <p className="px-1 py-8 text-sm text-(--mute)">{t("Loading…")}</p>
               ) : items.length === 0 ? (
-                <div className="flex flex-col items-start justify-center py-24">
+                <div className="mx-auto flex max-w-md flex-col items-center justify-center py-24 text-center">
                   {emptyTitle}
-                  <p className="text-sm text-(--mute) mb-1">
-                    {t("Send a message to start the conversation")}
-                  </p>
-                  <p className="text-[11px] text-(--faint)">
-                    {t("Ctrl+Enter to send · Shift+Enter for newline")}
+                  {emptyDescription && (
+                    <p className="mt-1.5 text-xs leading-relaxed text-(--mute)">
+                      {emptyDescription}
+                    </p>
+                  )}
+                  {!emptyDescription && (
+                    <p className="mt-1 text-sm text-(--mute)">
+                      {t("Send a message to start the conversation")}
+                    </p>
+                  )}
+                  {skills && skills.length > 0 && (
+                    <div className="mt-5 flex flex-wrap justify-center gap-1.5">
+                      {skills.slice(0, 4).map((skill) => (
+                        <button
+                          key={skill.command}
+                          type="button"
+                          onClick={() => setStarterDraft(`${skill.command} `)}
+                          title={skill.description}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-(--hairline) bg-(--panel)/70 px-3 py-1 font-mono text-[11px] text-(--body) transition-colors hover:border-(--primary)/45 hover:bg-(--panel) hover:text-(--ink)"
+                        >
+                          {skill.command}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <p className="mt-4 font-mono text-[10px] text-(--faint)">
+                    {t("Enter to send · Shift+Enter for newline · / for commands")}
                   </p>
                 </div>
               ) : (
@@ -393,24 +427,32 @@ export function ConversationPanel({
             </div>
           </div>
 
-          {/* Scroll-to-bottom — positioned inside the left chat column above the composer */}
+          {/* Scroll-to-bottom — floats cleanly above the docked composer */}
           {scrolledUp && (
             <Button
+              type="button"
+              size="sm"
+              variant="outline"
               onClick={scrollToBottom}
-              className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 bg-(--canvas) border border-(--hairline) rounded-full p-2 hover:border-(--primary) transition-colors"
+              className="absolute bottom-28 left-1/2 z-20 h-7 -translate-x-1/2 gap-1.5 rounded-full border-(--hairline-soft) bg-(--panel)/95 px-3 text-[11px] text-(--ink) backdrop-blur hover:border-(--primary)/60"
               title={t("Back to bottom")}
             >
-              <ArrowDown size={14} className="text-(--body)" />
+              <ArrowDown size={13} className="text-(--primary)" />
+              <span>{hasNewBelow ? t("New messages") : t("Jump to latest")}</span>
             </Button>
           )}
 
-          {/* Composer — anchored strictly to the left chat column */}
-          <div className="shrink-0 border-t border-(--hairline)">
+          {/* Composer — docked cleanly at the bottom with soft gradient fade */}
+          <div className="relative shrink-0 bg-(--canvas)">
+            <div
+              className="pointer-events-none absolute inset-x-0 -top-6 h-6 bg-linear-to-t from-(--canvas) to-transparent"
+              aria-hidden
+            />
             {streamConn !== "open" && (
-              <div className="flex items-center gap-2 px-6 pt-2">
+              <div className="mx-auto flex max-w-[min(760px,100%)] items-center gap-2 px-6 pt-1">
                 <Badge
                   variant={streamConn === "closed" ? "destructive" : "secondary"}
-                  className="ml-auto text-[10px] h-4 px-1.5"
+                  className="ml-auto h-4 px-1.5 text-[10px]"
                 >
                   {connectionBadgeLabel(streamConn)}
                 </Badge>
@@ -421,13 +463,13 @@ export function ConversationPanel({
               onSend={send}
               onSlashCommand={handleSlashCommand}
               disabled={false}
-              placeholder={busy ? t("Steer the agent...") : t("Send a message...")}
+              placeholder={busy ? t("Steer or queue a follow-up…") : t("Ask anything…")}
               isBusy={busy}
               onStop={currentRunId ? stopRun : undefined}
               skills={skills}
               recommendedSkill={recommendedSkill}
               showSkillChips={showSkillChips}
-              draft={draft}
+              draft={draft ?? starterDraft}
             />
           </div>
         </div>

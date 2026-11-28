@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowUp, CornerDownLeft, Slash, Sparkles } from "lucide-react";
+import { ArrowUp, CornerDownLeft, Slash, Sparkles, Square } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ConversationDensityContext } from "@/components/conversation-density";
@@ -70,7 +70,7 @@ export function Composer({
   onSend,
   onSlashCommand,
   disabled,
-  placeholder = t("Type a message… Ctrl+Enter to send"),
+  placeholder = t("Ask anything… Enter to send"),
   isBusy,
   onStop,
   skills,
@@ -401,6 +401,11 @@ export function Composer({
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       handleSend();
+      return;
+    }
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      handleSend();
     }
   };
 
@@ -432,8 +437,10 @@ export function Composer({
 
   const showSkillStrip = recommendedSkill !== undefined || extraSkillChips.length > 0;
 
+  const hasText = value.trim().length > 0;
+
   return (
-    <div className={cn("pt-2", tight ? "px-4 pb-4" : "px-6 pb-5")}>
+    <div className={cn("pt-1", tight ? "px-3.5 pb-3.5" : "px-4 pb-4 sm:px-6")}>
       {conversationId !== "" && inputsQuery.data && (
         <ComposerInputQueue
           inputs={inputsQuery.data.inputs}
@@ -443,7 +450,7 @@ export function Composer({
           onCancel={(inputId) => cancelMut.mutate(inputId)}
         />
       )}
-      <div className="relative mx-auto" style={{ maxWidth: "72ch" }}>
+      <div className="relative mx-auto max-w-[min(760px,100%)]">
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 pb-2">
             {attachments.map((a, i) => (
@@ -474,7 +481,7 @@ export function Composer({
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDrop}
           className={cn(
-            "rounded-[13px] border border-(--hairline) bg-[#1b1f22] transition-colors focus-within:border-(--primary)/60",
+            "rounded-2xl border border-(--hairline) bg-(--panel) transition-colors focus-within:border-(--primary)/50",
             tight ? "px-3.5 pt-2.5" : "px-4 pt-3",
           )}
         >
@@ -569,33 +576,44 @@ export function Composer({
                 </Button>
               )}
             </div>
-            {isBusy && onStop ? (
-              <Button
-                onClick={onStop}
-                size="icon"
-                className={cn(
-                  "rounded-full bg-(--err)/15 hover:bg-(--err)/25",
-                  tight ? "size-[32px]" : "size-[35px]",
-                )}
-                title="Stop run"
-                aria-label="Stop"
-              >
-                <span className="size-2.5 rounded-full bg-(--err) animate-pulse" />
-              </Button>
-            ) : (
-              <Button
-                onClick={handleSend}
-                disabled={disabled || !value.trim()}
-                size="icon"
-                className={cn(
-                  "rounded-full bg-(--primary) text-[#172421] hover:bg-[rgb(201,248,223)]",
-                  tight ? "size-[32px]" : "size-[35px]",
-                )}
-                aria-label="Send"
-              >
-                <ArrowUp size={16} className="shrink-0" />
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {!tight && (
+                <span className="hidden font-mono text-[10px] text-(--faint) sm:inline">
+                  {t("Enter send · Shift+Enter newline")}
+                </span>
+              )}
+              {isBusy && onStop && (
+                <Button
+                  type="button"
+                  onClick={onStop}
+                  size="icon"
+                  className={cn(
+                    "rounded-full bg-(--err)/15 text-(--err) hover:bg-(--err)/25",
+                    tight ? "size-8" : "size-8",
+                  )}
+                  title={t("Stop run")}
+                  aria-label={t("Stop")}
+                >
+                  <Square className="size-3 fill-current" />
+                </Button>
+              )}
+              {(!isBusy || !onStop || hasText) && (
+                <Button
+                  type="button"
+                  onClick={handleSend}
+                  disabled={disabled || !hasText}
+                  size="icon"
+                  className={cn(
+                    "rounded-full bg-(--primary) text-(--on-primary) hover:bg-(--primary)/90 disabled:opacity-35",
+                    tight ? "size-8" : "size-8",
+                  )}
+                  title={isBusy ? t("Steer / queue message") : t("Send")}
+                  aria-label={isBusy ? t("Steer") : t("Send")}
+                >
+                  <ArrowUp size={15} className="shrink-0" />
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 

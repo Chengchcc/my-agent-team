@@ -4,7 +4,6 @@ import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/message"
 import { FileTextIcon } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { useAgentList } from "@/features/agents/hooks";
 import type { ArtifactMeta } from "@/lib/api";
 import type { UiItem } from "@/lib/conversation-reducer";
@@ -52,6 +51,7 @@ interface TurnAnchor {
   id: string;
   seq: number;
   elementId: string;
+  preview: string;
 }
 
 /** Split an anchored comment's display: the baked `[file Lx-y] ` prefix
@@ -159,7 +159,14 @@ function extractAnchors(segments: TurnSegment[]): TurnAnchor[] {
     if (isTurnStart(segments, i)) {
       turnNum++;
       const id = segmentId(seg);
-      anchors.push({ id: `turn-${id}`, seq: turnNum, elementId: `turn-${id}` });
+      const raw =
+        seg.kind === "single"
+          ? extractText(seg.item.content)
+          : seg.kind === "turn" && seg.conclusion
+            ? extractText(seg.conclusion.content)
+            : "";
+      const preview = raw.replace(/\s+/g, " ").trim().slice(0, 64);
+      anchors.push({ id: `turn-${id}`, seq: turnNum, elementId: `turn-${id}`, preview });
     }
   }
   return anchors;
@@ -304,39 +311,56 @@ export function Timeline({
     }
     return items;
   }, [segments]);
-  // Index (into renderItems) of the LAST real message segment — the regen
-  // affordance lives there only.
-  const lastMessageIdx = useMemo(() => {
+  // Index (into renderItems) of the LAST agent message segment (either `turn` or `single`) —
+  // the Regenerate affordance lives on the latest agent reply only.
+  const lastAgentIdx = useMemo(() => {
     for (let i = renderItems.length - 1; i >= 0; i--) {
-      if (renderItems[i]!.seg.kind === "single") return i;
+      const seg = renderItems[i]!.seg;
+      if (seg.kind === "turn") return i;
+      if (seg.kind === "single" && seg.item.sender.kind === "agent") return i;
     }
     return -1;
   }, [renderItems]);
 
+  const latestUserText = useMemo(() => {
+    for (let j = messages.length - 1; j >= 0; j--) {
+      const prev = messages[j]!;
+      if (prev.kind === "message" && prev.sender.kind === "human") {
+        const txt = extractText(prev.content).trim();
+        if (txt) return txt;
+      }
+    }
+    return null;
+  }, [messages]);
+
   return (
     <div className="flex gap-0">
-      {/* Anchor nav — right side, subtle; only shown when there are multiple turns to jump between */}
+      {/* Antigravity / Codex hairline turn tick rail — right edge, whisper-quiet until hovered */}
       {anchors.length > 1 && (
-        <div className="relative z-10 order-2 w-8 shrink-0">
-          <div className="sticky top-20 z-10 flex flex-col items-center gap-1 py-2">
-            {anchors.map((a) => (
-              <Button
-                key={a.id}
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => scrollToAnchor(a.elementId)}
-                className={cn(
-                  "pointer-events-auto rounded-sm p-0 font-mono text-[10px]",
-                  "text-(--mute) hover:bg-(--canvas-soft) hover:text-(--ink)",
-                  a.elementId === activeAnchor &&
-                    "bg-(--primary) text-(--ink-strong) hover:bg-(--primary)",
-                )}
-                title={`Turn ${a.seq}`}
-              >
-                {a.seq}
-              </Button>
-            ))}
+        <div className="relative z-10 order-2 hidden w-6 shrink-0 sm:block">
+          <div className="sticky top-20 z-10 flex flex-col items-end gap-1.5 py-2 pr-0.5">
+            {anchors.map((a) => {
+              const active = a.elementId === activeAnchor;
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => scrollToAnchor(a.elementId)}
+                  aria-label={`Turn ${a.seq}${a.preview ? `: ${a.preview}` : ""}`}
+                  title={`#${a.seq}${a.preview ? ` · ${a.preview}` : ""}`}
+                  className="group/tick flex h-2.5 w-5 items-center justify-end py-1"
+                >
+                  <span
+                    className={cn(
+                      "block h-[2px] rounded-full transition-all duration-150",
+                      active
+                        ? "w-4 bg-(--primary)"
+                        : "w-2 bg-(--hairline-soft) group-hover/tick:w-3.5 group-hover/tick:bg-(--mute)",
+                    )}
+                  />
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -346,33 +370,81 @@ export function Timeline({
         <div className="mx-auto max-w-[min(48rem,100%)] w-full">
           {renderItems.map(({ seg, anchorId }, ri) => {
             if (seg.kind === "turn") {
-              // Agent turn blocks never start a turn, so they carry no anchor.
               const first = seg.rounds[0] ?? seg.conclusion;
               const last = seg.conclusion ?? seg.rounds[seg.rounds.length - 1];
               const firstIdx = first ? messages.indexOf(first) : -1;
               const lastIdx = last ? messages.indexOf(last) : -1;
-              // The turn's run is what may have dispatched: agent replies are
-              // rendered HERE (ReasoningTrace), not through the single-item
-              // branch below - attaching the tree there made it invisible in
-              // the live page (found by product test, 2026-11-18).
               const turnRunId = (first && runIdOf(first)) ?? (last ? runIdOf(last) : null);
               const firstBounds =
                 firstIdx >= 0
                   ? senderGroupBounds(messages, firstIdx)
                   : { showSender: false, isFirst: true, isLast: false };
+              const actionItem = seg.conclusion ?? last;
+              const turnUndone = actionItem?.undone === true;
+              const canActTurn = actionItem !== undefined && actionItem.seq >= 0 && !turnUndone;
+              const turnRegen =
+                ri === lastAgentIdx && actionItem?.content.state !== "streaming" && latestUserText
+                  ? { prevUserText: latestUserText }
+                  : null;
+              const turnCopyText = seg.conclusion
+                ? extractText(seg.conclusion.content)
+                : last
+                  ? extractText(last.content)
+                  : "";
+              const turnArtifacts = turnRunId ? (artifactsByRunId?.get(turnRunId) ?? []) : [];
+
               return (
-                <div key={seg.id}>
-                  <ReasoningTrace
-                    segment={seg}
-                    defaultOpen={false}
-                    senderName={resolveSenderName(seg.sender)}
-                    showSender={hasMultipleAgents && firstBounds.showSender}
-                    isFirst={firstBounds.isFirst}
-                    isLast={lastIdx >= 0 ? senderGroupBounds(messages, lastIdx).isLast : false}
-                  />
+                <div
+                  key={seg.id}
+                  data-seq={actionItem?.seq}
+                  className={cn("group relative", turnUndone && "opacity-50")}
+                >
+                  {actionItem ? (
+                    <TimelineMessageActions
+                      conversationId={conversationId}
+                      item={actionItem}
+                      canAct={canActTurn}
+                      copyText={turnCopyText}
+                      regen={turnRegen}
+                      onMarkUndone={onMarkUndone}
+                    >
+                      <ReasoningTrace
+                        segment={seg}
+                        defaultOpen={false}
+                        senderName={resolveSenderName(seg.sender)}
+                        showSender={hasMultipleAgents && firstBounds.showSender}
+                        isFirst={firstBounds.isFirst}
+                        isLast={lastIdx >= 0 ? senderGroupBounds(messages, lastIdx).isLast : false}
+                      />
+                    </TimelineMessageActions>
+                  ) : (
+                    <ReasoningTrace
+                      segment={seg}
+                      defaultOpen={false}
+                      senderName={resolveSenderName(seg.sender)}
+                      showSender={hasMultipleAgents && firstBounds.showSender}
+                      isFirst={firstBounds.isFirst}
+                      isLast={lastIdx >= 0 ? senderGroupBounds(messages, lastIdx).isLast : false}
+                    />
+                  )}
+                  {turnUndone && (
+                    <div className="mt-0.5 text-[10px] italic text-(--mute)">↳ undone</div>
+                  )}
                   {turnRunId ? (
                     <DispatchTree conversationId={conversationId} parentRunId={turnRunId} />
                   ) : null}
+                  {turnArtifacts.length > 0 && onPreviewArtifact && onDownloadArtifact && (
+                    <div className="mt-2 space-y-1">
+                      {turnArtifacts.map((a) => (
+                        <ArtifactCard
+                          key={a.url}
+                          artifact={a}
+                          onPreview={onPreviewArtifact}
+                          onDownload={onDownloadArtifact}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             }
@@ -396,23 +468,14 @@ export function Timeline({
             };
             // Skip hover actions on optimistic (seq=-1) messages - no backend target yet.
             const canAct = m.seq >= 0 && !isUndone;
-            // Regen offered only on the LATEST assistant message: find the
-            // nearest preceding human text to resend after undo.
-            let regen: { prevUserText: string } | null = null;
-            if (
-              ri === lastMessageIdx &&
+            // Regen offered only on the LATEST assistant message.
+            const regen =
+              ri === lastAgentIdx &&
               m.sender.kind === "agent" &&
-              m.content.state !== "streaming"
-            ) {
-              for (let j = messages.length - 2; j >= 0; j--) {
-                const prev = messages[j]!;
-                if (prev.kind === "message" && prev.sender.kind === "human") {
-                  const t = extractText(prev.content).trim();
-                  if (t) regen = { prevUserText: t };
-                  break;
-                }
-              }
-            }
+              m.content.state !== "streaming" &&
+              latestUserText
+                ? { prevUserText: latestUserText }
+                : null;
 
             return (
               <div key={m.id} id={anchorId} className={anchorId ? "scroll-mt-16" : undefined}>
@@ -511,6 +574,15 @@ export function Timeline({
             const hasLiveTrace = tools.length > 0 || hasLiveThinking;
             return (
               <div key={`transient-${t.runId}`} className="group relative mt-4">
+                {/* Chronological live trace ABOVE streaming answer (matches settled ReasoningTrace) */}
+                {hasLiveTrace && (
+                  <TimelineTransientTrace
+                    msgCount={showBubble ? 1 : 0}
+                    thinking={t.thinking}
+                    tools={tools}
+                    ordered={t.ordered}
+                  />
+                )}
                 {showBubble && (
                   <MessageBubble
                     align="left"
@@ -520,16 +592,8 @@ export function Timeline({
                     isStreaming={!t.error}
                     state={t.error ? "error" : undefined}
                     error={t.error}
-                    showSender={hasMultipleAgents}
+                    showSender={hasMultipleAgents && !hasLiveTrace}
                     isFirst={false}
-                  />
-                )}
-                {hasLiveTrace && (
-                  <TimelineTransientTrace
-                    msgCount={showBubble ? 1 : 0}
-                    thinking={t.thinking}
-                    tools={tools}
-                    ordered={t.ordered}
                   />
                 )}
                 {!showBubble && !hasLiveTrace && !t.approval && !t.ask && (

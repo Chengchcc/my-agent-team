@@ -1,7 +1,7 @@
 "use client";
 
 import { hasDedicatedEvent } from "@chengchenccc/api-contract";
-import { AlertCircle, ChevronDown, ChevronRight, Sparkles, Wrench } from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronRight, Sparkles } from "lucide-react";
 import { useState } from "react";
 import type { TurnSegment } from "@/lib/conversation-reducer";
 import { t } from "@/lib/i18n";
@@ -37,11 +37,83 @@ function extractThinking(blocks: readonly unknown[] | undefined): ThinkingBlock[
   );
 }
 
-/** Per-turn reasoning trace (Antigravity conclusion-first anatomy):
- *  - Every user-facing answer (any consecutive standalone reply with no
- *    tool calls plus the final `conclusion`) renders visibly at full width.
- *  - All thinking blocks and tool-calling rounds fold into a single compact
- *    collapsible bar below the reply (default closed).
+/** Codex / Antigravity semantic summary of tool calls in a turn:
+ *  groups reads/searches, edits/writes, commands, web lookups, and other calls
+ *  into a concise human-readable line (e.g. "Explored 3 files · ran 1 command"). */
+export function summarizeToolSteps(toolNames: readonly string[]): string {
+  if (toolNames.length === 0) return "";
+  let reads = 0;
+  let edits = 0;
+  let cmds = 0;
+  let web = 0;
+  let other = 0;
+  for (const raw of toolNames) {
+    const n = raw.toLowerCase();
+    if (
+      n.includes("read") ||
+      n.includes("grep") ||
+      n.includes("glob") ||
+      n.includes("search") ||
+      n.includes("list") ||
+      n.includes("ls") ||
+      n.includes("tree") ||
+      n.includes("query") ||
+      n.includes("history_")
+    ) {
+      reads++;
+    } else if (
+      n.includes("edit") ||
+      n.includes("write") ||
+      n.includes("patch") ||
+      n.includes("save")
+    ) {
+      edits++;
+    } else if (
+      n.includes("bash") ||
+      n.includes("exec") ||
+      n.includes("eval") ||
+      n.includes("shell") ||
+      n.includes("run")
+    ) {
+      cmds++;
+    } else if (
+      n.includes("web") ||
+      n.includes("fetch") ||
+      n.includes("http") ||
+      n.includes("browser")
+    ) {
+      web++;
+    } else {
+      other++;
+    }
+  }
+  const parts: string[] = [];
+  if (reads > 0)
+    parts.push(reads === 1 ? t("Explored 1 item") : t("Explored {n} items", { n: reads }));
+  if (edits > 0) parts.push(edits === 1 ? t("edited 1 file") : t("edited {n} files", { n: edits }));
+  if (cmds > 0) parts.push(cmds === 1 ? t("ran 1 command") : t("ran {n} commands", { n: cmds }));
+  if (web > 0)
+    parts.push(web === 1 ? t("checked 1 web source") : t("checked {n} web sources", { n: web }));
+  if (other > 0) {
+    parts.push(
+      parts.length === 0
+        ? other === 1
+          ? t("Ran 1 tool")
+          : t("Ran {n} tools", { n: other })
+        : other === 1
+          ? t("1 other step")
+          : t("{n} other steps", { n: other }),
+    );
+  }
+  const joined = parts.join(", ");
+  return joined.charAt(0).toUpperCase() + joined.slice(1);
+}
+
+/** Per-turn reasoning trace (Codex / Antigravity chronological anatomy):
+ *  - Whisper-quiet collapsible thinking + tool summary sits ABOVE the answer
+ *    (matching natural execution flow with zero layout jump after streaming).
+ *  - Every user-facing answer (standalone replies + final conclusion) renders
+ *    visibly at full width in clean editorial Markdown.
  *  - Tools with a dedicated surface event (`todo_write`, `ask_question`) stay
  *    outside this generic trace so they are never duplicated or buried. */
 export function ReasoningTrace({
@@ -95,13 +167,6 @@ export function ReasoningTrace({
     : "";
   const conclusionThinking = conclusion ? extractThinking(conclusion.content.blocks) : [];
 
-  // Visible replies:
-  // 1. Any round with no tool calls and non-empty text is a standalone reply
-  //    (e.g., an earlier run's conclusion inside a consecutive PA burst) —
-  //    never bury real replies inside the thinking/tooling drawer.
-  // 2. The final conclusion (if non-empty).
-  // 3. Fallback: if both are empty (turn stopped mid-tool-loop), promote the
-  //    last non-empty tool-round narrative so the turn never looks blank.
   const visibleReplies: Array<{ id: string; text: string; createdAt?: number }> = [];
   const visibleRoundIds = new Set<string>();
 
@@ -129,81 +194,74 @@ export function ReasoningTrace({
     }
   }
 
-  // Count steps, thinking fragments, and errors across the whole turn.
-  let toolCount = 0;
+  const allToolNames: string[] = [];
   let errorCount = 0;
   let thinkingCount = conclusionThinking.length;
   for (const r of roundEntries) {
     thinkingCount += r.thinking.length;
-    toolCount += r.tools.length;
     for (const tool of r.tools) {
+      allToolNames.push(tool.name);
       if (resultMap.get(tool.id)?.isError) errorCount++;
     }
   }
-
+  const toolCount = allToolNames.length;
   const hasTrace = toolCount > 0 || thinkingCount > 0;
   const lastCreatedAt =
     visibleReplies[visibleReplies.length - 1]?.createdAt ??
     conclusion?.content.createdAt ??
     roundEntries[roundEntries.length - 1]?.m.content.createdAt;
 
-  const summaryLabel =
-    thinkingCount > 0 && toolCount > 0
-      ? t("View thinking & tool steps")
-      : toolCount > 0
-        ? t("View tool steps")
-        : t("View thinking");
+  const semanticTools = summarizeToolSteps(allToolNames);
+  const summaryLabel = toolCount > 0 ? semanticTools : t("Thought process");
 
   return (
     <div data-slot="reasoning-turn" className="min-w-0 w-full">
-      {/* 1. User-facing replies — conclusion first, full width */}
-      {visibleReplies.map((reply, idx) => (
-        <MessageBubble
-          key={reply.id}
-          align="left"
-          name={name}
-          createdAt={reply.createdAt}
-          content={reply.text}
-          showSender={showSender && idx === 0}
-          isFirst={isFirst && idx === 0}
-          isLast={isLast && !hasTrace && idx === visibleReplies.length - 1}
-        />
-      ))}
+      {/* Optional multi-agent sender label sits once at top of the turn */}
+      {showSender && name && hasTrace && (
+        <div className={cn("text-[11px] font-medium text-(--primary)", isFirst ? "mt-5" : "mt-2")}>
+          {name}
+        </div>
+      )}
 
-      {/* 2. Collapsed thinking + tooling drawer below the reply */}
+      {/* 1. Whisper-quiet collapsible thought & work trace ABOVE the reply */}
       {hasTrace && (
         <div
           data-slot="reasoning-trace-drawer"
           className={cn(
             "min-w-0 w-full",
-            visibleReplies.length > 0 ? "mt-2" : isFirst ? "mt-5" : "mt-1.5",
+            showSender && name ? "mt-1" : isFirst ? "mt-4" : "mt-2",
+            visibleReplies.length > 0 && "mb-2",
           )}
         >
           <Collapsible open={openTrace} onOpenChange={setOpenTrace}>
             <CollapsibleTrigger
               className={cn(
-                "group inline-flex max-w-full items-center gap-1.5 rounded-md border border-(--hairline)/80 bg-(--canvas-soft)/50 px-2.5 py-1 text-left transition-colors hover:border-(--hairline) hover:bg-(--canvas-soft)",
-                errorCount > 0 && "border-(--err)/40 bg-(--err)/[0.04]",
+                "group inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-(--panel)",
+                errorCount > 0 && "text-(--err)",
               )}
             >
               {openTrace ? (
-                <ChevronDown size={13} className="shrink-0 text-(--mute)" />
+                <ChevronDown
+                  size={13}
+                  className="shrink-0 text-(--faint) group-hover:text-(--mute)"
+                />
               ) : (
-                <ChevronRight size={13} className="shrink-0 text-(--mute)" />
+                <ChevronRight
+                  size={13}
+                  className="shrink-0 text-(--faint) group-hover:text-(--mute)"
+                />
               )}
               {errorCount > 0 ? (
                 <AlertCircle size={12} className="shrink-0 text-(--err)" />
-              ) : toolCount > 0 ? (
-                <Wrench size={12} className="shrink-0 text-(--mute)" />
-              ) : (
+              ) : thinkingCount > 0 && toolCount === 0 ? (
                 <Sparkles size={12} className="shrink-0 text-(--accent-violet)/80" />
-              )}
-              <span className="truncate text-[11px] font-medium text-(--mute) group-hover:text-(--ink)">
+              ) : null}
+              <span className="truncate text-[12px] font-medium text-(--mute) group-hover:text-(--ink)">
                 {summaryLabel}
               </span>
               {toolCount > 0 && (
                 <span className="shrink-0 font-mono text-[10px] text-(--faint) tabular-nums">
-                  · {t("{n} steps", { n: toolCount })}
+                  · {toolCount === 1 ? t("1 step") : t("{n} steps", { n: toolCount })}
                 </span>
               )}
               {errorCount > 0 && (
@@ -217,18 +275,18 @@ export function ReasoningTrace({
             </CollapsibleTrigger>
 
             <CollapsibleContent>
-              <div className="mt-2 space-y-2 border-l-2 border-(--hairline) pl-3">
+              <div className="mt-1.5 ml-1.5 space-y-1.5 border-l border-(--hairline) pl-3 pb-1">
                 {roundEntries.map(({ m, thinking, narrative, tools }) => {
                   const showNarrativeInTrace = Boolean(narrative && !visibleRoundIds.has(m.id));
                   if (thinking.length === 0 && !showNarrativeInTrace && tools.length === 0) {
                     return null;
                   }
                   return (
-                    <div key={m.id} className="min-w-0 w-full space-y-1.5">
+                    <div key={m.id} className="min-w-0 w-full space-y-1">
                       {thinking.map((b, bi) => (
                         <div
                           key={`${m.id}:think:${bi}`}
-                          className="rounded-md bg-(--canvas-soft)/50 px-2.5 py-1.5 text-xs text-(--mute)"
+                          className="rounded-md bg-(--panel)/50 px-2.5 py-1.5 text-xs text-(--mute)"
                         >
                           <Markdown text={b.text} tone="muted" />
                         </div>
@@ -239,7 +297,7 @@ export function ReasoningTrace({
                         </div>
                       )}
                       {tools.length > 0 && (
-                        <div className="min-w-0 w-full space-y-1.5">
+                        <div className="min-w-0 w-full space-y-0.5">
                           {tools.map((tool) => (
                             <ToolStep
                               key={tool.id}
@@ -256,7 +314,7 @@ export function ReasoningTrace({
                 {conclusionThinking.map((b, bi) => (
                   <div
                     key={`conclusion:think:${bi}`}
-                    className="rounded-md bg-(--canvas-soft)/50 px-2.5 py-1.5 text-xs text-(--mute)"
+                    className="rounded-md bg-(--panel)/50 px-2.5 py-1.5 text-xs text-(--mute)"
                   >
                     <Markdown text={b.text} tone="muted" />
                   </div>
@@ -264,16 +322,31 @@ export function ReasoningTrace({
               </div>
             </CollapsibleContent>
           </Collapsible>
+        </div>
+      )}
 
-          {isLast && lastCreatedAt && (
-            <div className="mt-1 font-code-sm text-code-sm text-(--faint) tabular-nums">
-              {new Date(lastCreatedAt).toLocaleTimeString(undefined, {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-              })}
-            </div>
-          )}
+      {/* 2. User-facing replies — clean full-width editorial Markdown */}
+      {visibleReplies.map((reply, idx) => (
+        <MessageBubble
+          key={reply.id}
+          align="left"
+          name={name}
+          createdAt={reply.createdAt}
+          content={reply.text}
+          showSender={showSender && !hasTrace && idx === 0}
+          isFirst={isFirst && !hasTrace && idx === 0}
+          isLast={isLast && idx === visibleReplies.length - 1}
+        />
+      ))}
+
+      {/* Timestamp when a turn has trace only and no visible reply */}
+      {visibleReplies.length === 0 && isLast && lastCreatedAt && (
+        <div className="mt-1 font-code-sm text-code-sm text-(--faint) tabular-nums">
+          {new Date(lastCreatedAt).toLocaleTimeString(undefined, {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          })}
         </div>
       )}
     </div>
