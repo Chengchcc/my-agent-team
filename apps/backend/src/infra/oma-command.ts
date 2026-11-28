@@ -28,7 +28,7 @@ export function collectApiKeyEnv(
 ): Record<string, string | undefined> {
   const out: Record<string, string | undefined> = {};
   for (const [key, value] of Object.entries(env)) {
-    if (key.endsWith("_API_KEY")) out[key] = value;
+    if (key.endsWith("_API_KEY") || key.endsWith("_BASE_URL")) out[key] = value;
   }
   return out;
 }

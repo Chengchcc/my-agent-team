@@ -36,6 +36,8 @@ export interface ProbeHarnessCatalogOptions {
   readonly cwd: string;
   /** Per-registry-key launch override, the AcpBackend convention. */
   readonly commands?: Readonly<Record<string, readonly string[]>>;
+  /** Environment handed to the probed child process. Defaults to `process.env`. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
   /** Transport factory; tests replace it with an in-memory fake. */
   readonly spawnImpl?: AcpSpawn;
   readonly timeoutMs?: number;
@@ -61,7 +63,7 @@ export async function probeHarnessCatalog(
   }
   const argv = opts.commands?.[opts.key] ?? entry.argv;
   const spawn = opts.spawnImpl ?? createNodeSpawn(0);
-  const transport = spawn({ argv: [...argv], cwd: opts.cwd, env: process.env });
+  const transport = spawn({ argv: [...argv], cwd: opts.cwd, env: opts.env ?? process.env });
   const timeoutMs = opts.timeoutMs ?? 30_000;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {

@@ -1,6 +1,6 @@
 import type { AIMessageChunk, ContentBlock, Message, TextBlock } from "@chengchenccc/message";
 import { registerApi } from "../api-registry.js";
-import { resolveAnthropicCompat } from "../compat.js";
+import { resolveAnthropicCompat, resolveEffort, sanitizeSurrogates } from "../compat.js";
 import type { Model, ProviderStreamOptions } from "../types.js";
 
 // ── Request assembly ──────────────────────────────────────────────
@@ -14,7 +14,7 @@ function buildRequest(
   opts?: ProviderStreamOptions,
 ): { url: string; headers: Record<string, string>; body: Record<string, unknown> } {
   const compat = resolveAnthropicCompat(model);
-  const systemMsg = messages.find((m) => m.role === "system");
+  const systemMsgs = messages.filter((m) => m.role === "system");
   const cacheControl = { type: "ephemeral" } as const;
   const effectiveMaxTokens = Math.min(
     opts?.maxTokens !== undefined ? Math.max(1, Math.floor(opts.maxTokens)) : model.maxTokens,
@@ -27,22 +27,21 @@ function buildRequest(
     messages: convertMessages(messages, opts, { allowEmptySignature: compat.allowEmptySignature }),
     stream: true,
   };
-  // System prompt: read text from both m.text and text blocks — some
-  // callers populate only blocks. When cacheControl is enabled and a
-  // system prompt exists, send it as a content-block array with an
-  // ephemeral cache breakpoint on the last block. This turns multi-turn
-  // re-processing of the stable system prompt into cache reads
-  //
-  const systemText = systemMsg
-    ? [
-        systemMsg.text,
-        ...(systemMsg.blocks ?? [])
-          .filter((b): b is TextBlock => b.type === "text")
-          .map((b) => b.text),
+  // System prompt: concatenate ALL system messages (reading both m.text and
+  // text blocks — some callers populate only blocks). When cacheControl is
+  // enabled, send as a content-block array with an ephemeral breakpoint.
+  const systemText = systemMsgs
+    .map((m) =>
+      [
+        m.text,
+        ...(m.blocks ?? []).filter((b): b is TextBlock => b.type === "text").map((b) => b.text),
       ]
         .filter((t): t is string => typeof t === "string" && t.length > 0)
-        .join("\n")
-    : undefined;
+        .map(sanitizeSurrogates)
+        .join("\n"),
+    )
+    .filter((t) => t.length > 0)
+    .join("\n\n");
   if (systemText) {
     if (opts?.cacheControl) {
       request.system = [{ type: "text", text: systemText, cache_control: cacheControl }];
@@ -78,27 +77,33 @@ function buildRequest(
     });
     request.tools = toolList;
   }
-  // Thinking control: forceAdaptiveThinking (Sonnet 4.6+) overrides
-  // caller's type to "adaptive" — the model requires it.
+  // Thinking control: respect explicit `type: "disabled"` even on models with
+  // forceAdaptiveThinking (Sonnet 4.6+/5, Opus 4.8) so callers can turn
+  // thinking off. Otherwise forceAdaptiveThinking upgrades enabled → adaptive.
   if (opts?.thinking) {
-    const type = compat.forceAdaptiveThinking ? "adaptive" : opts.thinking.type;
-    const thinking: Record<string, unknown> = { type };
-    if (opts.thinking.display ?? compat.forceAdaptiveThinking)
-      thinking.display = opts.thinking.display ?? "summarized";
-    if (!compat.forceAdaptiveThinking && opts.thinking.budgetTokens) {
-      // Anthropic requires max_tokens > thinking.budget_tokens (and budget_tokens >= 1024).
-      if (effectiveMaxTokens > 1024) {
-        thinking.budget_tokens = Math.min(opts.thinking.budgetTokens, effectiveMaxTokens - 1);
+    if (opts.thinking.type === "disabled") {
+      request.thinking = { type: "disabled" };
+    } else {
+      const type = compat.forceAdaptiveThinking ? "adaptive" : opts.thinking.type;
+      const thinking: Record<string, unknown> = { type };
+      if (opts.thinking.display ?? compat.forceAdaptiveThinking)
+        thinking.display = opts.thinking.display ?? "summarized";
+      if (!compat.forceAdaptiveThinking && opts.thinking.budgetTokens) {
+        // Anthropic requires max_tokens > thinking.budget_tokens (and budget_tokens >= 1024).
+        if (effectiveMaxTokens > 1024) {
+          thinking.budget_tokens = Math.min(opts.thinking.budgetTokens, effectiveMaxTokens - 1);
+          request.thinking = thinking;
+        }
+      } else {
         request.thinking = thinking;
       }
-    } else {
-      request.thinking = thinking;
     }
   }
   // Effort scales the whole response (thinking included); per the Messages
-  // API it travels in output_config.
-  if (opts?.effort) {
-    request.output_config = { effort: opts.effort };
+  // API it travels in output_config. Map standardized xhigh → Anthropic "max".
+  if (opts?.effort && opts.thinking?.type !== "disabled") {
+    const mappedEffort = resolveEffort(model, opts.effort, { xhigh: "max" });
+    if (mappedEffort) request.output_config = { effort: mappedEffort };
   }
   return {
     url: "/messages",
@@ -114,18 +119,6 @@ function buildRequest(
 // ── Message conversion (canonical → wire) ────────────────────────
 
 type WireBlock = Record<string, unknown>;
-
-/** Replace lone surrogates so partially-decoded text never breaks
- *  strict validators. */
-function sanitizeSurrogates(text: string): string {
-  // Replace only UNPAIRED surrogates:
-  // high surrogate not followed by low, or low surrogate not preceded by
-  // high. Valid surrogate pairs (emoji, CJK ext B) are preserved.
-  return text.replace(
-    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
-    "\uFFFD",
-  );
-}
 
 function toWireBlock(
   b: ContentBlock,
@@ -149,7 +142,7 @@ function toWireBlock(
     return { type: "thinking", thinking: text, signature: b.signature ?? "" };
   }
   if (b.type === "tool_use") {
-    return { type: "tool_use", id: b.id, name: b.name, input: b.input };
+    return { type: "tool_use", id: b.id, name: b.name, input: b.input ?? {} };
   }
   if (b.type === "image") {
     return {
@@ -158,20 +151,21 @@ function toWireBlock(
     };
   }
   if (b.type === "tool_result") {
+    const content = sanitizeSurrogates(b.content);
     return {
       type: "tool_result",
       tool_use_id: b.tool_use_id,
       ...(b.images && b.images.length > 0
         ? {
             content: [
-              ...(b.content.trim() ? [{ type: "text", text: b.content }] : []),
+              ...(content.trim() ? [{ type: "text", text: content }] : []),
               ...b.images.map((img) => ({
                 type: "image",
                 source: { type: "base64", media_type: img.mediaType, data: img.base64 },
               })),
             ],
           }
-        : { content: b.content }),
+        : { content }),
       ...(b.is_error ? { is_error: true } : {}),
     };
   }
@@ -231,15 +225,15 @@ function convertMessages(
     }
     // else: empty message — skip (API rejects empty content).
   }
-  // Merge consecutive user wire messages into one: stream-rule reminders
-  // and steer inputs can follow a user prompt or a tool_result batch, and
-  // strict role alternation rejects back-to-back user turns. Text blocks
-  // concatenate (tool_result blocks + trailing text is a valid user turn).
+  // Merge consecutive same-role wire messages (both user and assistant):
+  // stream-rule reminders / steer inputs can follow a user or tool_result
+  // turn, and skipping an empty turn in the middle can leave adjacent
+  // assistant turns — Anthropic enforces strict role alternation.
   for (let i = 1; i < wire.length; ) {
     const prev = wire[i - 1]!;
     const cur = wire[i]!;
-    if (prev.role === "user" && cur.role === "user") {
-      prev.content = [...toUserBlocks(prev.content), ...toUserBlocks(cur.content)];
+    if (prev.role === cur.role) {
+      prev.content = [...toContentBlocks(prev.content), ...toContentBlocks(cur.content)];
       wire.splice(i, 1);
     } else {
       i++;
@@ -405,7 +399,7 @@ function createChunkConverter(): (raw: Record<string, unknown>) => Generator<AIM
 
 registerApi("anthropic-messages", { buildRequest, createChunkConverter });
 
-function toUserBlocks(content: unknown): WireBlock[] {
+function toContentBlocks(content: unknown): WireBlock[] {
   if (typeof content === "string") return [{ type: "text", text: content }];
   return Array.isArray(content) ? (content as WireBlock[]) : [];
 }

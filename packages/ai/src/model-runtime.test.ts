@@ -76,4 +76,51 @@ describe("ModelRuntime", () => {
     const cat2 = await rt.getCatalog();
     expect(cat1.timestamp).toBe(cat2.timestamp);
   });
+
+  test("resolveModel and stream fall back to MODEL_ALIASES when exact id is absent", async () => {
+    const rt = createModelRuntime();
+    rt.registerProvider(fakeProvider("deepseek", ["deepseek-flash"]));
+    const resolved = await rt.resolveModel("deepseek", "deepseek-chat");
+    expect(resolved.model.modelId).toBe("deepseek-flash");
+    const chunks = [];
+    for await (const c of rt.stream("deepseek", "deepseek-chat", [{ role: "user", text: "hi" }])) {
+      chunks.push(c);
+    }
+    expect(chunks).toHaveLength(1);
+  });
+
+  test("stream shallow-merges credential headers with opts.headers and ignores undefined overrides", async () => {
+    let seenOpts: Record<string, unknown> | undefined;
+    const base = fakeProvider("p1", ["m1"]);
+    const spyProvider: Provider = {
+      ...base,
+      async *stream(_model, _messages, opts) {
+        seenOpts = opts as Record<string, unknown>;
+        yield { delta: { type: "text", text: "ok" } };
+      },
+    };
+    const rt = createModelRuntime({
+      credentialStore: {
+        resolve: async () => ({
+          apiKey: "cred-key",
+          baseUrl: "https://cred.example/v1",
+          headers: { "X-Tenant": "acme", "X-Override": "from-cred" },
+        }),
+      },
+    });
+    rt.registerProvider(spyProvider);
+    for await (const _ of rt.stream("p1", "m1", [{ role: "user", text: "hi" }], {
+      apiKey: undefined,
+      headers: { "X-Override": "from-opts", "X-Trace": "123" },
+    })) {
+      void _;
+    }
+    expect(seenOpts?.apiKey).toBe("cred-key");
+    expect(seenOpts?.baseUrl).toBe("https://cred.example/v1");
+    expect(seenOpts?.headers).toEqual({
+      "X-Tenant": "acme",
+      "X-Override": "from-opts",
+      "X-Trace": "123",
+    });
+  });
 });

@@ -3,6 +3,7 @@ import { type CliArgs, parseArgs, UsageError } from "./cli/args.js";
 import { mergeInitialInput, readPipedStdin, resolveOutputSchemaArg } from "./cli/initial-input.js";
 import { buildBackendModelCatalog } from "./core/runtime/model-catalog.js";
 import { registerBuiltinProviders } from "./core/runtime/run-runtime.js";
+import { maybeBackgroundSyncCatalog, syncRuntimeCatalog } from "./core/runtime/runtime-catalog.js";
 import { parseToolFilter } from "./core/runtime/tool-filter.js";
 import { listSessions } from "./core/session/session-file.js";
 import { resolvePermissionMode } from "./core/settings/project-settings.js";
@@ -51,8 +52,35 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return res.configured ? 0 : 1;
   }
 
+  if (args.syncModels || (args.listModels && process.env.OMA_SYNC_MODELS === "1")) {
+    const syncRes = await syncRuntimeCatalog(process.env, { force: Boolean(args.syncModels) });
+    if (args.syncModels && !args.listModels) {
+      if (!syncRes) {
+        process.stdout.write("Model catalog sync skipped.\n");
+        return 0;
+      }
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            updatedProviders: syncRes.updatedProviders,
+            failedProviders: syncRes.failedProviders,
+            drifted: syncRes.drifted,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      return 0;
+    }
+  }
+
   const modelRuntime = createModelRuntime();
   registerBuiltinProviders(modelRuntime, process.env);
+
+  // Stale-while-revalidate background sync for interactive / print runs (0ms startup cost).
+  if (!args.listModels && !args.doctor) {
+    maybeBackgroundSyncCatalog(process.env);
+  }
 
   // `oma doctor [--json]`: diagnose local CLI providers, tools, sandbox, MCP.
   if (args.doctor) {

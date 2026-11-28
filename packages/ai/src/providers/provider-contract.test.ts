@@ -78,6 +78,55 @@ describe("Provider contract — credential redaction", () => {
     // Raw error object must not be retained
     expect(pe).not.toHaveProperty("raw");
   });
+
+  test("redaction preserves ordinary headers like application/json and version strings", async () => {
+    const KEY = "sk-ant-secret-token";
+    const provider = makeProvider(anthropicModel, KEY);
+    const restore = mockFetch(
+      jsonRes(
+        {
+          error: {
+            message: `Content-Type application/json with anthropic-version 2023-06-01 failed for ${KEY}`,
+          },
+        },
+        400,
+      ),
+    );
+    const err = (await drainAndCaptureError(
+      provider.stream(anthropicModel, [{ role: "user", text: "hi" }], { apiKey: KEY }),
+    )) as ProviderError;
+    restore();
+    expect(err.message).toContain("application/json");
+    expect(err.message).toContain("2023-06-01");
+    expect(err.message).not.toContain(KEY);
+    expect(err.message).toContain("[REDACTED]");
+  });
+
+  test("opts.timeoutMs forwards to SSE idle timeout and normalizes as transient", async () => {
+    const provider = makeProvider(openaiModel);
+    const original = globalThis.fetch;
+    globalThis.fetch = ((_url: string, init?: RequestInit) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () => controller.error(new Error("aborted")));
+        },
+      });
+      return Promise.resolve(new Response(body, { status: 200 }));
+    }) as unknown as typeof fetch;
+    try {
+      const err = (await drainAndCaptureError(
+        provider.stream(openaiModel, [{ role: "user", text: "hi" }], {
+          apiKey: "test-key",
+          timeoutMs: 25,
+        }),
+      )) as ProviderError;
+      expect(err).toBeInstanceOf(ProviderError);
+      expect(err.kind).toBe("transient");
+      expect(err.retryable).toBe(true);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
 });
 
 describe("Provider contract — wire serialization", () => {
@@ -618,5 +667,141 @@ describe("Provider contract — wire serialization", () => {
       high.restore();
       expect(high.getBody()!.max_output_tokens).toBe(responsesModel.maxTokens);
     }
+  });
+
+  test("anthropic respects thinking.type='disabled' on forceAdaptiveThinking models and maps xhigh → max", async () => {
+    const adaptiveModel: Model = {
+      ...anthropicModel,
+      compat: { forceAdaptiveThinking: true },
+      thinkingLevelMap: { off: "off", low: "low", medium: "medium", high: "high", xhigh: "max" },
+    };
+    const provider = makeProvider(adaptiveModel);
+
+    // Disabled stays disabled (no forced adaptive, no display, no output_config)
+    const offCap = mockFetchCapture(sseRes([DONE]));
+    await collectChunks(
+      provider.stream(adaptiveModel, [{ role: "user", text: "hi" }], {
+        apiKey: "test-key",
+        thinking: { type: "disabled" },
+      }),
+    );
+    offCap.restore();
+    expect(offCap.getBody()!.thinking).toEqual({ type: "disabled" });
+    expect(offCap.getBody()!.output_config).toBeUndefined();
+
+    // xhigh maps to Anthropic's "max"
+    const maxCap = mockFetchCapture(sseRes([DONE]));
+    await collectChunks(
+      provider.stream(adaptiveModel, [{ role: "user", text: "hi" }], {
+        apiKey: "test-key",
+        thinking: { type: "adaptive", display: "summarized" },
+        effort: "xhigh",
+      }),
+    );
+    maxCap.restore();
+    expect(maxCap.getBody()!.thinking).toEqual({ type: "adaptive", display: "summarized" });
+    expect(maxCap.getBody()!.output_config).toEqual({ effort: "max" });
+  });
+
+  test("anthropic concatenates all system messages, merges adjacent assistants, and defaults tool_use.input", async () => {
+    const provider = makeProvider(anthropicModel);
+    const capture = mockFetchCapture(sseRes([DONE]));
+    await collectChunks(
+      provider.stream(
+        anthropicModel,
+        [
+          { role: "system", text: "Rule 1" },
+          { role: "system", text: "Rule 2" },
+          { role: "user", text: "hi" },
+          {
+            role: "assistant",
+            blocks: [{ type: "tool_use", id: "t1", name: "ls", input: undefined as never }],
+          },
+          { role: "user", text: "   " }, // empty user turn gets skipped
+          { role: "assistant", text: "continuing" },
+        ],
+        { apiKey: "test-key" },
+      ),
+    );
+    capture.restore();
+
+    const body = capture.getBody()!;
+    expect(body.system).toBe("Rule 1\n\nRule 2");
+    const msgs = body.messages as Array<{ role: string; content: unknown }>;
+    expect(msgs).toHaveLength(2);
+    expect(msgs[1]!.role).toBe("assistant");
+    expect(msgs[1]!.content).toEqual([
+      { type: "tool_use", id: "t1", name: "ls", input: {} },
+      { type: "text", text: "continuing" },
+    ]);
+  });
+
+  test("openai-completions omits openrouter reasoning when effort is unset and clamps xhigh via thinkingLevelMap", async () => {
+    const openrouterModel: Model = {
+      ...openaiModel,
+      compat: { thinkingFormat: "openrouter" },
+    };
+    const orProvider = makeProvider(openrouterModel);
+    const noEffort = mockFetchCapture(sseRes([DONE]));
+    await collectChunks(
+      orProvider.stream(openrouterModel, [{ role: "user", text: "hi" }], { apiKey: "test-key" }),
+    );
+    noEffort.restore();
+    expect(noEffort.getBody()!.reasoning).toBeUndefined();
+
+    const withEffort = mockFetchCapture(sseRes([DONE]));
+    await collectChunks(
+      orProvider.stream(openrouterModel, [{ role: "user", text: "hi" }], {
+        apiKey: "test-key",
+        effort: "high",
+      }),
+    );
+    withEffort.restore();
+    expect(withEffort.getBody()!.reasoning).toEqual({ effort: "high" });
+
+    // GPT-5.4 supports up to high; xhigh clamps to high instead of sending invalid "xhigh"
+    const gpt54: Model = {
+      ...openaiModel,
+      compat: { maxTokensField: "max_completion_tokens", supportsReasoningEffort: true },
+      thinkingLevelMap: { off: "off", low: "low", medium: "medium", high: "high", xhigh: null },
+    };
+    const gptProvider = makeProvider(gpt54);
+    const clamped = mockFetchCapture(sseRes([DONE]));
+    await collectChunks(
+      gptProvider.stream(gpt54, [{ role: "user", text: "hi" }], {
+        apiKey: "test-key",
+        effort: "xhigh",
+      }),
+    );
+    clamped.restore();
+    expect(clamped.getBody()!.reasoning_effort).toBe("high");
+  });
+
+  test("openai-completions and openai-responses sanitize unpaired UTF-16 surrogates", async () => {
+    const loneHigh = "bad\uD800text";
+    // Completions
+    const compProvider = makeProvider(openaiModel);
+    const compCap = mockFetchCapture(sseRes([DONE]));
+    await collectChunks(
+      compProvider.stream(openaiModel, [{ role: "user", text: loneHigh }], { apiKey: "test-key" }),
+    );
+    compCap.restore();
+    const compMsgs = compCap.getBody()!.messages as Array<{ content: string }>;
+    expect(compMsgs[0]!.content).toBe("bad\uFFFDtext");
+
+    // Responses
+    const responsesModel: Model = { ...openaiModel, api: "openai-responses" };
+    const respProvider = makeProvider(responsesModel);
+    const respCap = mockFetchCapture(sseRes([DONE]));
+    await collectChunks(
+      respProvider.stream(responsesModel, [{ role: "user", text: loneHigh }], {
+        apiKey: "test-key",
+      }),
+    );
+    respCap.restore();
+    const respInput = respCap.getBody()!.input as Array<{
+      content: Array<{ text: string }>;
+    }>;
+    expect(respInput[0]!.content[0]!.text).toBe("bad\uFFFDtext");
   });
 });

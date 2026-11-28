@@ -48,7 +48,11 @@ export async function* fetchSSE(opts: SSEFetchOpts): AsyncIterable<Record<string
     });
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
-      const err = new Error(`status=${res.status} ${errBody}`);
+      const err = new Error(`status=${res.status} ${errBody}`) as Error & {
+        statusCode?: number;
+        retryAfterMs?: number;
+      };
+      err.statusCode = res.status;
       // Parse retry delay: prefer Anthropic's retry-after-ms (milliseconds),
       // fall back to standard Retry-After (seconds or HTTP-date). Both OpenAI
       // and most gateways use the standard header.
@@ -67,7 +71,7 @@ export async function* fetchSSE(opts: SSEFetchOpts): AsyncIterable<Record<string
           if (!Number.isNaN(date)) delay = Math.max(0, date - Date.now());
         }
       }
-      if (delay !== undefined) (err as Error & { retryAfterMs?: number }).retryAfterMs = delay;
+      if (delay !== undefined) err.retryAfterMs = delay;
       throw err;
     }
     if (!res.body) throw new Error("No response body");
@@ -75,6 +79,21 @@ export async function* fetchSSE(opts: SSEFetchOpts): AsyncIterable<Record<string
     reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = "";
+    const parseDataLine = (
+      line: string,
+    ): { done: true } | { value: Record<string, unknown> } | null => {
+      const t = line.trim();
+      // Accept "data:" with zero or one trailing space (SSE allows both).
+      const m = t.match(/^data: ?(.*)$/);
+      if (!m) return null;
+      const data = m[1] ?? "";
+      if (data === "[DONE]") return { done: true };
+      try {
+        return { value: JSON.parse(data) as Record<string, unknown> };
+      } catch {
+        return null; /* skip malformed */
+      }
+    };
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -83,24 +102,31 @@ export async function* fetchSSE(opts: SSEFetchOpts): AsyncIterable<Record<string
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
       for (const line of lines) {
-        const t = line.trim();
-        // Accept "data:" with zero or one trailing space (SSE allows both).
-        const m = t.match(/^data: ?(.*)$/);
-        if (!m) continue;
-        const data = m[1] ?? "";
-        if (data === "[DONE]") return;
-        try {
-          yield JSON.parse(data);
-        } catch {
-          /* skip malformed */
-        }
+        const parsed = parseDataLine(line);
+        if (!parsed) continue;
+        if ("done" in parsed) return;
+        yield parsed.value;
+      }
+    }
+    // Flush any remaining UTF-8 bytes and trailing SSE frame when the upstream
+    // closes the connection without a terminating newline.
+    buf += dec.decode();
+    if (buf.trim().length > 0) {
+      for (const line of buf.split("\n")) {
+        const parsed = parseDataLine(line);
+        if (!parsed) continue;
+        if ("done" in parsed) return;
+        yield parsed.value;
       }
     }
   } catch (err) {
     if (idleExpired) {
-      throw new Error(`model stream idle for ${idleTimeoutMs}ms (no data from the provider)`, {
-        cause: err,
-      });
+      const timeoutErr = new Error(
+        `model stream idle timeout after ${idleTimeoutMs}ms (no data from the provider)`,
+        { cause: err },
+      ) as Error & { isTimeout?: boolean };
+      timeoutErr.isTimeout = true;
+      throw timeoutErr;
     }
     throw err;
   } finally {

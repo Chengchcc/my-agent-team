@@ -558,6 +558,33 @@ export const api = {
       }>;
     };
   },
+  refreshModels: async () => {
+    const resp = await fetch("/api/bff/models/refresh", {
+      method: "POST",
+      credentials: "include",
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return (await resp.json()) as {
+      providers: Array<{
+        id: string;
+        name: string;
+        baseUrl?: string;
+        models: Array<{
+          id: string;
+          name: string;
+          reasoning: boolean;
+          input: string[];
+          cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+          contextWindow: number;
+          maxTokens: number;
+          available?: boolean;
+          backendKind: string;
+        }>;
+      }>;
+      updatedProviders: string[];
+      failedProviders: string[];
+    };
+  },
   // Provider keys added by name (for providers only a models.yml knows)
   listCustomProviderKeys: async () => {
     const resp = await fetch("/api/bff/providers/env", { credentials: "include" });

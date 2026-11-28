@@ -19,12 +19,22 @@ export const KNOWN_PROVIDERS: ProviderDefinition[] = [
     apiKeyEnv: "ANTHROPIC_API_KEY",
     baseUrlEnv: "ANTHROPIC_BASE_URL",
   },
-  { id: "openai", name: "OpenAI", apiKeyEnv: "OPENAI_API_KEY" },
-  { id: "deepseek", name: "DeepSeek", apiKeyEnv: "DEEPSEEK_API_KEY" },
+  { id: "openai", name: "OpenAI", apiKeyEnv: "OPENAI_API_KEY", baseUrlEnv: "OPENAI_BASE_URL" },
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    apiKeyEnv: "DEEPSEEK_API_KEY",
+    baseUrlEnv: "DEEPSEEK_BASE_URL",
+  },
   // GLM Coding Plan: the coding-plan base URL lives in the catalogue entry.
-  { id: "zai", name: "Z.AI (GLM)", apiKeyEnv: "ZAI_API_KEY" },
-  { id: "groq", name: "Groq", apiKeyEnv: "GROQ_API_KEY" },
-  { id: "openrouter", name: "OpenRouter", apiKeyEnv: "OPENROUTER_API_KEY" },
+  { id: "zai", name: "Z.AI (GLM)", apiKeyEnv: "ZAI_API_KEY", baseUrlEnv: "ZAI_BASE_URL" },
+  { id: "groq", name: "Groq", apiKeyEnv: "GROQ_API_KEY", baseUrlEnv: "GROQ_BASE_URL" },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    apiKeyEnv: "OPENROUTER_API_KEY",
+    baseUrlEnv: "OPENROUTER_BASE_URL",
+  },
 ];
 
 export interface ProviderService {

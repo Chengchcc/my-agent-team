@@ -5,8 +5,9 @@ import { ACP_AGENTS } from "../features/agent-run/acp/registry.js";
 import {
   createHarnessCatalog,
   createOmaModelCatalog,
-  createProviderModelProbe,
+  createProviderCatalogProbe,
   createServedModelKnowledge,
+  persistDiscoveredProviderModels,
 } from "../features/models/index.js";
 import { createProviderService } from "../features/provider/index.js";
 import type { SettingsService } from "../features/settings/index.js";
@@ -38,20 +39,41 @@ export async function wireCatalogs(deps: CatalogWiringDeps) {
   const codingAgentCommand = resolveOmaCommand(config, { env: providerSvc.getProviderEnv() });
   const codingAgentCatalog = createOmaModelCatalog(codingAgentCommand);
 
-  const refreshOmaProviderEnv = () => {
-    codingAgentCommand.env = resolveOmaCommand(config, { env: providerSvc.getProviderEnv() }).env;
-    codingAgentCatalog.invalidate();
-  };
-
   const omaAcpArgv = resolveOmaAcpArgv(config, { env: providerSvc.getProviderEnv() });
   const harnessCatalog = createHarnessCatalog({
     harnesses: () => Object.entries(ACP_AGENTS).map(([key, entry]) => ({ key, name: entry.name })),
     probe: (key) =>
-      probeHarnessCatalog({ key, cwd: config.dataDir, commands: { oma: omaAcpArgv } }),
+      probeHarnessCatalog({
+        key,
+        cwd: config.dataDir,
+        commands: { oma: omaAcpArgv },
+        ...(key === "oma" ? { env: codingAgentCommand.env } : {}),
+      }),
   });
 
+  const refreshOmaProviderEnv = () => {
+    codingAgentCommand.env = resolveOmaCommand(config, { env: providerSvc.getProviderEnv() }).env;
+    codingAgentCatalog.invalidate();
+    harnessCatalog.invalidate();
+  };
+
   const servedModelKnowledge = createServedModelKnowledge({
-    probe: createProviderModelProbe({ env: probeEnv }),
+    probeModels: createProviderCatalogProbe({
+      env: () => ({ ...probeEnv, ...providerSvc.getProviderEnv() }),
+      credentialsDb: db,
+    }),
+    onSynced: (providerId, models) => {
+      const omaHome = codingAgentCommand.env?.OMA_HOME ?? probeEnv.OMA_HOME;
+      if (omaHome) {
+        try {
+          persistDiscoveredProviderModels(omaHome, providerId, models);
+          codingAgentCatalog.invalidate();
+          harnessCatalog.invalidate();
+        } catch {
+          /* best-effort cache persistence */
+        }
+      }
+    },
   });
 
   const skillPackPort = sqliteSkillPackAdapter(db);

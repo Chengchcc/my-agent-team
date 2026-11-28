@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { normalizeProviderError } from "../types.js";
 import { DEFAULT_SSE_IDLE_TIMEOUT_MS, fetchSSE } from "./shared-sse.js";
 
 /** Install a fetch double for one test. The real fetch errors its response
@@ -91,5 +92,70 @@ describe("fetchSSE idle timeout", () => {
 
   test("the default bound is two minutes", () => {
     expect(DEFAULT_SSE_IDLE_TIMEOUT_MS).toBe(120_000);
+  });
+
+  test("idle timeout normalizes as retryable transient ProviderError", async () => {
+    let caught: unknown;
+    await withFetch(
+      (init) => Promise.resolve(silentBody(init)),
+      async () => {
+        try {
+          for await (const _ of fetchSSE({
+            url: "https://x",
+            headers: {},
+            body: "{}",
+            idleTimeoutMs: 20,
+          })) {
+            void _;
+          }
+        } catch (err) {
+          caught = err;
+        }
+      },
+    );
+    const pe = normalizeProviderError(caught);
+    expect(pe.kind).toBe("transient");
+    expect(pe.retryable).toBe(true);
+  });
+
+  test("flushes final SSE frame even when stream closes without a trailing newline", async () => {
+    const seen: unknown[] = [];
+    await withFetch(
+      () => Promise.resolve(chunksBody(['data: {"a":1}\n\n', 'data: {"final":true}'], 5)),
+      async () => {
+        for await (const ev of fetchSSE({
+          url: "https://x",
+          headers: {},
+          body: "{}",
+          idleTimeoutMs: 500,
+        })) {
+          seen.push(ev);
+        }
+      },
+    );
+    expect(seen).toEqual([{ a: 1 }, { final: true }]);
+  });
+
+  test("attaches structured statusCode on HTTP error responses", async () => {
+    let caught: unknown;
+    await withFetch(
+      () =>
+        Promise.resolve(
+          new Response('{"error":"bad input mentioning status 200"}', { status: 400 }),
+        ),
+      async () => {
+        try {
+          for await (const _ of fetchSSE({ url: "https://x", headers: {}, body: "{}" })) {
+            void _;
+          }
+        } catch (err) {
+          caught = err;
+        }
+      },
+    );
+    expect((caught as { statusCode?: number }).statusCode).toBe(400);
+    const pe = normalizeProviderError(caught);
+    expect(pe.statusCode).toBe(400);
+    expect(pe.kind).toBe("invalid_request");
   });
 });

@@ -61,4 +61,27 @@ describe("modelRoutes /api/models", () => {
     expect(openai?.models[0]?.id).toBe("b");
     expect(body.providers.every((p) => p.id !== "unknown")).toBe(true);
   });
+
+  test("POST /api/models/refresh triggers catalog refresh and reports outcomes", async () => {
+    const app = modelRoutes({
+      list: async () => [model("anthropic/a")],
+      refresh: async () => ({
+        models: [model("anthropic/a"), model("deepseek/deepseek-v4")],
+        updatedProviders: ["deepseek"],
+        failedProviders: ["openai"],
+      }),
+    });
+    const res = await app.handle(new Request("http://test/api/models/refresh", { method: "POST" }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      providers: Array<{ id: string; models: Array<{ id: string }> }>;
+      updatedProviders: string[];
+      failedProviders: string[];
+    };
+    expect(body.updatedProviders).toEqual(["deepseek"]);
+    expect(body.failedProviders).toEqual(["openai"]);
+    expect(body.providers.find((p) => p.id === "deepseek")?.models.map((m) => m.id)).toEqual([
+      "deepseek-v4",
+    ]);
+  });
 });

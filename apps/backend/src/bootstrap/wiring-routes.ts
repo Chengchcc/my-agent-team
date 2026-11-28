@@ -339,22 +339,90 @@ export function wireFeatureSet(deps: FeatureRoutesWiringDeps): FeatureSet {
           ...m,
           backendKind: "oma",
         }));
-        servedModelKnowledge.refresh([...new Set(rows.map((m) => providerOfModelId(m.id)))]);
-        return rows.map((m) => ({
-          id: m.id,
-          name: m.displayName ?? m.id,
-          available: applyServedAvailability(
-            m.available,
-            servedModelKnowledge.serves(providerOfModelId(m.id), bareModelId(m.id)),
-          ),
-          reasoning: m.reasoning,
-          input: m.inputModalities,
-          cost: m.cost,
-          contextWindow: m.contextWindow,
-          maxTokens: m.maxOutputTokens,
-          backendKind: m.backendKind,
+        const providerIds = [...new Set(rows.map((m) => providerOfModelId(m.id)))];
+        servedModelKnowledge.refresh(providerIds);
+        return mergeLiveDiscoveredModels(rows, providerIds, servedModelKnowledge);
+      },
+      refresh: async () => {
+        const syncRes = await servedModelKnowledge.syncNow();
+        codingAgentCatalog.invalidate();
+        harnessCatalog.invalidate();
+        const rows = (await codingAgentCatalog.list()).models.map((m) => ({
+          ...m,
+          backendKind: "oma",
         }));
+        const providerIds = [
+          ...new Set([...rows.map((m) => providerOfModelId(m.id)), ...syncRes.updatedProviders]),
+        ];
+        return {
+          models: mergeLiveDiscoveredModels(rows, providerIds, servedModelKnowledge),
+          updatedProviders: syncRes.updatedProviders,
+          failedProviders: syncRes.failedProviders,
+        };
       },
     }),
   };
+}
+
+function mergeLiveDiscoveredModels(
+  rows: Array<{
+    id: string;
+    displayName?: string;
+    available?: boolean;
+    reasoning: boolean;
+    inputModalities: readonly string[];
+    cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+    contextWindow: number;
+    maxOutputTokens: number;
+    backendKind: string;
+  }>,
+  providerIds: readonly string[],
+  servedModelKnowledge: ServedModelKnowledge,
+) {
+  const existingIds = new Set(rows.map((m) => m.id));
+  const mapped = rows.map((m) => {
+    const pid = providerOfModelId(m.id);
+    const bare = bareModelId(m.id);
+    const live = servedModelKnowledge.discovered(pid)?.find((d) => d.id === bare);
+    return {
+      id: m.id,
+      name: live?.name && m.displayName === bare ? live.name : (m.displayName ?? m.id),
+      available: applyServedAvailability(m.available, servedModelKnowledge.serves(pid, bare)),
+      reasoning: live?.reasoning ?? m.reasoning,
+      input: live?.input ?? m.inputModalities,
+      cost: m.cost,
+      contextWindow: live?.contextWindow ?? m.contextWindow,
+      maxTokens: live?.maxTokens ?? m.maxOutputTokens,
+      backendKind: m.backendKind,
+    };
+  });
+
+  // Include newly discovered models from live provider probes even before
+  // `oma --list-models` re-spawns from models-cache.json.
+  for (const pid of providerIds) {
+    const liveModels = servedModelKnowledge.discovered(pid);
+    if (!liveModels) continue;
+    for (const d of liveModels) {
+      const compositeId = `${pid}/${d.id}`;
+      if (existingIds.has(compositeId)) continue;
+      existingIds.add(compositeId);
+      mapped.push({
+        id: compositeId,
+        name: d.name ?? d.id,
+        available: true,
+        reasoning: d.reasoning ?? false,
+        input: d.input ?? ["text"],
+        cost: {
+          input: d.cost?.input ?? 0,
+          output: d.cost?.output ?? 0,
+          cacheRead: d.cost?.cacheRead ?? 0,
+          cacheWrite: d.cost?.cacheWrite ?? 0,
+        },
+        contextWindow: d.contextWindow ?? 200_000,
+        maxTokens: d.maxTokens ?? 8_192,
+        backendKind: "oma",
+      });
+    }
+  }
+  return mapped;
 }

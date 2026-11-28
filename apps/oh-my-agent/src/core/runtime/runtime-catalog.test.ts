@@ -1,6 +1,15 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { BUILTIN_CATALOG, createModelRuntime } from "@chengchenccc/ai";
-import { registerProvidersFromCatalog } from "./runtime-catalog.js";
+import {
+  isCatalogCacheStale,
+  loadRuntimeCatalog,
+  readCachedCatalog,
+  registerProvidersFromCatalog,
+  syncRuntimeCatalog,
+} from "./runtime-catalog.js";
 
 describe("registerProvidersFromCatalog credentials", () => {
   test("inline apiKey in ProviderSpec registers the provider when env is unset", () => {
@@ -139,5 +148,119 @@ describe("catalogue base URLs survive registration unchanged", () => {
       console.warn = original;
     }
     expect(warnings).toEqual([]);
+  });
+});
+
+describe("provider catalog auto-sync and cache precedence", () => {
+  const tmpDirs: string[] = [];
+  afterEach(() => {
+    for (const d of tmpDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  function freshHome(): string {
+    const dir = mkdtempSync(join(tmpdir(), "oma-cat-sync-"));
+    tmpDirs.push(dir);
+    return dir;
+  }
+
+  test("syncRuntimeCatalog persists discovered models to models-cache.json and loadRuntimeCatalog picks them up", async () => {
+    const omaHome = freshHome();
+    const env = {
+      OMA_HOME: omaHome,
+      OMA_WORKSPACE_CATALOG: "0",
+      DEEPSEEK_API_KEY: "ds-key",
+    };
+
+    expect(isCatalogCacheStale(env)).toBe(true);
+    const res = await syncRuntimeCatalog(env, {
+      fetchImpl: async () =>
+        Response.json({
+          data: [
+            { id: "deepseek-flash", context_window: 2_000_000 },
+            { id: "deepseek-v5", name: "DeepSeek V5", context_window: 2_000_000 },
+          ],
+        }),
+    });
+
+    expect(res?.updatedProviders).toEqual(["deepseek"]);
+    expect(
+      readCachedCatalog(env)?.providers.deepseek?.models.some((m) => m.id === "deepseek-v5"),
+    ).toBe(true);
+    expect(isCatalogCacheStale(env)).toBe(false);
+
+    const loaded = loadRuntimeCatalog(env);
+    const dsModels = loaded.providers.deepseek!.models;
+    expect(dsModels.some((m) => m.id === "deepseek-v5")).toBe(true);
+    expect(dsModels.find((m) => m.id === "deepseek-flash")?.contextWindow).toBe(2_000_000);
+  });
+
+  test("models.yml user overrides still win over models-cache.json", async () => {
+    const omaHome = freshHome();
+    writeFileSync(
+      join(omaHome, "models.yml"),
+      `providers:\n  deepseek:\n    api: openai-completions\n    baseUrl: https://api.deepseek.com/v1\n    apiKeyEnv: DEEPSEEK_API_KEY\n    models:\n      - id: deepseek-flash\n        name: My Custom Flash\n        contextWindow: 64000\n`,
+      "utf-8",
+    );
+    const env = {
+      OMA_HOME: omaHome,
+      OMA_WORKSPACE_CATALOG: "0",
+      DEEPSEEK_API_KEY: "ds-key",
+    };
+
+    await syncRuntimeCatalog(env, {
+      fetchImpl: async () =>
+        Response.json({
+          data: [
+            { id: "deepseek-flash", context_window: 1_048_576 },
+            { id: "deepseek-v5", name: "DeepSeek V5" },
+          ],
+        }),
+    });
+
+    const loaded = loadRuntimeCatalog(env);
+    const flash = loaded.providers.deepseek!.models.find((m) => m.id === "deepseek-flash");
+    expect(flash?.name).toBe("My Custom Flash");
+    expect(flash?.contextWindow).toBe(64_000);
+    expect(loaded.providers.deepseek!.models.some((m) => m.id === "deepseek-v5")).toBe(true);
+  });
+
+  test("reads provider tokens and baseUrl from SQLite when env vars are unset", async () => {
+    const { Database } = await import("bun:sqlite");
+    const omaHome = freshHome();
+    const dbPath = join(omaHome, "backend.db");
+    const db = new Database(dbPath);
+    db.exec(
+      "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)",
+    );
+    db.query("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)").run(
+      "provider.deepseek",
+      JSON.stringify({ apiKey: "sk-ds-sqlite-key", baseUrl: "https://ds-proxy.test/v1" }),
+      Date.now(),
+    );
+    db.query("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)").run(
+      "providerEnv",
+      JSON.stringify({ GROQ_API_KEY: "gsk-sqlite-custom" }),
+      Date.now(),
+    );
+    db.close();
+
+    const env = { OMA_HOME: omaHome, OMA_CREDENTIALS_DB: dbPath };
+    const runtime = createModelRuntime();
+    registerProvidersFromCatalog(runtime, BUILTIN_CATALOG, env);
+    expect(runtime.getProvider("deepseek")?.baseUrl).toBe("https://ds-proxy.test/v1");
+    expect(runtime.getProvider("groq")).toBeDefined();
+
+    const seenUrls: string[] = [];
+    const seenAuths: string[] = [];
+    const syncRes = await syncRuntimeCatalog(env, {
+      fetchImpl: async (url, init) => {
+        seenUrls.push(url);
+        seenAuths.push(String((init?.headers as Record<string, string>)?.Authorization ?? ""));
+        return Response.json({ data: [{ id: "deepseek-v5" }] });
+      },
+    });
+    expect(syncRes?.updatedProviders).toContain("deepseek");
+    expect(seenUrls).toContain("https://ds-proxy.test/v1/models");
+    expect(seenAuths).toContain("Bearer sk-ds-sqlite-key");
   });
 });

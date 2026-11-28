@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { type Model, ProviderError } from "../types.js";
 import {
   anthropicModel,
   collectChunks,
   DONE,
+  drainAndCaptureError,
   makeProvider,
   mockFetch,
   openaiModel,
@@ -195,5 +197,171 @@ describe("Provider contract — openai stream decoding", () => {
       .map((c) => (c.delta?.type === "text" ? c.delta.text : ""))
       .join("");
     expect(text).toBe("hello-world");
+  });
+
+  test("defers done: true until after trailing include_usage frame (never drops usage)", async () => {
+    const provider = makeProvider(openaiModel);
+    const sse = sseRes([
+      sseData({ choices: [{ delta: { content: "hi" } }] }),
+      sseData({ choices: [{ delta: {}, finish_reason: "stop" }], usage: null }),
+      sseData({
+        choices: [],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 20,
+          prompt_tokens_details: { cached_tokens: 40 },
+        },
+      }),
+      DONE,
+    ]);
+    const restore = mockFetch(sse);
+    const chunks = await collectChunks(
+      provider.stream(openaiModel, [{ role: "user", text: "hi" }], { apiKey: "test-key" }),
+    );
+    restore();
+
+    const usageIdx = chunks.findIndex((c) => c.usage !== undefined);
+    const doneIdx = chunks.findIndex((c) => c.done === true);
+    expect(usageIdx).toBeGreaterThan(-1);
+    expect(doneIdx).toBeGreaterThan(usageIdx);
+    expect(chunks.filter((c) => c.done === true)).toHaveLength(1);
+    expect(chunks[usageIdx]?.usage).toEqual({ input: 60, output: 20, cacheRead: 40 });
+  });
+
+  test("flushes done: true on clean EOF when gateway omits trailing usage and [DONE]", async () => {
+    const provider = makeProvider(openaiModel);
+    const sse = sseRes([
+      sseData({ choices: [{ delta: { content: "ok" } }] }),
+      sseData({ choices: [{ delta: {}, finish_reason: "stop" }] }),
+    ]);
+    const restore = mockFetch(sse);
+    const chunks = await collectChunks(
+      provider.stream(openaiModel, [{ role: "user", text: "hi" }], { apiKey: "test-key" }),
+    );
+    restore();
+
+    expect(chunks.some((c) => c.stopReason === "end_turn")).toBe(true);
+    expect(chunks.filter((c) => c.done === true)).toHaveLength(1);
+  });
+});
+
+describe("Provider contract — openai-responses stream decoding", () => {
+  const responsesModel: Model = { ...openaiModel, id: "o4-mini", api: "openai-responses" };
+
+  test("streams text, reasoning, tool calls, non-streaming fallback, and clamps cached usage >= 0", async () => {
+    const provider = makeProvider(responsesModel);
+    const sse = sseRes([
+      sseData({ type: "response.reasoning_summary_text.delta", delta: "thinking..." }),
+      sseData({ type: "response.output_text.delta", delta: "answer" }),
+      sseData({
+        type: "response.output_item.added",
+        output_index: 1,
+        item: { type: "function_call", call_id: "fc_1", name: "read" },
+      }),
+      sseData({
+        type: "response.function_call_arguments.delta",
+        output_index: 1,
+        delta: '{"path":"a.ts"}',
+      }),
+      // Second tool call arrives only via output_item.done (non-streaming fallback)
+      sseData({
+        type: "response.output_item.added",
+        output_index: 2,
+        item: { type: "function_call", call_id: "fc_2", name: "ls" },
+      }),
+      sseData({
+        type: "response.output_item.done",
+        output_index: 2,
+        item: { type: "function_call", call_id: "fc_2", name: "ls", arguments: '{"dir":"."}' },
+      }),
+      sseData({
+        type: "response.completed",
+        response: {
+          status: "completed",
+          usage: {
+            // Proxy edge case: cached_tokens exceeds input_tokens → input must clamp to 0
+            input_tokens: 50,
+            output_tokens: 30,
+            input_tokens_details: { cached_tokens: 80 },
+          },
+        },
+      }),
+    ]);
+    const restore = mockFetch(sse);
+    const chunks = await collectChunks(
+      provider.stream(responsesModel, [{ role: "user", text: "hi" }], { apiKey: "test-key" }),
+    );
+    restore();
+
+    expect(chunks.find((c) => c.delta?.type === "reasoning")?.delta).toEqual({
+      type: "reasoning",
+      text: "thinking...",
+    });
+    expect(chunks.find((c) => c.delta?.type === "text")?.delta).toEqual({
+      type: "text",
+      text: "answer",
+    });
+    const argDeltas = chunks.filter((c) => c.delta?.type === "input_json_delta");
+    expect(argDeltas).toHaveLength(2);
+    expect(argDeltas[0]?.delta).toEqual({
+      type: "input_json_delta",
+      id: "fc_1",
+      partial_json: '{"path":"a.ts"}',
+    });
+    expect(argDeltas[1]?.delta).toEqual({
+      type: "input_json_delta",
+      id: "fc_2",
+      partial_json: '{"dir":"."}',
+    });
+    const done = chunks.find((c) => c.done === true);
+    expect(done?.stopReason).toBe("tool_use");
+    expect(done?.usage).toEqual({ input: 0, output: 30, cacheRead: 80 });
+  });
+
+  test("maps response.incomplete content_filter → refusal and max_output_tokens → max_tokens", async () => {
+    const provider = makeProvider(responsesModel);
+
+    const refusalSse = sseRes([
+      sseData({
+        type: "response.incomplete",
+        response: { status: "incomplete", incomplete_details: { reason: "content_filter" } },
+      }),
+    ]);
+    let restore = mockFetch(refusalSse);
+    const refusalChunks = await collectChunks(
+      provider.stream(responsesModel, [{ role: "user", text: "hi" }], { apiKey: "test-key" }),
+    );
+    restore();
+    expect(refusalChunks.find((c) => c.done)?.stopReason).toBe("refusal");
+
+    const truncSse = sseRes([
+      sseData({
+        type: "response.incomplete",
+        response: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" } },
+      }),
+    ]);
+    restore = mockFetch(truncSse);
+    const truncChunks = await collectChunks(
+      provider.stream(responsesModel, [{ role: "user", text: "hi" }], { apiKey: "test-key" }),
+    );
+    restore();
+    expect(truncChunks.find((c) => c.done)?.stopReason).toBe("max_tokens");
+  });
+
+  test("response.failed throws ProviderError", async () => {
+    const provider = makeProvider(responsesModel);
+    const sse = sseRes([
+      sseData({
+        type: "response.failed",
+        response: { error: { message: "server error" } },
+      }),
+    ]);
+    const restore = mockFetch(sse);
+    const err = await drainAndCaptureError(
+      provider.stream(responsesModel, [{ role: "user", text: "hi" }], { apiKey: "test-key" }),
+    );
+    restore();
+    expect(err).toBeInstanceOf(ProviderError);
+    expect((err as ProviderError).message).toContain("server error");
   });
 });

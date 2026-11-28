@@ -23,12 +23,9 @@ export type ThinkingLevelMap = Partial<Record<ThinkingLevel, string | null>>;
 
 /** Anthropic Messages API compatibility. */
 export interface AnthropicCompat {
-  readonly supportsTemperature?: boolean;
   readonly supportsCacheControlOnTools?: boolean;
-  readonly supportsLongCacheRetention?: boolean;
   readonly forceAdaptiveThinking?: boolean;
   readonly allowEmptySignature?: boolean;
-  readonly supportsEagerToolInputStreaming?: boolean;
 }
 
 /** OpenAI Chat Completions + Responses API compatibility. */
@@ -78,11 +75,35 @@ export interface ProviderAuth {
   headers?: Record<string, string>;
 }
 
+export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+
+export interface SyncModelsOptions {
+  apiKey?: string;
+  baseUrl?: string;
+  headers?: Record<string, string>;
+  fetchImpl?: FetchLike;
+  timeoutMs?: number;
+  pruneUnserved?: boolean;
+}
+
+export interface ModelSyncOutcome {
+  readonly confirmed: readonly string[];
+  readonly unserved: readonly string[];
+  readonly added: readonly string[];
+}
+
 export interface Provider {
   readonly id: string;
   readonly name: string;
   readonly baseUrl?: string;
   getModels(): readonly Model[];
+  /** Optional live check after syncModels(): false = declared but provider no
+   *  longer serves it. Absent or true = available. */
+  isModelAvailable?(modelId: string): boolean;
+  /** Fetch `GET <baseUrl>/models` and refresh this provider's live model list
+   *  (updating metadata, adding newly served models, marking unserved ones).
+   *  Returns null when probe fails or credentials are missing. */
+  syncModels?(opts?: SyncModelsOptions): Promise<ModelSyncOutcome | null>;
   stream(
     model: Model,
     messages: readonly Message[],
@@ -114,8 +135,7 @@ export interface ProviderStreamOptions {
    *  min(this, the model's own cap) — callers lower it; they do not raise it. */
   maxTokens?: number;
   cacheControl?: boolean;
-  maxRetries?: number;
-  maxRetryDelayMs?: number;
+  /** Per-request SSE idle timeout (ms). Overrides DEFAULT_SSE_IDLE_TIMEOUT_MS; 0 disables. */
   timeoutMs?: number;
 }
 
@@ -198,7 +218,7 @@ const NON_OVERFLOW_PATTERNS: readonly RegExp[] = [
 /** Quota/billing exhaustion (absorbed from oh-my-pi retry.ts, plus zai's
  * 429 code 1308 usage-window signal). Never backoff-retried. */
 const QUOTA_RE =
-  /insufficient_quota|quota exceeded|out of budget|billing|usage limit|GoUsageLimitError|FreeUsageLimitError|available balance|code\D{0,4}1308/i;
+  /insufficient_quota|quota exceeded|out of budget|billing[ _-]?(?:limit|quota|hard[ _-]?limit|not[ _-]?active|disabled|exceeded|error)|usage limit|GoUsageLimitError|FreeUsageLimitError|available balance|code\D{0,4}1308/i;
 
 export function normalizeProviderError(
   err: unknown,
@@ -209,14 +229,21 @@ export function normalizeProviderError(
     if (secret) msg = msg.replaceAll(secret, "[REDACTED]");
   }
   const detail = msg;
-  const retryAfterMs = (err as Error & { retryAfterMs?: number }).retryAfterMs;
+  const meta = err as Error & { statusCode?: number; retryAfterMs?: number; isTimeout?: boolean };
+  const retryAfterMs = meta.retryAfterMs;
   const retryOpts = retryAfterMs !== undefined ? { retryAfterMs } : {};
   if (err instanceof Error && err.name === "AbortError") {
     return new ProviderError(msg, "aborted", { detail });
   }
-  const s = msg.match(/status[= ](\d+)/);
-  const code = s ? Number(s[1]) : undefined;
-  if (QUOTA_RE.test(msg)) {
+  const parsedStatus = msg.match(/\bstatus[= ](\d{3})\b/i);
+  const code =
+    typeof meta.statusCode === "number"
+      ? meta.statusCode
+      : parsedStatus
+        ? Number(parsedStatus[1])
+        : undefined;
+  const quotaStatusAllowed = code === undefined || code === 402 || code === 403 || code === 429;
+  if (quotaStatusAllowed && QUOTA_RE.test(msg)) {
     return new ProviderError(msg, "quota", { statusCode: code, detail, ...retryOpts });
   }
   if (code === 400 || code === 413 || code === 422) {
@@ -233,12 +260,7 @@ export function normalizeProviderError(
     return new ProviderError(msg, "overload", { statusCode: code, detail, ...retryOpts });
   if (code !== undefined && code >= 500)
     return new ProviderError(msg, "transient", { statusCode: code, detail, ...retryOpts });
-  if (
-    msg.includes("fetch") ||
-    msg.includes("network") ||
-    msg.includes("ECONN") ||
-    msg.includes("timeout")
-  )
+  if (meta.isTimeout === true || /fetch|network|ECONN|ETIMEDOUT|timeout/i.test(msg))
     return new ProviderError(msg, "transient", { detail, ...retryOpts });
   return new ProviderError(msg, "fatal", { detail });
 }
@@ -281,7 +303,12 @@ export interface ModelRuntime {
     modelId: string,
   ): Promise<{ model: ModelRuntimeEntry; credential: ResolvedCredential }>;
   getCatalog(): Promise<CatalogRefreshResult>;
-  refreshCatalog(): Promise<CatalogRefreshResult>;
+  refreshCatalog(opts?: {
+    sync?: boolean;
+    fetchImpl?: FetchLike;
+    timeoutMs?: number;
+    pruneUnserved?: boolean;
+  }): Promise<CatalogRefreshResult>;
   stream(
     providerId: string,
     modelId: string,

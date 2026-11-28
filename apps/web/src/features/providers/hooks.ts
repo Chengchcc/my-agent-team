@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { modelKeys } from "@/features/models/hooks";
+import { harnessKeys, modelKeys } from "@/features/models/hooks";
 import { api } from "@/lib/api";
 import { customProviderKeysQuery, providersQuery } from "./queries";
 import { providerKeys } from "./query-keys";
@@ -17,6 +17,7 @@ export function useSetProvider() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: providerKeys.all });
       qc.invalidateQueries({ queryKey: modelKeys.all });
+      qc.invalidateQueries({ queryKey: harnessKeys.all });
       toast.success("Provider saved");
     },
     onError: (e) => toast.error(`Failed to save provider: ${String(e)}`),
@@ -30,6 +31,7 @@ export function useClearProvider() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: providerKeys.all });
       qc.invalidateQueries({ queryKey: modelKeys.all });
+      qc.invalidateQueries({ queryKey: harnessKeys.all });
       toast.success("Provider cleared");
     },
     onError: (e) => toast.error(`Failed to clear provider: ${String(e)}`),
@@ -48,6 +50,7 @@ export function useSetCustomProviderKey() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: providerKeys.customKeys });
       qc.invalidateQueries({ queryKey: modelKeys.all });
+      qc.invalidateQueries({ queryKey: harnessKeys.all });
       toast.success("Provider key saved");
     },
     onError: (e) => toast.error(`Failed to save key: ${String(e)}`),
@@ -61,6 +64,7 @@ export function useClearCustomProviderKey() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: providerKeys.customKeys });
       qc.invalidateQueries({ queryKey: modelKeys.all });
+      qc.invalidateQueries({ queryKey: harnessKeys.all });
       toast.success("Provider key cleared");
     },
     onError: (e) => toast.error(`Failed to clear key: ${String(e)}`),

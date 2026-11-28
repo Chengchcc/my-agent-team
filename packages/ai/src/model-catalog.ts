@@ -51,8 +51,11 @@ function thinkingConfigToMap(tc: ThinkingConfig): Partial<Record<ThinkingLevel, 
   const supported = new Set(tc.efforts);
   const map: Partial<Record<ThinkingLevel, string | null>> = {};
   for (const lvl of all) {
+    const mapped = tc.effortMap?.[lvl];
     if (supported.has(lvl)) {
-      map[lvl] = tc.effortMap?.[lvl] ?? lvl;
+      map[lvl] = mapped ?? lvl;
+    } else if (mapped !== undefined && supported.has(mapped)) {
+      map[lvl] = mapped;
     } else {
       map[lvl] = null;
     }
@@ -89,9 +92,10 @@ export function buildAllModels(
 ): Record<string, { spec: ProviderSpec; models: readonly Model[] }> {
   const result: Record<string, { spec: ProviderSpec; models: readonly Model[] }> = {};
   for (const [pid, pspec] of Object.entries(catalog.providers)) {
+    const modelSpecs = Array.isArray(pspec.models) ? pspec.models : [];
     result[pid] = {
       spec: pspec,
-      models: pspec.models.map((m) => buildModel(pid, pspec.api, pspec.baseUrl, m)),
+      models: modelSpecs.map((m) => buildModel(pid, pspec.api, pspec.baseUrl, m)),
     };
   }
   return result;
@@ -119,6 +123,7 @@ export const BUILTIN_CATALOG: CatalogSpec = {
             mode: "adaptive",
             efforts: ["off", "low", "medium", "high", "xhigh"],
             defaultLevel: "low",
+            effortMap: { xhigh: "max" },
           },
           compat: { forceAdaptiveThinking: true },
         },
@@ -134,6 +139,7 @@ export const BUILTIN_CATALOG: CatalogSpec = {
             mode: "adaptive",
             efforts: ["off", "low", "medium", "high", "xhigh"],
             defaultLevel: "low",
+            effortMap: { xhigh: "max" },
           },
           compat: { forceAdaptiveThinking: true },
         },
@@ -468,146 +474,69 @@ export function resolveModelAlias(modelId: string): string {
   return modelId;
 }
 
-// ── Minimal YAML parser (for runtime models.yml loading by the caller) ──
+// ── YAML catalog parser (Bun.YAML.parse + structural validation) ──
 
-// ponytail: strip a trailing ` # comment` — first space-hash run outside quotes.
-function stripComment(t: string): string {
-  let quote: string | null = null;
-  for (let i = 0; i < t.length; i++) {
-    const c = t[i]!;
-    if (quote) {
-      if (c === quote) quote = null;
-    } else if (c === '"' || c === "'") {
-      quote = c;
-    } else if (c === "#" && i > 0 && t[i - 1] === " ") {
-      return t.slice(0, i).trimEnd();
-    }
-  }
-  return t;
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function parseValue(s: string): unknown {
-  const t = stripComment(s.trim());
-  if (t === "null") return null;
-  if (t === "") return "";
-  if (t === "true") return true;
-  if (t === "false") return false;
-  // Quoted scalar: strip the matching surrounding quotes and keep it a string.
-  if (
-    t.length >= 2 &&
-    ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")))
-  ) {
-    return t.slice(1, -1);
-  }
-  if (t.startsWith("{") && t.endsWith("}")) {
-    const inner = t.slice(1, -1).trim();
-    if (!inner) return {};
-    const obj: Record<string, unknown> = {};
-    for (const pair of splitTop(inner, ",")) {
-      const ci = pair.indexOf(":");
-      if (ci > 0) obj[pair.slice(0, ci).trim()] = parseValue(pair.slice(ci + 1));
-    }
-    return obj;
-  }
-  if (t.startsWith("[") && t.endsWith("]")) {
-    const inner = t.slice(1, -1).trim();
-    if (!inner) return [];
-    return splitTop(inner, ",").map((s) => parseValue(s.trim()));
-  }
-  const num = Number(t);
-  if (!Number.isNaN(num) && t !== "") return num;
-  return t;
-}
-
-function splitTop(s: string, delim: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] === "{" || s[i] === "[") depth++;
-    if (s[i] === "}" || s[i] === "]") depth--;
-    if (s[i] === delim && depth === 0) {
-      parts.push(s.slice(start, i));
-      start = i + 1;
-    }
-  }
-  parts.push(s.slice(start));
-  return parts;
-}
-
-/** Parse a models.yml text into a CatalogSpec. The caller handles file I/O
- *  (reads from `~/.oma/models.yml` or project `.oma/models.yml`). */
+/** Parse a models.yml text into a validated CatalogSpec. The caller handles
+ *  file I/O (reads from `~/.oma/models.yml` or project `.oma/models.yml`). */
 export function parseCatalogYAML(text: string): CatalogSpec {
-  const root: Record<string, unknown> = {};
-  const lines = text.split("\n");
-
-  type Frame = {
-    indent: number;
-    obj: Record<string, unknown>;
-    listKey: string | null;
-  };
-  const stack: Frame[] = [{ indent: -1, obj: root, listKey: null }];
-
-  for (let li = 0; li < lines.length; li++) {
-    const raw = lines[li]!;
-    if (raw.trim() === "" || raw.trim().startsWith("#")) continue;
-    const indent = raw.length - raw.trimStart().length;
-    const trimmed = raw.trim();
-
-    while (stack.length > 1 && stack[stack.length - 1]!.indent >= indent) stack.pop();
-    const frame = stack[stack.length - 1]!;
-
-    if (trimmed.startsWith("- ")) {
-      const itemText = trimmed.slice(2).trim();
-      const itemObj: Record<string, unknown> = {};
-      if (frame.listKey) {
-        const arr = frame.obj[frame.listKey];
-        if (Array.isArray(arr)) arr.push(itemObj);
-        else frame.obj[frame.listKey] = [itemObj];
-      }
-      if (itemText.includes(": ")) {
-        const ci = itemText.indexOf(": ");
-        itemObj[itemText.slice(0, ci).trim()] = parseValue(itemText.slice(ci + 2));
-      } else if (frame.listKey) {
-        const arr = frame.obj[frame.listKey] as unknown[];
-        arr[arr.length - 1] = parseValue(itemText);
-      }
-      stack.push({ indent, obj: itemObj, listKey: null });
-      continue;
-    }
-
-    const ci = trimmed.indexOf(":");
-    if (ci < 0) continue;
-    const key = trimmed.slice(0, ci).trim();
-    const val = trimmed.slice(ci + 1).trim();
-
-    if (val === "") {
-      const next = lines.slice(li + 1).find((l) => l.trim() && !l.trim().startsWith("#"));
-      const isList = next?.trim().startsWith("- ") ?? false;
-      if (isList) {
-        frame.obj[key] = [];
-        stack.push({ indent, obj: frame.obj, listKey: key });
-      } else {
-        const child: Record<string, unknown> = {};
-        frame.obj[key] = child;
-        stack.push({ indent, obj: child, listKey: null });
-      }
-    } else {
-      frame.obj[key] = parseValue(val);
-    }
+  let parsed: unknown;
+  try {
+    parsed = Bun.YAML.parse(text);
+  } catch (err) {
+    throw new Error(
+      `models.yml: invalid YAML (${err instanceof Error ? err.message : String(err)})`,
+      { cause: err },
+    );
   }
-  if (!root.providers) throw new Error("models.yml: missing 'providers' key");
-  const providers = root.providers;
-  if (typeof providers !== "object" || providers === null) {
+  if (!isPlainObject(parsed) || !("providers" in parsed)) {
+    throw new Error("models.yml: missing 'providers' key");
+  }
+  const rawProviders = parsed.providers;
+  if (rawProviders === null || rawProviders === undefined) {
+    return { providers: {} };
+  }
+  if (!isPlainObject(rawProviders)) {
     throw new Error("models.yml: providers must be an object");
   }
-  for (const provider of Object.values(providers)) {
-    const p = provider as Record<string, unknown>;
+
+  const normalized: Record<string, ProviderSpec> = {};
+  for (const [pid, rawProvider] of Object.entries(rawProviders)) {
+    if (!isPlainObject(rawProvider)) {
+      throw new Error(`models.yml: provider "${pid}" must be an object`);
+    }
+    const p: Record<string, unknown> = { ...rawProvider };
     if (p.header && !p.headers) p.headers = p.header;
     delete p.header;
+
+    if (p.headers !== undefined && !isPlainObject(p.headers)) {
+      throw new Error(`models.yml: provider "${pid}".headers must be an object`);
+    }
+    if (p.models !== undefined && p.models !== null) {
+      if (!Array.isArray(p.models)) {
+        throw new Error(`models.yml: provider "${pid}".models must be an array`);
+      }
+      p.models = p.models.map((rawModel, idx) => {
+        if (!isPlainObject(rawModel)) {
+          throw new Error(`models.yml: provider "${pid}".models[${idx}] must be an object`);
+        }
+        const m: Record<string, unknown> = { ...rawModel };
+        if (m.id === undefined || m.id === null || String(m.id).trim() === "") {
+          throw new Error(`models.yml: provider "${pid}".models[${idx}] is missing a valid 'id'`);
+        }
+        // Coerce unquoted numeric ids/names back to string rather than leaking numbers.
+        if (typeof m.id !== "string") m.id = String(m.id);
+        if (m.name !== undefined && m.name !== null && typeof m.name !== "string") {
+          m.name = String(m.name);
+        }
+        return m;
+      });
+    }
+    // Single validated boundary cast into ProviderSpec.
+    normalized[pid] = p as unknown as ProviderSpec;
   }
-  // Parse boundary: root.providers is untrusted YAML; the single cast pins
-  // each provider's shape to the spec the caller already validates through
-  // CatalogSpec.
-  return { providers: providers as Record<string, ProviderSpec> };
+  return { providers: normalized };
 }

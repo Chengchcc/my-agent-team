@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useHarnessList } from "@/features/models/hooks";
+import { useHarnessList, useRefreshModels } from "@/features/models/hooks";
 import type { ChatModelOverride } from "@/lib/api";
 import { t } from "@/lib/i18n";
 
@@ -40,6 +40,7 @@ export function ModelPicker({
   onChange: (v: ChatModelOverride | null) => void;
 }) {
   const { data } = useHarnessList();
+  const refreshModels = useRefreshModels();
 
   const harnesses = data?.harnesses ?? [];
   const selectedHarness = harnesses.find((h) => value?.modelId === `acp/${h.key}`);
@@ -67,12 +68,28 @@ export function ModelPicker({
         }
       />
       <DropdownMenuContent align="end" className="max-h-96 w-64 overflow-y-auto">
-        <DropdownMenuItem
-          onClick={() => onChange(null)}
-          className={value ? "" : "bg-(--canvas-soft)"}
-        >
-          Agent default
-        </DropdownMenuItem>
+        <div className="flex items-center gap-1 pr-1">
+          <DropdownMenuItem
+            onClick={() => onChange(null)}
+            className={`flex-1 ${value ? "" : "bg-(--canvas-soft)"}`}
+          >
+            Agent default
+          </DropdownMenuItem>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-6 shrink-0"
+            title={t("Refresh models")}
+            disabled={refreshModels.isPending}
+            onClick={(e) => {
+              e.stopPropagation();
+              refreshModels.mutate();
+            }}
+          >
+            <RefreshCw className={`size-3 ${refreshModels.isPending ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
         {harnesses.length === 0 && (
           <div className="px-3 py-2 text-xs/relaxed text-(--mute)">
             No harness reachable. Check the agent binaries, or the oma provider key in{" "}

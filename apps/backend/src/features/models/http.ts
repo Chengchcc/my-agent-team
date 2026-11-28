@@ -20,6 +20,11 @@ export interface WebModel {
 
 export interface ModelsCatalog {
   list(): Promise<WebModel[]>;
+  refresh?(): Promise<{
+    models: WebModel[];
+    updatedProviders: string[];
+    failedProviders: string[];
+  }>;
 }
 
 /** The harness axis (ADR 0040 decision 7): which harnesses exist, and the
@@ -30,10 +35,27 @@ export function harnessRoutes(catalog: HarnessCatalog) {
 }
 
 export function modelRoutes(catalog: ModelsCatalog) {
-  return new Elysia().get("/api/models", async () => {
-    const models = await catalog.list();
-    return { providers: groupByProvider(models) };
-  });
+  return new Elysia()
+    .get("/api/models", async () => {
+      const models = await catalog.list();
+      return { providers: groupByProvider(models) };
+    })
+    .post("/api/models/refresh", async () => {
+      if (catalog.refresh) {
+        const res = await catalog.refresh();
+        return {
+          providers: groupByProvider(res.models),
+          updatedProviders: res.updatedProviders,
+          failedProviders: res.failedProviders,
+        };
+      }
+      const models = await catalog.list();
+      return {
+        providers: groupByProvider(models),
+        updatedProviders: [] as string[],
+        failedProviders: [] as string[],
+      };
+    });
 }
 
 /** `/api/models` catalog ids are composite `<provider>/<model>`; the provider

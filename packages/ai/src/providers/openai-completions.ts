@@ -7,8 +7,13 @@ import type {
   ToolResultBlock,
   ToolUseBlock,
 } from "@chengchenccc/message";
-import { registerApi } from "../api-registry.js";
-import { type ResolvedOpenAICompat, resolveOpenAICompat } from "../compat.js";
+import { type ChunkConverter, registerApi } from "../api-registry.js";
+import {
+  type ResolvedOpenAICompat,
+  resolveEffort,
+  resolveOpenAICompat,
+  sanitizeSurrogates,
+} from "../compat.js";
 import type { Model, ProviderStreamOptions } from "../types.js";
 
 // ─── Message conversion ───
@@ -45,26 +50,31 @@ function convertMessages(
     if (m.blocks && m.blocks.length > 0) {
       const toolResults = m.blocks.filter((b): b is ToolResultBlock => b.type === "tool_result");
       if (toolResults.length > 0) {
-        return toolResults.map((result) => ({
-          role: "tool",
-          tool_call_id: result.tool_use_id,
-          content:
-            result.images && result.images.length > 0
-              ? contentParts(result.content, result.images)
-              : result.content,
-        }));
+        return toolResults.map((result) => {
+          const cleanContent = sanitizeSurrogates(result.content);
+          return {
+            role: "tool",
+            tool_call_id: result.tool_use_id,
+            content:
+              result.images && result.images.length > 0
+                ? contentParts(cleanContent, result.images)
+                : cleanContent,
+          };
+        });
       }
       const toolCalls = m.blocks
         .filter((b): b is ToolUseBlock => b.type === "tool_use")
         .map((b) => ({
           id: b.id,
           type: "function" as const,
-          function: { name: b.name, arguments: JSON.stringify(b.input) },
+          function: { name: b.name, arguments: JSON.stringify(b.input ?? {}) },
         }));
-      const text = m.blocks
-        .filter((b): b is TextBlock => b.type === "text")
-        .map((b) => b.text)
-        .join("");
+      const text = sanitizeSurrogates(
+        m.blocks
+          .filter((b): b is TextBlock => b.type === "text")
+          .map((b) => b.text)
+          .join(""),
+      );
       const images = m.blocks.filter((b): b is ImageBlock => b.type === "image");
       // DeepSeek's thinking mode requires the previous assistant turn's
       // reasoning back on the wire, and drops of it are a hard 400 ("The
@@ -74,10 +84,12 @@ function convertMessages(
       // Gated on the dialect: other encoders carry reasoning their own way.
       const reasoning =
         compat.thinkingFormat === "deepseek"
-          ? m.blocks
-              .filter((b): b is ThinkingBlock => b.type === "thinking" && !b.redacted)
-              .map((b) => b.text)
-              .join("")
+          ? sanitizeSurrogates(
+              m.blocks
+                .filter((b): b is ThinkingBlock => b.type === "thinking" && !b.redacted)
+                .map((b) => b.text)
+                .join(""),
+            )
           : "";
       const reasoningField = reasoning ? { reasoning_content: reasoning } : {};
       if (toolCalls.length > 0) {
@@ -90,18 +102,19 @@ function convertMessages(
           },
         ];
       }
+      const fallbackText = text || sanitizeSurrogates(m.text ?? "");
       if (images.length > 0) {
         return [
           {
             role: role(m.role),
-            content: contentParts(text || m.text || "", images),
+            content: contentParts(fallbackText, images),
             ...reasoningField,
           },
         ];
       }
-      return [{ role: role(m.role), content: (text || m.text) ?? "", ...reasoningField }];
+      return [{ role: role(m.role), content: fallbackText, ...reasoningField }];
     }
-    return [{ role: role(m.role), content: m.text ?? "" }];
+    return [{ role: role(m.role), content: sanitizeSurrogates(m.text ?? "") }];
   });
 }
 
@@ -143,6 +156,8 @@ function buildRequest(
     stream_options: { include_usage: true },
   };
 
+  const resolvedEffort = resolveEffort(model, opts?.effort, { xhigh: "high" });
+
   // Reasoning/thinking wire shape varies by provider dialect.
   switch (compat.thinkingFormat) {
     case "deepseek":
@@ -155,14 +170,14 @@ function buildRequest(
       body.thinking = { type: opts?.effort ? "enabled" : "disabled" };
       break;
     case "openrouter":
-      body.reasoning = { effort: opts?.effort };
+      if (resolvedEffort) body.reasoning = { effort: resolvedEffort };
       break;
     default:
       break;
   }
-  // o1/o3-style reasoning_effort (also wires into zai alongside `thinking`).
-  if (compat.supportsReasoningEffort && opts?.effort) {
-    body.reasoning_effort = opts.effort;
+  // o1/o3-style reasoning_effort (mapped/clamped through thinkingLevelMap).
+  if (compat.supportsReasoningEffort && resolvedEffort) {
+    body.reasoning_effort = resolvedEffort;
   }
 
   if (opts?.tools) {
@@ -222,7 +237,7 @@ function buildRequest(
  *  fragments: first chunk carries id+name, later chunks carry only index +
  *  function.arguments deltas. Maintains index → (id, name) so every argument
  *  fragment emits as input_json_delta paired to the initial tool. */
-function createChunkConverter(): (raw: Record<string, unknown>) => Generator<AIMessageChunk> {
+function createChunkConverter(): ChunkConverter {
   const toolCallsByIndex = new Map<number, { id: string; name: string }>();
   // Some compat gateways omit tool_calls[].index. With the old `?? 0` every
   // such call collided on index 0, so parallel calls clobbered each other.
@@ -231,8 +246,16 @@ function createChunkConverter(): (raw: Record<string, unknown>) => Generator<AIM
   const indexById = new Map<string, number>();
   let nextMissingIndex = 0;
   let lastMissingIndex = 0;
+  // With `stream_options: { include_usage: true }`, finish_reason arrives on
+  // frame N (usage: null) and real token usage arrives on frame N+1 (choices: []).
+  // Defer `done: true` until after usage arrives — or flush it at clean stream
+  // end if the gateway omits the trailing usage frame.
+  let sawFinish = false;
+  let emittedDone = false;
 
-  return function* convertChunk(raw: Record<string, unknown>): Generator<AIMessageChunk> {
+  const convertChunk: ChunkConverter = function* convertChunk(
+    raw: Record<string, unknown>,
+  ): Generator<AIMessageChunk> {
     // Mid-stream error frame: throw so the consumer isn't left waiting for a
     // done signal that never arrives (matches anthropic's `error` handling).
     if (raw.error) {
@@ -243,10 +266,12 @@ function createChunkConverter(): (raw: Record<string, unknown>) => Generator<AIM
     if (choices?.[0]) {
       const delta = choices[0].delta as Record<string, unknown> | undefined;
       if (delta?.content) {
-        yield { delta: { type: "text", text: delta.content as string } };
+        yield { delta: { type: "text", text: sanitizeSurrogates(delta.content as string) } };
       }
       if (delta?.reasoning_content) {
-        yield { delta: { type: "reasoning", text: delta.reasoning_content as string } };
+        yield {
+          delta: { type: "reasoning", text: sanitizeSurrogates(delta.reasoning_content as string) },
+        };
       }
       if (delta?.tool_calls) {
         for (const tc of delta.tool_calls as Array<Record<string, unknown>>) {
@@ -294,9 +319,7 @@ function createChunkConverter(): (raw: Record<string, unknown>) => Generator<AIM
       if (choices[0].finish_reason) {
         const stopReason = mapFinishReason(choices[0].finish_reason as string);
         if (stopReason) yield { stopReason };
-        // Clean end: signal done so consumers don't wait on a [DONE]
-        // sentinel some gateways omit (matches anthropic/responses providers).
-        yield { done: true };
+        sawFinish = true;
       }
     }
     const usage = raw.usage as Record<string, unknown> | undefined;
@@ -313,8 +336,21 @@ function createChunkConverter(): (raw: Record<string, unknown>) => Generator<AIM
           cacheRead: cached,
         },
       };
+      if (sawFinish && !emittedDone) {
+        emittedDone = true;
+        yield { done: true };
+      }
     }
   };
+
+  convertChunk.flush = function* flush(): Generator<AIMessageChunk> {
+    if (sawFinish && !emittedDone) {
+      emittedDone = true;
+      yield { done: true };
+    }
+  };
+
+  return convertChunk;
 }
 
 registerApi("openai-completions", { buildRequest, createChunkConverter });

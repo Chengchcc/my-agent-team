@@ -8,8 +8,11 @@ export { bareModelId, harnessRoutes, modelRoutes, providerOfModelId } from "./ht
 export { createOmaModelCatalog } from "./oma-catalog.js";
 export {
   applyServedAvailability,
+  createProviderCatalogProbe,
   createProviderModelProbe,
   createServedModelKnowledge,
+  type ProviderCatalogProbe,
+  persistDiscoveredProviderModels,
   type ServedModelKnowledge,
   type ServedModelProbe,
 } from "./served-models.js";

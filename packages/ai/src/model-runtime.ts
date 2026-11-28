@@ -1,7 +1,9 @@
 import type { Message } from "@chengchenccc/message";
+import { resolveModelAlias } from "./model-catalog.js";
 import type {
   CatalogRefreshResult,
   CredentialStore,
+  Model,
   ModelCost,
   ModelRuntime,
   ModelRuntimeEntry,
@@ -37,7 +39,7 @@ export function createModelRuntime(opts: ModelRuntimeOptions = {}): ModelRuntime
       inputModalities: m.input,
       contextWindow: m.contextWindow,
       maxOutputTokens: m.maxTokens,
-      available: true,
+      available: p.isModelAvailable ? p.isModelAvailable(m.id) : true,
       cost: m.cost,
     };
   }
@@ -50,6 +52,15 @@ export function createModelRuntime(opts: ModelRuntimeOptions = {}): ModelRuntime
       }
     }
     return { models, timestamp: Date.now() };
+  }
+
+  function findModel(provider: Provider, modelId: string): Model | undefined {
+    const models = provider.getModels();
+    const direct = models.find((m) => m.id === modelId);
+    if (direct) return direct;
+    const aliased = resolveModelAlias(modelId);
+    if (aliased !== modelId) return models.find((m) => m.id === aliased);
+    return undefined;
   }
 
   return {
@@ -69,8 +80,7 @@ export function createModelRuntime(opts: ModelRuntimeOptions = {}): ModelRuntime
     async resolveModel(providerId: string, modelId: string) {
       const provider = providers.get(providerId);
       if (!provider) throw new Error(`Provider "${providerId}" not found`);
-      const models = provider.getModels();
-      const matched = models.find((m) => m.id === modelId);
+      const matched = findModel(provider, modelId);
       if (!matched) throw new Error(`Model "${modelId}" not found`);
       const credential = store ? ((await store.resolve(providerId)) ?? {}) : {};
       return { model: buildEntry(provider, matched), credential };
@@ -79,23 +89,46 @@ export function createModelRuntime(opts: ModelRuntimeOptions = {}): ModelRuntime
       if (cache) return cache;
       return this.refreshCatalog();
     },
-    async refreshCatalog() {
+    async refreshCatalog(refreshOpts) {
+      if (refreshOpts?.sync) {
+        await Promise.all(
+          [...providers.values()].map(async (p) => {
+            if (!p.syncModels) return;
+            try {
+              const cred = store ? ((await store.resolve(p.id)) ?? {}) : {};
+              await p.syncModels({
+                apiKey: cred.apiKey,
+                baseUrl: cred.baseUrl,
+                headers: cred.headers,
+                fetchImpl: refreshOpts.fetchImpl,
+                timeoutMs: refreshOpts.timeoutMs,
+                pruneUnserved: refreshOpts.pruneUnserved,
+              });
+            } catch {
+              /* isolate per-provider sync failure */
+            }
+          }),
+        );
+      }
       cache = buildCatalog();
       return cache;
     },
     async *stream(providerId: string, modelId: string, messages: readonly Message[], opts) {
       const provider = providers.get(providerId);
       if (!provider) throw new Error(`Provider "${providerId}" not found`);
-      const models = provider.getModels();
-      const matched = models.find((m) => m.id === modelId);
+      const matched = findModel(provider, modelId);
       if (!matched) throw new Error(`Model "${modelId}" not found`);
       // Credential resolved per request; provider never caches it.
       const credential = store ? ((await store.resolve(providerId)) ?? {}) : {};
+      const mergedHeaders =
+        credential.headers || opts?.headers
+          ? { ...(credential.headers ?? {}), ...(opts?.headers ?? {}) }
+          : undefined;
       yield* provider.stream(matched, messages, {
-        apiKey: credential.apiKey,
-        baseUrl: credential.baseUrl,
-        headers: credential.headers,
         ...opts,
+        apiKey: opts?.apiKey ?? credential.apiKey,
+        baseUrl: opts?.baseUrl ?? credential.baseUrl,
+        ...(mergedHeaders ? { headers: mergedHeaders } : {}),
       });
     },
   };

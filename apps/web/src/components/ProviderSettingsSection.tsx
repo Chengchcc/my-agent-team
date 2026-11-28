@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, Trash2 } from "lucide-react";
+import { KeyRound, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { badgeVariantOfTone, type FactTone } from "@/components/ops/kit";
 import { SettingsField } from "@/components/SettingsField";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useModelList, useRefreshModels } from "@/features/models/hooks";
 import { useClearProvider, useProviders, useSetProvider } from "@/features/providers/hooks";
 import { t } from "@/lib/i18n";
 
@@ -23,18 +24,40 @@ import { t } from "@/lib/i18n";
  *  one you are setting. Saving writes a key the browser never reads back. */
 export function ProviderSettingsSection() {
   const { data, isLoading } = useProviders();
+  const { data: modelCatalog } = useModelList();
   const setProvider = useSetProvider();
   const clearProvider = useClearProvider();
+  const refreshModels = useRefreshModels();
   const providers = data?.providers ?? [];
+  const modelCountByProvider = new Map(
+    (modelCatalog?.providers ?? []).map((p) => [
+      p.id,
+      p.models.filter((m) => m.available !== false).length,
+    ]),
+  );
   const [selected, setSelected] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const current = providers.find((p) => p.id === selected);
   const configuredCount = providers.filter((p) => p.configured).length;
   const aside = (
-    <Badge variant={badgeVariantOfTone(configuredCount > 0 ? "ok" : "muted")} className="font-mono">
-      {t("{set} of {total} configured", { set: configuredCount, total: providers.length })}
-    </Badge>
+    <div className="flex items-center gap-2">
+      <Badge
+        variant={badgeVariantOfTone(configuredCount > 0 ? "ok" : "muted")}
+        className="font-mono"
+      >
+        {t("{set} of {total} configured", { set: configuredCount, total: providers.length })}
+      </Badge>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => refreshModels.mutate()}
+        disabled={refreshModels.isPending || configuredCount === 0}
+      >
+        <RefreshCw className={`size-3 ${refreshModels.isPending ? "animate-spin" : ""}`} />
+        {refreshModels.isPending ? t("Refreshing…") : t("Refresh models")}
+      </Button>
+    </div>
   );
 
   function close(): void {
@@ -68,6 +91,7 @@ export function ProviderSettingsSection() {
         <div className="divide-y divide-(--hairline)">
           {providers.map((p) => {
             const tone: FactTone = p.configured ? "ok" : "muted";
+            const modelCount = modelCountByProvider.get(p.id) ?? 0;
             return (
               <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
                 <div className="min-w-0">
@@ -77,6 +101,11 @@ export function ProviderSettingsSection() {
                     <Badge variant={badgeVariantOfTone(tone)} className="font-mono">
                       {p.configured ? t("configured") : t("not configured")}
                     </Badge>
+                    {modelCount > 0 && (
+                      <Badge variant="outline" className="font-mono text-[10px]">
+                        {t("{count} models", { count: modelCount })}
+                      </Badge>
+                    )}
                   </div>
                   <p className="mt-0.5 font-mono text-[10px] text-(--mute)">{p.apiKeyEnv}</p>
                 </div>
@@ -121,21 +150,19 @@ export function ProviderSettingsSection() {
                     className="mt-1"
                   />
                 </div>
-                {current.apiKeyEnv === "ANTHROPIC_API_KEY" && (
-                  <div>
-                    <Label htmlFor="provider-base-url" className="text-[10px] text-(--mute)">
-                      {t("Base URL")}
-                    </Label>
-                    <Input
-                      id="provider-base-url"
-                      value={baseUrl}
-                      onChange={(e) => setBaseUrl(e.target.value)}
-                      placeholder={t("Optional proxy base URL")}
-                      autoComplete="off"
-                      className="mt-1"
-                    />
-                  </div>
-                )}
+                <div>
+                  <Label htmlFor="provider-base-url" className="text-[10px] text-(--mute)">
+                    {t("Base URL")}
+                  </Label>
+                  <Input
+                    id="provider-base-url"
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    placeholder={t("Optional proxy base URL")}
+                    autoComplete="off"
+                    className="mt-1"
+                  />
+                </div>
               </div>
               <DialogFooter>
                 {current.configured && (

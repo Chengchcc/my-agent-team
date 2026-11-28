@@ -5,7 +5,7 @@ import "./providers/anthropic-messages.js";
 import "./providers/openai-completions.js";
 import "./providers/openai-responses.js";
 
-export type { ApiImplementation } from "./api-registry.js";
+export type { ApiImplementation, ChunkConverter } from "./api-registry.js";
 
 // ─── API registry ───
 export { getApiImplementation, hasApiImplementation, registerApi } from "./api-registry.js";
@@ -15,8 +15,18 @@ export {
   type ResolvedAnthropicCompat,
   type ResolvedOpenAICompat,
   resolveAnthropicCompat,
+  resolveEffort,
   resolveOpenAICompat,
+  sanitizeSurrogates,
 } from "./compat.js";
+// ─── Credential stores (SQLite + env) ───
+export {
+  createEnvCredentialStore,
+  createSqliteCredentialStore,
+  readSqliteProviderCredentials,
+  type SqliteCredentialStoreOptions,
+  type SqliteProviderCredentialsSnapshot,
+} from "./credential-store.js";
 // ─── Model catalog (runtime config: parseCatalogYAML + BUILTIN_CATALOG) ───
 export {
   BUILTIN_CATALOG,
@@ -31,12 +41,16 @@ export {
   type ThinkingConfig,
   type ThinkingMode,
 } from "./model-catalog.js";
-export type { ModelDrift } from "./model-discovery.js";
+export type { CatalogSyncResult, DiscoveredModel, ModelDrift } from "./model-discovery.js";
 // ─── Model discovery (what providers actually serve vs what we declare) ───
 export {
   describeDrift,
   diffServedModels,
+  fetchProviderModels,
+  mergeDiscoveredModelSpecs,
   parseServedModelIds,
+  parseServedModels,
+  syncCatalogFromProviders,
 } from "./model-discovery.js";
 export type { ModelRuntimeOptions } from "./model-runtime.js";
 
@@ -54,6 +68,7 @@ export type {
   Api,
   CatalogRefreshResult,
   CredentialStore,
+  FetchLike,
   InputModality,
   KnownApi,
   Model,
@@ -61,6 +76,7 @@ export type {
   ModelCost,
   ModelRuntime,
   ModelRuntimeEntry,
+  ModelSyncOutcome,
   OpenAICompat,
   Provider,
   ProviderAuth,
@@ -68,6 +84,7 @@ export type {
   ProviderStreamOptions,
   ProviderToolSchema,
   ResolvedCredential,
+  SyncModelsOptions,
   ThinkingLevel,
   ThinkingLevelMap,
 } from "./types.js";

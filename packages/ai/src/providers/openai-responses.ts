@@ -1,18 +1,18 @@
 import type { AIMessageChunk, Message } from "@chengchenccc/message";
 import { registerApi } from "../api-registry.js";
-import { resolveOpenAICompat } from "../compat.js";
+import { resolveEffort, resolveOpenAICompat, sanitizeSurrogates } from "../compat.js";
 import type { Model, ProviderStreamOptions } from "../types.js";
 
 // ── Request assembly ──────────────────────────────────────────────
 
 /** Concatenate text blocks; fall back to the legacy `text` field. */
 function textOf(m: Message): string {
-  if (m.text) return m.text;
-  if (!m.blocks) return "";
-  return m.blocks
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join("");
+  const fromBlocks =
+    m.blocks
+      ?.filter((b) => b.type === "text")
+      .map((b) => b.text)
+      .join("") ?? "";
+  return sanitizeSurrogates(fromBlocks || m.text || "");
 }
 
 /** Canonical messages → OpenAI Responses API `input` items.
@@ -46,11 +46,13 @@ function convertInput(messages: readonly Message[], systemRole: string): unknown
         });
     } else if (m.role === "assistant") {
       if (m.blocks?.length) {
-        const text =
+        const text = sanitizeSurrogates(
           m.blocks
             .filter((b) => b.type === "text")
             .map((b) => b.text)
-            .join("") || m.text;
+            .join("") ||
+            (m.text ?? ""),
+        );
         if (text)
           input.push({
             type: "message",
@@ -70,7 +72,7 @@ function convertInput(messages: readonly Message[], systemRole: string): unknown
         input.push({
           type: "message",
           role: "assistant",
-          content: [{ type: "output_text", text: m.text }],
+          content: [{ type: "output_text", text: sanitizeSurrogates(m.text) }],
           status: "completed",
         });
       }
@@ -81,16 +83,17 @@ function convertInput(messages: readonly Message[], systemRole: string): unknown
         ) ?? [];
       for (const result of results) {
         const images = result.images ?? [];
+        const cleanContent = sanitizeSurrogates(result.content ?? m.text ?? "");
         const output =
           images.length > 0
             ? [
-                ...(result.content ? [{ type: "input_text", text: result.content }] : []),
+                ...(cleanContent ? [{ type: "input_text", text: cleanContent }] : []),
                 ...images.map((img) => ({
                   type: "input_image",
                   image_url: `data:${img.mediaType};base64,${img.base64}`,
                 })),
               ]
-            : (result.content ?? m.text ?? "");
+            : cleanContent;
         input.push({
           type: "function_call_output",
           call_id: result.tool_use_id ?? "",
@@ -99,7 +102,11 @@ function convertInput(messages: readonly Message[], systemRole: string): unknown
       }
       // ponytail: keep the legacy single-output fallback for bare-text tool turns.
       if (!results.length && m.text)
-        input.push({ type: "function_call_output", call_id: "", output: m.text });
+        input.push({
+          type: "function_call_output",
+          call_id: "",
+          output: sanitizeSurrogates(m.text),
+        });
     }
   }
   return input;
@@ -139,8 +146,8 @@ function buildRequest(
   };
 
   if (model.reasoning && opts?.effort) {
-    const mapped = model.thinkingLevelMap?.[opts.effort];
-    body.reasoning = { effort: mapped ?? EFFORT_CLAMP[opts.effort] ?? "medium", summary: "auto" };
+    const resolved = resolveEffort(model, opts.effort, EFFORT_CLAMP);
+    if (resolved) body.reasoning = { effort: resolved, summary: "auto" };
   }
 
   if (opts?.tools?.length)
@@ -175,8 +182,14 @@ function buildRequest(
 
 /** Map Responses API response.status → canonical stop reason. A completed
  *  response that emitted tool calls is a tool_use turn, not an end_turn. */
-function mapStopReason(status: string, sawToolUse: boolean): AIMessageChunk["stopReason"] {
-  if (status === "incomplete") return "max_tokens";
+function mapStopReason(
+  status: string,
+  sawToolUse: boolean,
+  incompleteReason?: string,
+): AIMessageChunk["stopReason"] {
+  if (status === "incomplete") {
+    return incompleteReason === "content_filter" ? "refusal" : "max_tokens";
+  }
   return sawToolUse ? "tool_use" : "end_turn";
 }
 
@@ -208,7 +221,7 @@ function createChunkConverter(): (raw: Record<string, unknown>) => Generator<AIM
 
     if (type === "response.output_text.delta") {
       const delta = raw.delta as string | undefined;
-      if (delta) yield { delta: { type: "text", text: delta } };
+      if (delta) yield { delta: { type: "text", text: sanitizeSurrogates(delta) } };
       return;
     }
 
@@ -218,7 +231,7 @@ function createChunkConverter(): (raw: Record<string, unknown>) => Generator<AIM
       type === "response.reasoning_text.delta"
     ) {
       const delta = raw.delta as string | undefined;
-      if (delta) yield { delta: { type: "reasoning", text: delta } };
+      if (delta) yield { delta: { type: "reasoning", text: sanitizeSurrogates(delta) } };
       return;
     }
 
@@ -260,10 +273,17 @@ function createChunkConverter(): (raw: Record<string, unknown>) => Generator<AIM
         const details = usage.input_tokens_details as Record<string, number> | undefined;
         const cached = details?.cached_tokens ?? 0;
         // OpenAI folds cached tokens into input_tokens; report them separately.
-        chunk.usage = { input: inputTokens - cached, output: outputTokens };
+        chunk.usage = { input: Math.max(0, inputTokens - cached), output: outputTokens };
         if (cached) chunk.usage.cacheRead = cached;
       }
-      chunk.stopReason = mapStopReason((response?.status as string) ?? "completed", sawToolUse);
+      const incompleteReason = (response?.incomplete_details as { reason?: string } | undefined)
+        ?.reason;
+      chunk.stopReason = mapStopReason(
+        (response?.status as string) ??
+          (type === "response.incomplete" ? "incomplete" : "completed"),
+        sawToolUse,
+        incompleteReason,
+      );
       yield chunk;
     }
   };

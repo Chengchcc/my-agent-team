@@ -20,6 +20,8 @@ export interface CliArgs {
   modeExplicit: boolean;
   prompt: string;
   listModels: boolean;
+  /** --sync-models: fetch live /models from configured providers into models-cache.json. */
+  syncModels?: boolean;
   /** Canonical `<provider>/<model>` id; undefined = first available model. */
   model?: string;
   /** Resume a session file by id (all modes; TUI and one-shot). */
@@ -78,6 +80,7 @@ Usage:
   oma --mode json "<prompt>"     json mode: all events + one outcome as JSONL
   oma --mode acp                 ACP server on stdio (agent client protocol)
   oma --list-models              print the model catalog as JSON
+  oma --sync-models              refresh the model catalog from configured providers
   oma update                     update the CLI + gateway artifact to the
                                  newest published version
   oma update --check             report what is installed vs what is published
@@ -159,6 +162,8 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       args.modeExplicit = true;
     } else if (arg === "--list-models") {
       args.listModels = true;
+    } else if (arg === "--sync-models") {
+      args.syncModels = true;
     } else if (arg === "--model") {
       const value = argv[i + 1];
       if (!value || value.startsWith("-")) {

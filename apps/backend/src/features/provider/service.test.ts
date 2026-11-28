@@ -43,9 +43,12 @@ describe("ProviderService", () => {
   test("set stores apiKey and exposes it via getProviderEnv", () => {
     const svc = createProviderService(makeSettings());
     svc.set("anthropic", { apiKey: "sk-ant-123", baseUrl: "https://proxy" });
+    svc.set("deepseek", { apiKey: "sk-ds-123", baseUrl: "https://ds.proxy/v1" });
     expect(svc.getProviderEnv()).toEqual({
       ANTHROPIC_API_KEY: "sk-ant-123",
       ANTHROPIC_BASE_URL: "https://proxy",
+      DEEPSEEK_API_KEY: "sk-ds-123",
+      DEEPSEEK_BASE_URL: "https://ds.proxy/v1",
     });
   });
 

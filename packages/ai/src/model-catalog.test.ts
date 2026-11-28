@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   BUILTIN_CATALOG,
+  buildAllModels,
   MODEL_ALIASES,
   parseCatalogYAML,
   resolveModelAlias,
@@ -101,6 +102,42 @@ describe("parseCatalogYAML", () => {
   test("empty `providers:` map is structurally valid (key present, not missing)", () => {
     const cat = parseCatalogYAML(`providers:\n`);
     expect(cat.providers).toEqual({});
+  });
+
+  test("coerces unquoted numeric model ids to string and handles commas inside quoted flow values", () => {
+    const cat = parseCatalogYAML(`providers:
+  acme:
+    api: openai-completions
+    baseUrl: https://api.acme.test/v1
+    apiKeyEnv: ACME_KEY
+    headers: { "X-Note": "a, b", "X-Tag": "v1" }
+    models:
+      - id: 12345
+        name: "Model, One"
+`);
+    const acme = cat.providers.acme!;
+    expect(acme.headers).toEqual({ "X-Note": "a, b", "X-Tag": "v1" });
+    expect(acme.models[0]?.id).toBe("12345");
+    expect(acme.models[0]?.name).toBe("Model, One");
+  });
+
+  test("rejects malformed provider or model entries with actionable errors", () => {
+    expect(() => parseCatalogYAML(`providers:\n  acme:\n    models: not-an-array\n`)).toThrow(
+      'provider "acme".models must be an array',
+    );
+    expect(() =>
+      parseCatalogYAML(`providers:\n  acme:\n    models:\n      - name: missing-id\n`),
+    ).toThrow("missing a valid 'id'");
+  });
+
+  test("thinkingConfigToMap preserves effortMap entries for Claude and DeepSeek xhigh → max", () => {
+    const built = buildAllModels(BUILTIN_CATALOG);
+    const opus = built.anthropic?.models.find((m) => m.id === "claude-opus-4-8");
+    const sonnet = built.anthropic?.models.find((m) => m.id === "claude-sonnet-5");
+    const ds = built.deepseek?.models.find((m) => m.id === "deepseek-flash");
+    expect(opus?.thinkingLevelMap?.xhigh).toBe("max");
+    expect(sonnet?.thinkingLevelMap?.xhigh).toBe("max");
+    expect(ds?.thinkingLevelMap?.xhigh).toBe("max");
   });
 });
 

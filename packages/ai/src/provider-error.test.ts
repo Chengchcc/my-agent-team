@@ -59,4 +59,43 @@ describe("normalizeProviderError", () => {
       "invalid_request",
     );
   });
+
+  test("400 error mentioning field name 'billing' is invalid_request, not quota", () => {
+    const err = Object.assign(
+      new Error('status=400 invalid tool schema: unknown property "billing"'),
+      { statusCode: 400 },
+    );
+    const pe = normalizeProviderError(err);
+    expect(pe.kind).toBe("invalid_request");
+    expect(pe.statusCode).toBe(400);
+  });
+
+  test("402 billing limit classifies as non-retryable quota", () => {
+    const err = Object.assign(new Error("status=402 billing hard limit reached"), {
+      statusCode: 402,
+    });
+    const pe = normalizeProviderError(err);
+    expect(pe.kind).toBe("quota");
+    expect(pe.retryable).toBe(false);
+  });
+
+  test("structured statusCode beats misleading status text inside error body", () => {
+    const err = Object.assign(new Error("status=503 upstream returned status 200 body"), {
+      statusCode: 503,
+    });
+    const pe = normalizeProviderError(err);
+    expect(pe.statusCode).toBe(503);
+    expect(pe.kind).toBe("transient");
+    expect(pe.retryable).toBe(true);
+  });
+
+  test("idle timeout error normalizes as retryable transient", () => {
+    const err = Object.assign(
+      new Error("model stream idle timeout after 120000ms (no data from the provider)"),
+      { isTimeout: true },
+    );
+    const pe = normalizeProviderError(err);
+    expect(pe.kind).toBe("transient");
+    expect(pe.retryable).toBe(true);
+  });
 });

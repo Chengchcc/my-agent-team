@@ -67,6 +67,13 @@ export const settingsZh: Record<string, string> = {
   "{name} value": "{name} 的值",
   "Base URL": "基础地址",
   "Optional proxy base URL": "可选的代理基础地址",
+  "Refresh models": "刷新模型",
+  "Refreshing…": "刷新中……",
+  "{count} models": "{count} 个模型",
+  "Synced models from {count} provider(s)": "已从 {count} 个提供商同步最新模型",
+  "Some providers failed: {providers}": "部分提供商同步失败：{providers}",
+  "No reachable provider updated": "暂无可连通的提供商更新",
+  "Failed to refresh models: {reason}": "刷新模型失败：{reason}",
   Clear: "清除",
   "Custom provider keys": "自定义提供商密钥",
   "For a provider your models.yml declares — the name it looks up, like ZAI_API_KEY.":

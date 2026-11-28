@@ -78,7 +78,7 @@ export function ProviderSetupInline() {
           autoComplete="off"
         />
       )}
-      {current?.apiKeyEnv === "ANTHROPIC_API_KEY" && (
+      {current && (
         <Input
           value={baseUrl}
           onChange={(e) => setBaseUrl(e.target.value)}
