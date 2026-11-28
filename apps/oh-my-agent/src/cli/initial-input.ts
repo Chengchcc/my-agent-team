@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import type { ModelRuntime } from "@chengchenccc/ai";
-import type { Message } from "@chengchenccc/message";
+import type { Message, ReasoningEffort } from "@chengchenccc/message";
 import { managedSkillsDir } from "../core/memory/managed-skills.js";
 import { enabledPluginSkillRoots } from "../core/plugins/plugin-marketplace.js";
 import type { BackendRunInput } from "../core/runtime/contract/index.js";
@@ -138,12 +138,44 @@ function buildUserMessage(
  *  `<provider>/<model>` id) or the first available model, no Product Tools,
  *  no system prompt. */
 
+/** Parse `--output-schema <file|json>` into a plain JSON Schema object. */
+export function resolveOutputSchemaArg(
+  raw: string,
+  workspaceRoot: string,
+): Readonly<Record<string, unknown>> {
+  const trimmed = raw.trim();
+  let jsonText = trimmed;
+  if (!trimmed.startsWith("{")) {
+    const filePath = isAbsolute(trimmed) ? trimmed : resolve(workspaceRoot, trimmed);
+    if (!existsSync(filePath)) {
+      throw new UsageError(`--output-schema file not found: ${trimmed}`);
+    }
+    jsonText = readFileSync(filePath, "utf8");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (err) {
+    throw new UsageError(
+      `--output-schema is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new UsageError("--output-schema must be a JSON object");
+  }
+  return parsed as Readonly<Record<string, unknown>>;
+}
+
 export async function buildCliRunInput(opts: {
   prompt: string;
   workspaceRoot: string;
   modelRuntime: ModelRuntime;
   /** Canonical `<provider>/<model>` id; undefined = first available. */
   modelId?: string;
+  /** Optional reasoning/thinking effort ("none" | "low" | "high" | "max"). */
+  reasoningEffort?: ReasoningEffort;
+  /** Optional JSON Schema contract appended for headless structured output. */
+  outputSchema?: Readonly<Record<string, unknown>>;
   /** Standalone permission gate. undefined = ungated (legacy default);
    *  "yolo" = ungated + OS bash sandbox forced when available. */
   permissionMode?: "ask" | "auto" | "deny" | "yolo";
@@ -166,11 +198,25 @@ export async function buildCliRunInput(opts: {
     throw new Error(`model unavailable: ${opts.modelId}`);
   }
   if (!model) {
-    throw new Error("no available model in the catalog (check provider credentials)");
+    throw new Error(
+      "no available model in the catalog (run `oma setup` or check provider credentials)",
+    );
   }
   const modelId = `${model.providerId}/${model.modelId}`;
   const runId = `cli-${randomUUID()}`;
   const skillRoots = resolveStandaloneSkillRoots(opts.workspaceRoot);
+  let systemPrompt = buildSystemPrompt({
+    workspacePrompt: readWorkspaceSystemPrompt(opts.workspaceRoot),
+    memorySummary: readMemorySummary(opts.workspaceRoot),
+    cwd: opts.workspaceRoot,
+    includeLocalMemory: !opts.readOnly,
+  });
+  if (opts.outputSchema) {
+    systemPrompt =
+      `${systemPrompt}\n\n# Required Output Schema\n` +
+      "Your final assistant message MUST be a single valid JSON document (no markdown fences, no surrounding prose) conforming to this JSON Schema:\n" +
+      `${JSON.stringify(opts.outputSchema)}`;
+  }
   const input: BackendRunInput = {
     input: {
       inputId: `cli-in-${randomUUID()}`,
@@ -178,12 +224,11 @@ export async function buildCliRunInput(opts: {
     },
     run: {
       runId,
-      model: { modelId },
-      systemPrompt: buildSystemPrompt({
-        workspacePrompt: readWorkspaceSystemPrompt(opts.workspaceRoot),
-        memorySummary: readMemorySummary(opts.workspaceRoot),
-        cwd: opts.workspaceRoot,
-      }),
+      model: {
+        modelId,
+        ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
+      },
+      systemPrompt,
       configRevision: 0,
     },
     workspace: { root: opts.workspaceRoot, access: opts.readOnly ? "read_only" : "read_write" },

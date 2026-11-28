@@ -20,6 +20,7 @@ import {
   wrapTextWithAnsi,
 } from "@chengchenccc/tui";
 import { defaultRegistry } from "../../core/coordination/registry.js";
+import { formatUsd } from "../../core/runtime/cost.js";
 import type { OmaTranscriptContainer } from "./tui-components.js";
 import {
   cleanHeaderTitle,
@@ -527,6 +528,10 @@ export class TuiRenderShell {
   private headerTitle = "";
   private headerContext = "";
   private headerContextInfo?: ContextUsageInfo;
+  private headerPermission = "";
+  private headerEffort = "";
+  private headerCostUsd = 0;
+  private headerMcpErrors = 0;
   private busy = false;
   private loader: Loader | null = null;
   private busySeconds = 0;
@@ -644,6 +649,7 @@ export class TuiRenderShell {
     title: string,
     context?: string,
     contextInfo?: ContextUsageInfo | null,
+    meta?: { permission?: string; effort?: string; costUsd?: number; mcpErrors?: number },
   ): void {
     const prevModel = this.headerModel;
     this.headerModel = model;
@@ -652,6 +658,10 @@ export class TuiRenderShell {
     if (context !== undefined) this.headerContext = context;
     if (contextInfo === null) this.headerContextInfo = undefined;
     else if (contextInfo !== undefined) this.headerContextInfo = contextInfo;
+    if (meta?.permission !== undefined) this.headerPermission = meta.permission;
+    if (meta?.effort !== undefined) this.headerEffort = meta.effort;
+    if (meta?.costUsd !== undefined) this.headerCostUsd = meta.costUsd;
+    if (meta?.mcpErrors !== undefined) this.headerMcpErrors = meta.mcpErrors;
     const coldModelResolved =
       !prevModel && Boolean(model) && (!this.currentState || this.currentState.runs.length === 0);
     if (coldModelResolved && this.lastPrintedSession === this.headerSession) {
@@ -834,6 +844,39 @@ export class TuiRenderShell {
         priority: 2,
       });
     }
+    if (this.headerPermission) {
+      const pFg =
+        this.headerPermission === "yolo"
+          ? tuiTheme.warning
+          : this.headerPermission === "deny"
+            ? tuiTheme.error
+            : this.headerPermission === "ask"
+              ? tuiTheme.info
+              : tuiTheme.dim;
+      left.push({
+        text: this.headerPermission,
+        chip: true,
+        bg: tuiTheme.bgOverlay,
+        fg: pFg,
+        priority: 3,
+      });
+    }
+    if (this.headerEffort) {
+      left.push({
+        text: `effort:${this.headerEffort}`,
+        fg: tuiTheme.dim,
+        priority: 4,
+      });
+    }
+    if (this.headerMcpErrors > 0) {
+      left.push({
+        text: `⚠ ${this.headerMcpErrors} mcp`,
+        chip: true,
+        bg: tuiTheme.bgOverlay,
+        fg: tuiTheme.warning,
+        priority: 2,
+      });
+    }
     if (runningBg > 0) {
       left.push({
         text: `⏵ ${runningBg} bg`,
@@ -873,6 +916,13 @@ export class TuiRenderShell {
         priority: 2,
       });
     }
+    if (this.headerCostUsd > 0) {
+      right.push({
+        text: formatUsd(this.headerCostUsd),
+        fg: tuiTheme.dim,
+        priority: 3,
+      });
+    }
     if (this.headerSession) {
       right.push({ text: this.headerSession.slice(0, 8), fg: tuiTheme.dim, priority: 7 });
     }
@@ -889,7 +939,7 @@ export class TuiRenderShell {
       this.driverStatus.get("loop") ?? "",
     ].join("|");
     const width = Math.max(40, this.tui.terminal.columns);
-    const key = `${width}|${this.headerModel}|${this.headerSession}|${this.headerContext}|${this.headerContextInfo?.estimatedTokens ?? ""}|${this.headerContextInfo?.pct ?? ""}|${this.headerContextInfo?.usageSummary ?? ""}|${git}|${runningBg}|${drivers}`;
+    const key = `${width}|${this.headerModel}|${this.headerSession}|${this.headerContext}|${this.headerContextInfo?.estimatedTokens ?? ""}|${this.headerContextInfo?.pct ?? ""}|${this.headerContextInfo?.usageSummary ?? ""}|${this.headerPermission}|${this.headerEffort}|${this.headerCostUsd.toFixed(4)}|${this.headerMcpErrors}|${git}|${runningBg}|${drivers}`;
     if (!force && key === this.lastStatusKey) return;
     this.lastStatusKey = key;
     this.statusLineText = this.renderStatusBarLine(width);

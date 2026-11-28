@@ -1,4 +1,11 @@
+import {
+  normalizeReasoningEffort,
+  REASONING_EFFORTS,
+  type ReasoningEffort,
+} from "../core/runtime/model-effort.js";
+import { DOCTOR_USAGE } from "./doctor-command.js";
 import { GATEWAY_USAGE, type GatewayCommand, isGatewayCommand } from "./gateway-commands.js";
+import { SETUP_USAGE } from "./setup-wizard.js";
 import { UPDATE_USAGE } from "./update-command.js";
 
 export type CliMode = "print" | "json" | "tui" | "acp";
@@ -39,6 +46,19 @@ export interface CliArgs {
    *  (all but those). Applied to the FINAL tool table (native + MCP +
    *  plugin) at Run assembly. */
   tools?: string;
+  /** `oma doctor [--json]`: diagnose local CLI setup. */
+  doctor?: boolean;
+  doctorJson?: boolean;
+  /** `oma setup`: interactive provider configuration wizard. */
+  setup?: boolean;
+  /** `--effort <none|low|high|max>`: model reasoning effort override. */
+  effort?: ReasoningEffort;
+  /** `--max-turns <n>`: step cap for headless/CI runs. */
+  maxTurns?: number;
+  /** `--max-budget-usd <n>`: USD cost cap for headless/CI runs. */
+  maxBudgetUsd?: number;
+  /** `--output-schema <path|json>`: structured JSON schema constraint for headless runs. */
+  outputSchema?: string;
 }
 
 export class UsageError extends Error {}
@@ -47,6 +67,8 @@ const USAGE = `oma - Oma coding agent
 
 Usage:
   oma                            interactive TUI (default in a terminal)
+  oma setup                      interactive provider & API key setup wizard
+  oma doctor [--json]            diagnose local providers, tools, sandbox, and MCP
   oma --session <id>             resume a session in the TUI
   oma -p "<prompt>"              print mode: one Run, final text on stdout
   oma "<prompt>"                 print mode shorthand
@@ -65,6 +87,13 @@ Usage:
   oma --session <id> -p "..."    one-shot follow-up on a session
   oma --permission ask -p "..."  gate bash/write/mcp behind approval cards
   oma --yolo -p "..."            ungated run (OS sandbox forced when present)
+  oma --effort <none|low|high|max>
+                                 set model reasoning/thinking effort
+  oma --max-turns <n> -p "..."   cap agent loop steps in headless runs
+  oma --max-budget-usd <n> -p "..."
+                                 cap estimated USD spend in headless runs
+  oma --output-schema <file|json> -p "..."
+                                 constrain headless output to a JSON schema
   oma --model <provider/model> -p "<prompt>"
                                           pick a model by canonical id
                                           (default: first available model)
@@ -97,6 +126,8 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   // Same reservation for `oma update` (the release updater): a bare `oma update`
   // must not become the prompt "update".
   if (argv[0] === "update") return parseUpdateArgs(argv.slice(1), args);
+  if (argv[0] === "doctor") return parseDoctorArgs(argv.slice(1), args);
+  if (argv[0] === "setup") return parseSetupArgs(argv.slice(1), args);
 
   let i = 0;
   while (i < argv.length) {
@@ -180,6 +211,55 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       const value = arg.slice("--tools=".length);
       if (!value) throw new UsageError("--tools requires a comma-separated tool list");
       args.tools = value;
+    } else if (arg === "--effort") {
+      const value = argv[i + 1];
+      const eff = normalizeReasoningEffort(value);
+      if (!eff) throw new UsageError(`--effort requires one of: ${REASONING_EFFORTS.join(" | ")}`);
+      args.effort = eff;
+      i++;
+    } else if (arg.startsWith("--effort=")) {
+      const eff = normalizeReasoningEffort(arg.slice("--effort=".length));
+      if (!eff) throw new UsageError(`--effort requires one of: ${REASONING_EFFORTS.join(" | ")}`);
+      args.effort = eff;
+    } else if (arg === "--max-turns") {
+      const value = Number.parseInt(argv[i + 1] ?? "", 10);
+      if (!Number.isInteger(value) || value < 1) {
+        throw new UsageError("--max-turns requires a positive integer");
+      }
+      args.maxTurns = value;
+      i++;
+    } else if (arg.startsWith("--max-turns=")) {
+      const value = Number.parseInt(arg.slice("--max-turns=".length), 10);
+      if (!Number.isInteger(value) || value < 1) {
+        throw new UsageError("--max-turns requires a positive integer");
+      }
+      args.maxTurns = value;
+    } else if (arg === "--max-budget-usd") {
+      const value = Number(argv[i + 1] ?? "");
+      if (!Number.isFinite(value) || value <= 0) {
+        throw new UsageError("--max-budget-usd requires a positive number");
+      }
+      args.maxBudgetUsd = value;
+      i++;
+    } else if (arg.startsWith("--max-budget-usd=")) {
+      const value = Number(arg.slice("--max-budget-usd=".length));
+      if (!Number.isFinite(value) || value <= 0) {
+        throw new UsageError("--max-budget-usd requires a positive number");
+      }
+      args.maxBudgetUsd = value;
+    } else if (arg === "--output-schema") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new UsageError("--output-schema requires a file path or JSON schema string");
+      }
+      args.outputSchema = value;
+      i++;
+    } else if (arg.startsWith("--output-schema=")) {
+      const value = arg.slice("--output-schema=".length);
+      if (!value) {
+        throw new UsageError("--output-schema requires a file path or JSON schema string");
+      }
+      args.outputSchema = value;
     } else if (arg === "--help" || arg === "-h") {
       throw new UsageError(USAGE);
     } else if (arg.startsWith("-")) {
@@ -191,6 +271,25 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   }
   if (modeFlag) args.mode = modeFlag as CliMode;
   args.prompt = positional.join(" ");
+  return args;
+}
+
+function parseDoctorArgs(rest: readonly string[], args: CliArgs): CliArgs {
+  args.doctor = true;
+  for (const arg of rest) {
+    if (arg === "--json") args.doctorJson = true;
+    else if (arg === "--help" || arg === "-h") throw new UsageError(DOCTOR_USAGE);
+    else throw new UsageError(`unknown doctor option: ${arg}\n\n${DOCTOR_USAGE}`);
+  }
+  return args;
+}
+
+function parseSetupArgs(rest: readonly string[], args: CliArgs): CliArgs {
+  args.setup = true;
+  for (const arg of rest) {
+    if (arg === "--help" || arg === "-h") throw new UsageError(SETUP_USAGE);
+    throw new UsageError(`unknown setup option: ${arg}\n\n${SETUP_USAGE}`);
+  }
   return args;
 }
 

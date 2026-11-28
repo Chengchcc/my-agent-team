@@ -22,6 +22,18 @@ import {
 } from "./session-paths.js";
 
 export {
+  appendSessionCheckpoint,
+  captureCheckpointTree,
+  captureCheckpointTreeAsync,
+  diffWorkspaceAgainstTree,
+  isGitWorkspace,
+  loadSessionCheckpoints,
+  restoreCheckpointTree,
+  restoreFileFromTree,
+  type SessionCheckpoint,
+} from "./checkpoints.js";
+export { renderSessionMarkdown } from "./export-markdown.js";
+export {
   forkSession,
   forkSessionAtEvent,
   loadSessionBranchNodes,

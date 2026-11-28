@@ -1,6 +1,6 @@
 import { createModelRuntime } from "@chengchenccc/ai";
 import { type CliArgs, parseArgs, UsageError } from "./cli/args.js";
-import { mergeInitialInput, readPipedStdin } from "./cli/initial-input.js";
+import { mergeInitialInput, readPipedStdin, resolveOutputSchemaArg } from "./cli/initial-input.js";
 import { buildBackendModelCatalog } from "./core/runtime/model-catalog.js";
 import { registerBuiltinProviders } from "./core/runtime/run-runtime.js";
 import { parseToolFilter } from "./core/runtime/tool-filter.js";
@@ -44,8 +44,25 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     });
   }
 
+  // `oma setup`: interactive provider configuration wizard (~/.oma/models.yml).
+  if (args.setup) {
+    const { runSetupWizard } = await import("./cli/setup-wizard.js");
+    const res = await runSetupWizard();
+    return res.configured ? 0 : 1;
+  }
+
   const modelRuntime = createModelRuntime();
   registerBuiltinProviders(modelRuntime, process.env);
+
+  // `oma doctor [--json]`: diagnose local CLI providers, tools, sandbox, MCP.
+  if (args.doctor) {
+    const { runDoctorCommand } = await import("./cli/doctor-command.js");
+    return runDoctorCommand({
+      workspaceRoot: process.cwd(),
+      modelRuntime,
+      ...(args.doctorJson ? { json: true } : {}),
+    });
+  }
 
   /** The TUI's upgrade hint. Fail-open and off by an env switch, because a
    *  registry lookup must never be able to spoil an interactive session:
@@ -88,11 +105,25 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   }
 
   if (args.mode === "tui" || (!args.modeExplicit && process.stdin.isTTY)) {
+    // Day-0 onboarding: when launching the interactive TUI in a real terminal
+    // with zero configured providers/models, guide the user through setup
+    // instead of failing on their first message.
+    if (process.stdin.isTTY && process.env.OMA_FAKE_PROVIDER !== "1") {
+      const cat = await modelRuntime.getCatalog();
+      if (!cat.models.some((m) => m.available !== false)) {
+        const { runSetupWizard } = await import("./cli/setup-wizard.js");
+        const setupRes = await runSetupWizard();
+        if (setupRes.configured) {
+          registerBuiltinProviders(modelRuntime, process.env);
+        }
+      }
+    }
     const { runTuiMode } = await import("./modes/tui/tui-mode.js");
     return runTuiMode({
       modelRuntime,
       workspaceRoot: process.cwd(),
       model: args.model,
+      ...(args.effort ? { effort: args.effort } : {}),
       sessionId: resolveSessionArg(args),
       ...(args.permission ? { permissionMode: args.permission } : {}),
       ...(args.readOnly ? { readOnly: true } : {}),
@@ -112,6 +143,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     );
   }
 
+  const outputSchema = args.outputSchema
+    ? resolveOutputSchemaArg(args.outputSchema, process.cwd())
+    : undefined;
   const opts = {
     prompt,
     workspaceRoot: process.cwd(),
@@ -120,6 +154,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     // place the flag is applied, so dropping it here silently ran the
     // catalog's first model instead.
     ...(args.model ? { model: args.model } : {}),
+    ...(args.effort ? { effort: args.effort } : {}),
+    ...(args.maxTurns !== undefined ? { maxTurns: args.maxTurns } : {}),
+    ...(args.maxBudgetUsd !== undefined ? { maxBudgetUsd: args.maxBudgetUsd } : {}),
+    ...(outputSchema ? { outputSchema } : {}),
     sessionId: resolveSessionArg(args),
     permissionMode: resolvePermissionMode(args.permission, process.cwd()),
     ...(args.readOnly ? { readOnly: true } : {}),

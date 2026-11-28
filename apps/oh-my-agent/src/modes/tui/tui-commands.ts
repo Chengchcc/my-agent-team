@@ -1,5 +1,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import type { ReasoningEffort } from "@chengchenccc/message";
+import { formatDoctorReport, runDoctorChecks } from "../../cli/doctor-command.js";
 import { resolveStandaloneSkillRoots } from "../../cli/initial-input.js";
 import { isValidWorkflowName } from "../../core/delegation/roles.js";
 import {
@@ -9,6 +11,9 @@ import {
 } from "../../core/goals/index.js";
 import { type LoopRuntime, seedRalphQueue } from "../../core/loops/index.js";
 import { type PlanModeState, planRefinePrompt } from "../../core/plans/index.js";
+import { formatUsd } from "../../core/runtime/cost.js";
+import { normalizeReasoningEffort, REASONING_EFFORTS } from "../../core/runtime/model-effort.js";
+import type { SessionCheckpoint } from "../../core/session/session-file.js";
 
 /** The turn-driver slot: loop, goal and plan all queue the next turn, so only
  *  ONE may be live. Claiming the slot from one driver displaces the others and
@@ -82,6 +87,8 @@ export interface CommandDef {
   group: string;
   aliases?: readonly string[];
   live?: boolean;
+  /** Keep legacy commands callable when typed without cluttering /help or autocomplete. */
+  hidden?: boolean;
   run: (args: string) => void | Promise<void>;
 }
 
@@ -115,6 +122,20 @@ export interface TuiSessionContext {
   runCommandText?: (text: string) => Promise<void>;
   /** Session permission-mode override (/permission). */
   permissionOverride?: "ask" | "auto" | "deny" | "off" | "yolo";
+  /** Session reasoning effort override (/effort). */
+  effort?: ReasoningEffort;
+  /** Cumulative session token counts for /cost. */
+  sessionUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+  };
+  sessionCostUsd?: number;
+  sessionTurnCount?: number;
+  checkpoints?: readonly SessionCheckpoint[];
+  effectivePermissionMode?: () => "ask" | "auto" | "deny" | "yolo" | undefined;
+  refreshStatusChrome?: () => void;
   /** Goal mode: the runtime OWNS goal state, accounting and transitions —
    *  commands call it, never mutate a copy. */
   goals?: GoalRuntime;
@@ -178,15 +199,7 @@ function clipboardImage(): { mediaType: "image/png"; bytes: Uint8Array } | null 
   return null;
 }
 export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
-  const commands: ReadonlyArray<{
-    name: string;
-    description: string;
-    argumentHint?: string;
-    group: string;
-    aliases?: readonly string[];
-    live?: boolean;
-    run: (args: string) => void | Promise<void>;
-  }> = [
+  const commands: ReadonlyArray<CommandDef> = [
     {
       name: "help",
       description: "list slash commands and shortcuts",
@@ -195,6 +208,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       run: () => {
         const groups: Array<[string, Array<{ cmd: string; desc: string }>]> = [];
         for (const c of ctx.commandsWithSkills ?? []) {
+          if (c.hidden) continue;
           const aliases = c.aliases?.length ? `|${c.aliases.join("|")}` : "";
           const cmd = `/${c.name}${aliases}${c.argumentHint ? ` ${c.argumentHint}` : ""}`;
           const found = groups.find(([name]) => name === c.group);
@@ -213,14 +227,60 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         }
         lines.push("");
         lines.push("SHORTCUTS");
-        lines.push("  Ctrl+P model · Ctrl+R history · Ctrl+O tools · Ctrl+T thinking");
-        lines.push("  Esc abort (idle Esc×2 branch tree) · Ctrl+C×2 quit · !cmd shell");
+        lines.push("  Shift+Tab mode · Ctrl+P model · Ctrl+R history · Ctrl+V paste");
+        lines.push("  Ctrl+O tools · Ctrl+T thinking · Esc abort (Esc×2 tree) · !cmd shell");
         ctx.pushStatus(lines.join("\n"));
       },
     },
     {
+      name: "init",
+      description: "inspect the workspace and draft/update AGENTS.md",
+      group: "general",
+      run: () => {
+        ctx.pendingPrompt =
+          "Inspect this repository (structure, package manifests, build/test/lint commands, " +
+          "conventions, and any existing AGENTS.md). Then create or update AGENTS.md at the " +
+          "workspace root with concise, accurate engineering instructions for coding agents.";
+      },
+    },
+    {
+      name: "doctor",
+      description: "diagnose providers, tools, sandbox, settings, and MCP config",
+      group: "general",
+      live: true,
+      run: async () => {
+        const report = await runDoctorChecks({
+          workspaceRoot: ctx.opts.workspaceRoot,
+          modelRuntime: ctx.opts.modelRuntime,
+        });
+        ctx.pushStatus(formatDoctorReport(report));
+      },
+    },
+    {
+      name: "cost",
+      description: "show session token breakdown, cache hit rate, and estimated cost",
+      group: "general",
+      live: true,
+      run: () => {
+        const u = ctx.sessionUsage ?? {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        };
+        const totalIn = u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens;
+        const cacheRate = totalIn > 0 ? Math.round((u.cacheReadTokens / totalIn) * 100) : 0;
+        const lines = [
+          `cost: ${formatUsd(ctx.sessionCostUsd ?? 0)} (${ctx.sessionTurnCount ?? 0} turns · model: ${ctx.modelId ?? "default"})`,
+          `  input: ${u.inputTokens.toLocaleString()} · output: ${u.outputTokens.toLocaleString()}`,
+          `  cache read: ${u.cacheReadTokens.toLocaleString()} (${cacheRate}% hit) · cache write: ${u.cacheWriteTokens.toLocaleString()}`,
+        ];
+        ctx.pushStatus(lines);
+      },
+    },
+    {
       name: "paste",
-      description: "attach the clipboard image to the next message",
+      description: "attach the clipboard image to the next message (or Ctrl+V)",
       group: "general",
       live: true,
       run: () => {
@@ -247,6 +307,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
     },
     {
       name: "exit",
+      aliases: ["quit"],
       description: "quit the session",
       group: "general",
       live: true,
@@ -257,16 +318,6 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         // tool or a bg sleep keeps the process (and raw mode) alive
         // until the Run settles on its own. Idempotent — same call the
         // busy ctrl-c / empty-submit paths make.
-        void ctx.liveRuntime?.stop();
-      },
-    },
-    {
-      name: "quit",
-      description: "alias of /exit",
-      group: "general",
-      live: true,
-      run: () => {
-        ctx.quitting = true;
         void ctx.liveRuntime?.stop();
       },
     },
@@ -318,6 +369,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           return;
         }
         ctx.permissionOverride = value;
+        ctx.refreshStatusChrome?.();
         if (value === "yolo") {
           ctx.pushStatus([
             "permission: yolo — UNGATED this session.",
@@ -329,11 +381,48 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         ctx.pushStatus(`permission: ${value} (this session — .oma/settings.json persists it)`);
       },
     },
+    {
+      name: "effort",
+      description: "show or set model reasoning effort (none/low/high/max)",
+      argumentHint: "[none|low|high|max|clear]",
+      group: "model",
+      live: true,
+      run: (args) => {
+        const value = args.trim();
+        if (!value) {
+          ctx.pushStatus(
+            `effort: ${ctx.effort ?? "default"} — /effort ${REASONING_EFFORTS.join("|")}|clear`,
+          );
+          return;
+        }
+        if (value === "clear" || value === "default") {
+          ctx.effort = undefined;
+          const current = loadProjectSettings(ctx.opts.workspaceRoot);
+          delete current.reasoningEffort;
+          saveProjectSettings(ctx.opts.workspaceRoot, current);
+          ctx.refreshStatusChrome?.();
+          ctx.pushStatus("effort: default (provider default)");
+          return;
+        }
+        const normalized = normalizeReasoningEffort(value);
+        if (!normalized) {
+          ctx.pushStatus(
+            `unknown effort "${value}" — /effort ${REASONING_EFFORTS.join("|")}|clear`,
+          );
+          return;
+        }
+        ctx.effort = normalized;
+        const current = loadProjectSettings(ctx.opts.workspaceRoot);
+        saveProjectSettings(ctx.opts.workspaceRoot, { ...current, reasoningEffort: normalized });
+        ctx.refreshStatusChrome?.();
+        ctx.pushStatus(`effort: ${normalized} (saved to .oma/settings.json)`);
+      },
+    },
 
     {
       name: "goal",
       description: "goal mode: persistent autonomous objective (semantics)",
-      argumentHint: "[<objective> | set <objective> | show | pause | resume | drop | budget <n>]",
+      argumentHint: "[<objective> | guide | show | pause | resume | drop | budget <n>]",
       group: "general",
       live: true,
       run: async (args) => {
@@ -349,6 +438,10 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
         const restText = rest.join(" ").trim();
         const goal = runtime.goal;
 
+        if (sub === "guide") {
+          await ctx.runCommandText?.(restText ? `/guided-goal ${restText}` : "/guided-goal");
+          return;
+        }
         if (sub === "show") {
           if (!goal) return void ctx.pushStatus("no goal this session");
           const remaining = runtime.remainingTokens();
@@ -508,10 +601,10 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
     {
       name: "plan",
       description: "investigate and draft a plan, then review it before implementation",
-      argumentHint: "[<request> | <follow-up>]",
+      argumentHint: "[<request> | review]",
       group: "general",
       live: true,
-      run: (args) => {
+      run: async (args) => {
         const plans = ctx.plans;
         if (!plans) return void ctx.pushStatus("plan mode unavailable in this session");
         if (!plansEnabled(ctx)) {
@@ -520,6 +613,15 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           );
         }
         const request = args.trim();
+        if (request === "review") {
+          if (!plans.hasDraft()) {
+            return void ctx.pushStatus(
+              "no plan to review yet — run /plan <request> and let the planning turn draft it",
+            );
+          }
+          await plans.review();
+          return;
+        }
         const state = plans.state();
         // Three-state toggle, and the discriminator has to come from the
         // runtime: `state.enabled` stays true while PAUSED (a pause keeps the
@@ -564,6 +666,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       argumentHint: "",
       group: "general",
       live: true,
+      hidden: true,
       run: async () => {
         const plans = ctx.plans;
         if (!plans) return void ctx.pushStatus("plan mode unavailable in this session");
@@ -626,6 +729,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       argumentHint: "[<rough idea>]",
       group: "general",
       live: true,
+      hidden: true,
       run: (args) => {
         const runtime = ctx.goals;
         if (!runtime) return void ctx.pushStatus("goal mode unavailable in this session");
@@ -656,11 +760,16 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       name: "plugin",
       aliases: ["plugins"],
       description: "list/install/uninstall/enable/disable plugins",
-      argumentHint:
-        "[list|install <mkt>/<plugin>|uninstall <name>|enable <name>|disable <name>|trust <name>]",
+      argumentHint: "[list|install <mkt>/<plugin>|uninstall|enable|disable|trust|market <args>]",
       group: "settings",
       run: async (args) => {
         const [sub, ...rest] = args.trim().split(/\s+/);
+        if (sub === "market" || sub === "marketplace") {
+          await ctx.runCommandText?.(
+            rest.length > 0 ? `/marketplace ${rest.join(" ")}` : "/marketplace",
+          );
+          return;
+        }
         if (!sub || sub === "list") {
           const plugins = listInstalledPlugins(ctx.opts.workspaceRoot);
           if (plugins.length === 0) {
@@ -745,6 +854,7 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       description: "list/add/remove marketplaces",
       argumentHint: "[list|add <path|url>|remove <name>]",
       group: "settings",
+      hidden: true,
       run: (args) => {
         const [sub, ...rest] = args.trim().split(/\s+/);
         if (!sub || sub === "list") {

@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ModelRuntime } from "@chengchenccc/ai";
-import type { AskQuestionInput, Message } from "@chengchenccc/message";
+import type { ModelCost, ModelRuntime } from "@chengchenccc/ai";
+import type { AskQuestionInput, Message, ReasoningEffort } from "@chengchenccc/message";
 import { ProcessTerminal } from "@chengchenccc/tui";
 import type { PermissionFlag } from "../../cli/args.js";
 import { buildCliRunInput } from "../../cli/initial-input.js";
@@ -23,6 +23,7 @@ import {
 import { assemblePluginRuntime } from "../../core/plugins/plugin-resolve.js";
 import { estimateMessageTokens } from "../../core/runtime/context-estimate.js";
 import type { BackendRunInput, BackendRunOutcome } from "../../core/runtime/contract/index.js";
+import { calculateUsageCostUsd } from "../../core/runtime/cost.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
 import {
   resolvePermissionMode,
@@ -37,14 +38,18 @@ import { writeAgentStatus } from "./agent-status.js";
 const COORDINATION_SCOPE = `tui-${process.pid}`;
 
 import {
+  appendSessionCheckpoint,
   appendSessionGoalCompletion,
   appendSessionGoalEvent,
   appendSessionMessages,
   appendSessionPlanEvent,
+  captureCheckpointTreeAsync,
   listSessions,
+  loadSessionCheckpoints,
   loadSessionGoalState,
   loadSessionPlanState,
   readSessionTitle,
+  type SessionCheckpoint,
   sessionDirFor,
 } from "../../core/session/session-file.js";
 import { persistSessionTurn, resolveSession } from "../../core/session/session-loop.js";
@@ -135,6 +140,8 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   }
   let liveRuntime: OmaRuntime | null = null;
   let sessionTitle: string | undefined = readSessionTitle(session.sessionId, session.dir);
+  let effort: ReasoningEffort | undefined =
+    opts.effort ?? loadProjectSettings(opts.workspaceRoot).reasoningEffort;
   let quitting = false;
   let exitArmed = false;
   /** Estimated context tokens after the last run: drives the picker's
@@ -148,6 +155,32 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     cacheWriteTokens: 0,
   };
   let currentModelLimit = 0;
+  let currentModelCost: ModelCost | undefined;
+  let sessionCostUsd = 0;
+  let sessionTurnCount = 0;
+  let mcpMountErrors = 0;
+  /** In-memory turn checkpoints mirrored to session JSONL once the file exists. */
+  let sessionCheckpoints: SessionCheckpoint[] = loadSessionCheckpoints(
+    session.sessionId,
+    session.dir,
+  );
+
+  function effectivePermissionMode(): "ask" | "auto" | "deny" | "yolo" | undefined {
+    return resolvePermissionMode(permissionOverride ?? opts.permissionMode, opts.workspaceRoot);
+  }
+
+  function refreshStatusChrome(): void {
+    const perm = effectivePermissionMode();
+    io.setHeader?.({
+      model: modelId,
+      sessionId: session.sessionId,
+      title: sessionTitle,
+      permission: perm ?? "off",
+      effort: effort ?? "",
+      costUsd: sessionCostUsd,
+      mcpErrors: mcpMountErrors,
+    });
+  }
 
   function formatSessionUsageSummary(): string {
     const totalIn =
@@ -179,6 +212,10 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       sessionId: session.sessionId,
       title: sessionTitle,
       context,
+      permission: effectivePermissionMode() ?? "off",
+      effort: effort ?? "",
+      costUsd: sessionCostUsd,
+      mcpErrors: mcpMountErrors,
       ...(effLimit > 0
         ? {
             contextInfo: {
@@ -224,7 +261,10 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     sessionUsage.outputTokens = 0;
     sessionUsage.cacheReadTokens = 0;
     sessionUsage.cacheWriteTokens = 0;
+    sessionCostUsd = 0;
+    sessionTurnCount = 0;
     lastContextTokens = undefined;
+    sessionCheckpoints = loadSessionCheckpoints(session.sessionId, session.dir);
 
     const msgs = session.messages;
     if (msgs.length === 0) {
@@ -235,6 +275,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           title: sessionTitle,
           context: "",
           contextInfo: null,
+          costUsd: 0,
         });
       }
       return;
@@ -599,6 +640,26 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     set permissionOverride(value) {
       permissionOverride = value;
     },
+    get effort() {
+      return effort;
+    },
+    set effort(value) {
+      effort = value;
+    },
+    get sessionUsage() {
+      return sessionUsage;
+    },
+    get sessionCostUsd() {
+      return sessionCostUsd;
+    },
+    get sessionTurnCount() {
+      return sessionTurnCount;
+    },
+    get checkpoints() {
+      return sessionCheckpoints;
+    },
+    effectivePermissionMode,
+    refreshStatusChrome,
     goals: goalRuntime,
     loops: loopRuntime,
     reloadSessionDrivers,
@@ -669,10 +730,11 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
         ? catalog.models.find((m) => `${m.providerId}/${m.modelId}` === modelId)
         : undefined;
       if (entry && entry.contextWindow > 0) currentModelLimit = entry.contextWindow;
+      if (entry?.cost) currentModelCost = entry.cost;
       if (session.messages.length > 0) {
         hydrateSessionContext(currentModelLimit);
-      } else if (modelId) {
-        io.setHeader?.({ model: modelId, sessionId: session.sessionId, title: sessionTitle });
+      } else {
+        refreshStatusChrome();
       }
     })
     .catch(() => {
@@ -784,15 +846,32 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     const planContract = planRuntime.takeContractPrompt(planModePrompt);
     const effectivePrompt = planContract !== null ? `${planContract}\n\n${text}` : text;
 
+    // Capture a lightweight git shadow checkpoint before each real user turn
+    // (non-hidden, non-workflow) so `/rewind` and `/diff` can restore files.
+    // Uses async Bun.spawn so Enter submit never stalls on sync subprocesses.
+    let pendingCheckpoint: SessionCheckpoint | null = null;
+    if (pendingWorkflowScript === undefined && !isHiddenInput(text)) {
+      const treeSha = await captureCheckpointTreeAsync(opts.workspaceRoot);
+      if (treeSha) {
+        const turnOrdinal =
+          session.messages.filter((m) => (m as { role?: string }).role === "user").length + 1;
+        pendingCheckpoint = {
+          turn: turnOrdinal,
+          prompt: text.replace(/\s+/g, " ").slice(0, 80),
+          treeSha,
+          timestamp: new Date().toISOString(),
+        };
+        sessionCheckpoints = [...sessionCheckpoints, pendingCheckpoint];
+      }
+    }
+
     const built = await buildCliRunInput({
       prompt: effectivePrompt,
       workspaceRoot: opts.workspaceRoot,
       modelRuntime: opts.modelRuntime,
       modelId,
-      permissionMode: resolvePermissionMode(
-        permissionOverride ?? opts.permissionMode,
-        opts.workspaceRoot,
-      ),
+      ...(effort ? { reasoningEffort: effort } : {}),
+      permissionMode: effectivePermissionMode(),
       readOnly: opts.readOnly,
       ...(images.length > 0 ? { images } : {}),
     });
@@ -811,10 +890,12 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       pendingWorkflowScript = undefined;
     }
     modelId = built.run.model.modelId;
+    mcpMountErrors = 0;
     try {
       const cat = await opts.modelRuntime.getCatalog();
       const entry = cat.models.find((m) => `${m.providerId}/${m.modelId}` === modelId);
       if (entry && entry.contextWindow > 0) currentModelLimit = entry.contextWindow;
+      if (entry?.cost) currentModelCost = entry.cost;
     } catch {
       // catalog unavailable; settle-time runtime.contextUsage() still supplies limit
     }
@@ -924,6 +1005,12 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
             markToolUsage(envelope);
             const event = envelope.data as OmaLoopEvent;
             applyEvent(state, event);
+            // Surface MCP mount failures directly in the status bar so the user
+            // immediately knows when a configured server failed to connect.
+            if (event.type === "mcp_mount_result" && !event.ok) {
+              mcpMountErrors++;
+              refreshStatusChrome();
+            }
             // Live token & context telemetry: update the status bar on every
             // completed LLM step inside a multi-step run (not only at settle).
             if (event.type === "message_end" && event.usage) {
@@ -936,6 +1023,7 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
               sessionUsage.outputTokens += u.outputTokens;
               sessionUsage.cacheReadTokens += u.cacheReadTokens;
               sessionUsage.cacheWriteTokens += u.cacheWriteTokens;
+              sessionCostUsd += calculateUsageCostUsd(u, currentModelCost);
               const liveCtx =
                 u.inputTokens + u.outputTokens + u.cacheReadTokens + u.cacheWriteTokens;
               publishContextStatus(liveCtx, currentModelLimit);
@@ -964,6 +1052,10 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
             );
             if (persistable.length === 0) return;
             appendSessionMessages(session.sessionId, opts.workspaceRoot, persistable, session.dir);
+            if (pendingCheckpoint) {
+              appendSessionCheckpoint(session.sessionId, pendingCheckpoint, session.dir);
+              pendingCheckpoint = null;
+            }
             // The session file is wire-loose; the in-memory transcript keeps the
             // same loose shape so it round-trips into sessionTranscript verbatim.
             session.messages = [
@@ -1161,23 +1253,28 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
     // or providers that only emit usage on outcome) without double-counting
     // live message_end updates.
     if (outcome.usage) {
-      sessionUsage.inputTokens += Math.max(
-        0,
-        (outcome.usage.inputTokens ?? 0) - runStreamedUsage.inputTokens,
-      );
-      sessionUsage.outputTokens += Math.max(
-        0,
-        (outcome.usage.outputTokens ?? 0) - runStreamedUsage.outputTokens,
-      );
-      sessionUsage.cacheReadTokens += Math.max(
-        0,
-        (outcome.usage.cacheReadTokens ?? 0) - runStreamedUsage.cacheReadTokens,
-      );
-      sessionUsage.cacheWriteTokens += Math.max(
-        0,
-        (outcome.usage.cacheWriteTokens ?? 0) - runStreamedUsage.cacheWriteTokens,
-      );
+      const delta = {
+        inputTokens: Math.max(0, (outcome.usage.inputTokens ?? 0) - runStreamedUsage.inputTokens),
+        outputTokens: Math.max(
+          0,
+          (outcome.usage.outputTokens ?? 0) - runStreamedUsage.outputTokens,
+        ),
+        cacheReadTokens: Math.max(
+          0,
+          (outcome.usage.cacheReadTokens ?? 0) - runStreamedUsage.cacheReadTokens,
+        ),
+        cacheWriteTokens: Math.max(
+          0,
+          (outcome.usage.cacheWriteTokens ?? 0) - runStreamedUsage.cacheWriteTokens,
+        ),
+      };
+      sessionUsage.inputTokens += delta.inputTokens;
+      sessionUsage.outputTokens += delta.outputTokens;
+      sessionUsage.cacheReadTokens += delta.cacheReadTokens;
+      sessionUsage.cacheWriteTokens += delta.cacheWriteTokens;
+      sessionCostUsd += calculateUsageCostUsd(delta, currentModelCost);
     }
+    sessionTurnCount++;
     const usage = await runtime.contextUsage().catch(() => undefined);
     const settledCtx = usage?.estimatedTokens ?? lastContextTokens ?? 0;
     const settledLimit = usage?.limit ?? currentModelLimit;

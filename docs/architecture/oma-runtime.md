@@ -10,8 +10,8 @@ tags: [oma, runtime, tools, tui, delegation]
 
 ## Authoritative files
 
-- `apps/oh-my-agent/src/cli.ts`, `main.ts`, `cli/args.ts` — CLI entrypoint, reserved subcommands (`gateway`, `update`), flag parsing
-- `apps/oh-my-agent/src/modes/print-mode.ts` & `json-mode.ts` — One-shot headless modes
+- `apps/oh-my-agent/src/cli.ts`, `main.ts`, `cli/args.ts`, `cli/doctor-command.ts`, `cli/setup-wizard.ts` — CLI entrypoint, reserved subcommands (`gateway`, `update`, `doctor`, `setup`), flag parsing
+- `apps/oh-my-agent/src/modes/print-mode.ts` & `json-mode.ts` — One-shot headless modes (`--max-turns`, `--max-budget-usd`, `--output-schema`, `--effort`)
 - `apps/oh-my-agent/src/modes/acp/acp-mode.ts` & `acp-protocol.ts` — ACP stdio server (`oma --mode acp`)
 - `apps/oh-my-agent/src/modes/tui/tui-mode.ts` & `tui-transcript-reconciler.ts` & `tui-frame-provider.ts` — Interactive TUI surface
 - `apps/oh-my-agent/src/core/runtime/agent-loop.ts` & `agent-loop-runner.ts` — `createOmaSession()` model+tool loop
@@ -25,7 +25,7 @@ tags: [oma, runtime, tools, tui, delegation]
 
 ## CLI Entrypoints & 4 Execution Modes
 
-Reserved subcommands `oma gateway <up|down|fetch|status|doctor|passwd>` and `oma update [--check] [--version]` dispatch before the flag parser (`exit 0` ok, `1` runtime error, `2` `UsageError`). Key flags: `-p <prompt>`, `--mode <print|json|tui|acp>` (defaults to `tui` when TTY without `-p`, else `print`), `--list-models`, `--model <provider/model>`, `--session <id>`, `--continue/-c`, `--permission <ask|auto|deny|off|yolo>`, `--yolo`, `--read-only`, `--tools <csv>` (`name` whitelist or `!name` blacklist).
+Reserved subcommands `oma gateway <up|down|fetch|status|doctor|passwd>`, `oma update [--check] [--version]`, `oma doctor [--json]`, and `oma setup` dispatch before the flag parser (`exit 0` ok, `1` runtime error, `2` `UsageError`); on an interactive TTY with 0 configured models, `oma` auto-launches the setup wizard. Key flags: `-p <prompt>`, `--mode <print|json|tui|acp>` (defaults to `tui` when TTY without `-p`, else `print`), `--list-models`, `--model <provider/model>`, `--effort <none|low|high|max>`, `--max-turns <n>`, `--max-budget-usd <n>`, `--output-schema <file|json>`, `--session <id>`, `--continue/-c`, `--permission <ask|auto|deny|off|yolo>`, `--yolo`, `--read-only`, `--tools <csv>` (`name` whitelist or `!name` blacklist).
 
 | Mode | Lifecycle | Approvals & Memory | Output |
 |---|---|---|---|
@@ -71,7 +71,7 @@ Wrapper backstops: `DEFAULT_NATIVE_TOOL_TIMEOUT_MS = 30_000`, `MAX_BASH_TIMEOUT_
 ## Autonomous Memory, TUI Layering & Turn Drivers
 
 - **Autonomous memory (`core/memory/`):** runs post-turn in standalone root runs (`status === "completed"`, `agentDepth === 0`, `toolCalls >= 5`, `OMA_MEMORY_EXTRACT !== "0"`). Extracts facts (`8_000`-char budget, 60s timeout) → secret-redacts → deduplicates → writes `.oma/memory/facts/<runId>.md` + best-effort `.oma/memory/memory.db` (fastembed ONNX or FTS-only fallback) → consolidates `memory_summary.md` & `MEMORY.md`. Swallows all errors. Explicit `learn` writes `.oma/memory/learned.md` (max 100 entries).
-- **TUI layering (`modes/tui/`, `packages/tui`, ADR 0028):** strictly separates live **chrome** (pinned above editor, 100ms shimmer, todo + live subagents) from append-only immutable **transcript** (`tui-transcript-reconciler.ts`, scrollback cleared only on width change). `TuiRenderShell` coalesces live repaints at `50 ms`; bottom slot dynamically docks `AskPanel` / approvals (clamped to 70% viewport height).
+- **TUI layering (`modes/tui/`, `packages/tui`, ADR 0028):** strictly separates live **chrome** (pinned above editor, 100ms shimmer, todo + live subagents, permission/effort/MCP-error chips and live USD spend) from append-only immutable **transcript** (`tui-transcript-reconciler.ts`, scrollback cleared only on width change). `TuiRenderShell` coalesces live repaints at `50 ms`; bottom slot dynamically docks `AskPanel` / approvals (clamped to 70% viewport height). Key shortcuts: `Shift+Tab` cycles `ask → auto → plan`, `Ctrl+V` pastes clipboard images, `Ctrl+P` model picker, `Ctrl+R` history search. Before each user turn, `core/session/checkpoints.ts` asynchronously captures a git shadow tree (temporary `GIT_INDEX_FILE`, never touching `.git/index` or gitignored files) powering `/diff` and `/rewind`, alongside `/cost`, `/effort`, `/export`, `/init`, and `/doctor`.
 - **TUI turn drivers (`core/{goals,loops,plans}/`):**
   - `GoalRuntime`: autonomous objective loop with token/wall-clock tracking, auto-pausing after `NO_PROGRESS_LIMIT = 3` tool-less turns or errors.
   - `LoopRuntime`: in-memory post-turn re-submitter (`prompt | compact | reset | ralph`) bounded by count/duration and `--while`/`--until` shell condition.

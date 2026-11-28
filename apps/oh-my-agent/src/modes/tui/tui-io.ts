@@ -199,7 +199,7 @@ export function createTerminalIo(
     bottomBorder: (width: number): string => {
       const hints = busy
         ? " Esc abort · Enter steer · /command "
-        : " Ctrl+P model · Ctrl+R history · Ctrl+O tools · /help ";
+        : " Shift+Tab mode · Ctrl+P model · Ctrl+R history · Ctrl+O tools · /help ";
       const hintW = visibleWidth(hints);
       if (width <= hintW + 4) {
         return `${tuiTheme.faint}${"─".repeat(width)}\u001b[0m`;
@@ -362,6 +362,14 @@ export function createTerminalIo(
     }
     if (matchesKey(data, "ctrl+r")) {
       openHistorySearch();
+      return { consume: true };
+    }
+    if (matchesKey(data, "shift+tab") && !tui.hasOverlay() && docked === null) {
+      if (commandHandler) commandHandler("cycleMode");
+      return { consume: true };
+    }
+    if (matchesKey(data, "ctrl+v") && !tui.hasOverlay() && docked === null) {
+      if (commandHandler) commandHandler("pasteImage");
       return { consume: true };
     }
     if (matchesKey(data, "ctrl+c")) {
@@ -761,6 +769,12 @@ export function createTerminalIo(
         info.title ?? "",
         info.context,
         info.contextInfo,
+        {
+          ...(info.permission !== undefined ? { permission: info.permission } : {}),
+          ...(info.effort !== undefined ? { effort: info.effort } : {}),
+          ...(info.costUsd !== undefined ? { costUsd: info.costUsd } : {}),
+          ...(info.mcpErrors !== undefined ? { mcpErrors: info.mcpErrors } : {}),
+        },
       );
     },
     setInputText(text) {

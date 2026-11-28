@@ -1,5 +1,5 @@
 import type { ModelRuntime } from "@chengchenccc/ai";
-import type { AskQuestionInput, AskQuestionResult } from "@chengchenccc/message";
+import type { AskQuestionInput, AskQuestionResult, ReasoningEffort } from "@chengchenccc/message";
 import type { SlashCommand } from "@chengchenccc/tui";
 import type { ToolFilter } from "../../core/runtime/tool-filter.js";
 import type { SessionBranchNode } from "../../core/session/session-file.js";
@@ -20,6 +20,8 @@ export interface TuiModeOptions {
   workspaceRoot: string;
   /** Canonical `<provider>/<model>` id; undefined = first available. */
   model?: string;
+  /** Initial reasoning effort ("none" | "low" | "high" | "max"). */
+  effort?: ReasoningEffort;
   /** Resume a specific session file instead of starting fresh. */
   sessionId?: string;
   /** Prefill the editor with this text on boot (`oma "prompt"`). The user
@@ -38,8 +40,15 @@ export interface TuiModeOptions {
   checkUpdate?: () => Promise<string | undefined>;
 }
 
-/** View/abort commands from the terminal (Esc abort, ctrl+t, ctrl+o, ctrl+p). */
-export type TuiCommand = "toggleThinking" | "toggleToolDetail" | "abort" | "pickModel" | "forkTree";
+/** View/abort commands from the terminal (Esc abort, ctrl+t, ctrl+o, ctrl+p, shift+tab, ctrl+v). */
+export type TuiCommand =
+  | "toggleThinking"
+  | "toggleToolDetail"
+  | "abort"
+  | "pickModel"
+  | "forkTree"
+  | "cycleMode"
+  | "pasteImage";
 
 export type ApprovalVerdict = "allow" | "allow_always" | "deny" | "deny_always";
 
@@ -155,6 +164,10 @@ export interface TuiIo {
     title?: string;
     context?: string;
     contextInfo?: ContextUsageInfo | null;
+    permission?: string;
+    effort?: string;
+    costUsd?: number;
+    mcpErrors?: number;
   }): void;
   /** M-bash: interactive pty console overlay (TUI only). Resolves when
    *  the command exits or the user kills it (Esc). */

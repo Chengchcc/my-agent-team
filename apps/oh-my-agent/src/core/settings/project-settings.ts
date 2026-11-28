@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isFileTrusted, readTrustedPlugins, trustFile } from "../plugins/plugin-trust.js";
+import { normalizeReasoningEffort, type ReasoningEffort } from "../runtime/model-effort.js";
 
 /** Project-level oma settings (`.oma/settings.json` in the workspace root).
  *
@@ -14,6 +15,8 @@ import { isFileTrusted, readTrustedPlugins, trustFile } from "../plugins/plugin-
 export interface ProjectSettings {
   /** Canonical `<provider>/<model>` id chosen in the TUI. */
   model?: string;
+  /** Default thinking/reasoning effort ("none" | "low" | "high" | "max"). */
+  reasoningEffort?: ReasoningEffort;
   /** Configured skill root dirs (absolute, or relative to the workspace
    *  root). When present, overrides the default project/global discovery;
    *  empty/absent falls back to defaults. */
@@ -139,6 +142,10 @@ export function loadProjectSettings(root: string): ProjectSettings {
     const trusted = isFileTrusted(path, readTrustedPlugins());
     const result: ProjectSettings = {};
     if ("model" in parsed && typeof parsed.model === "string") result.model = parsed.model;
+    if ("reasoningEffort" in parsed) {
+      const eff = normalizeReasoningEffort(parsed.reasoningEffort);
+      if (eff) result.reasoningEffort = eff;
+    }
     if ("skills" in parsed && Array.isArray(parsed.skills)) {
       const skills = parsed.skills;
       if (skills.every((s) => typeof s === "string")) result.skills = skills;

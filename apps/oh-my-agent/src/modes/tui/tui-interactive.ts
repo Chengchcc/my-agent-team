@@ -114,6 +114,29 @@ export function registerIoHandlers(ctx: TuiSessionContext): void {
       void pickModelInteractive(ctx);
     } else if (cmd === "forkTree") {
       void forkTreeInteractive(ctx);
+    } else if (cmd === "pasteImage") {
+      void ctx.runCommandText?.("/paste").then(() => ctx.io.render(ctx.state));
+      return;
+    } else if (cmd === "cycleMode") {
+      const plans = ctx.plans;
+      const inPlan = Boolean(plans?.state() && !plans.paused());
+      const curPerm = ctx.effectivePermissionMode?.();
+      if (inPlan) {
+        plans?.leave();
+        ctx.permissionOverride = "ask";
+        ctx.pushStatus("mode: ask (approval required for writes/bash)");
+      } else if (curPerm === "ask") {
+        ctx.permissionOverride = "auto";
+        ctx.pushStatus("mode: auto (classifier reviews high-risk tools)");
+      } else if (plans) {
+        plans.enter(plans.state() !== null);
+        ctx.pushStatus("mode: plan (read-only investigation & draft)");
+      } else {
+        ctx.permissionOverride = "ask";
+        ctx.pushStatus("mode: ask");
+      }
+      ctx.refreshDriverStatus?.();
+      ctx.refreshStatusChrome?.();
     } else if (ctx.liveRuntime) {
       // Esc during a live run aborts it. A loop would otherwise re-submit on
       // the next settlement, so an abort also pauses the loop (the mode stays
