@@ -8,25 +8,37 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EntityLink } from "@/components/ui/entity-link";
-import { api, type CodingTerminalRow } from "@/lib/api";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { api, type CodingHarness, type CodingTerminalRow } from "@/lib/api";
 import { t } from "@/lib/i18n";
+import { useLaunchHarness, useRespawnTerminal } from "../hooks";
+import { CODING_HARNESS_OPTIONS } from "../locate";
 
 type PaneConnection = "connecting" | "live" | "dropped";
 
-/** The pane's status word and colour: the oma state while it is an oma pane, then whether its
- *  process is alive, then the socket. Presentation only; it reads what the registry reports. */
+/** The pane's status word and colour: harness state while it is an interactive harness pane,
+ *  then whether its process is alive, then the socket. Presentation only. */
 function paneStatus(
-  terminal: { agentState?: string; exitCode: number | null },
+  terminal: { kind: string; agentState?: string; exitCode: number | null },
   exited: boolean,
   conn: PaneConnection,
 ): { cls: string; text: string } {
   const state = terminal.agentState;
+  const harnessLabel = terminal.kind === "shell" ? "agent" : terminal.kind;
   if (typeof state === "string" && state !== "") {
     if (state === "working") {
-      return { cls: "animate-pulse text-(--primary)", text: `oma ${t(state)}` };
+      return { cls: "animate-pulse text-(--primary)", text: `${harnessLabel} ${t(state)}` };
     }
-    if (state === "idle") return { cls: "text-(--primary-deep)", text: `oma ${t(state)}` };
-    return { cls: "text-(--warn)", text: `oma ${t(state)}` };
+    if (state === "idle") {
+      return { cls: "text-(--primary-deep)", text: `${harnessLabel} ${t(state)}` };
+    }
+    return { cls: "text-(--warn)", text: `${harnessLabel} ${t(state)}` };
   }
   if (exited) {
     return {
@@ -45,9 +57,11 @@ function paneStatus(
  *  The ✕ button is the only CLOSE (kill) path and lives one level up. */
 export function TerminalPane({
   terminal,
+  defaultHarness = "oma",
   onClosed,
 }: {
   terminal: CodingTerminalRow;
+  defaultHarness?: CodingHarness;
   onClosed: (id: string) => void;
 }) {
   const holder = useRef<HTMLDivElement>(null);
@@ -56,9 +70,20 @@ export function TerminalPane({
     terminal.status === "exited" ? terminal.exitCode : null,
   );
   const [closing, setClosing] = useState<"idle" | "closing">("idle");
+  const [selectedHarness, setSelectedHarness] = useState<CodingHarness>(defaultHarness);
+  const launchHarness = useLaunchHarness();
+  const respawnTerminal = useRespawnTerminal();
+
+  useEffect(() => {
+    setSelectedHarness(defaultHarness);
+  }, [defaultHarness]);
 
   const exited = exitedCode !== null;
   const status = paneStatus(terminal, exited, conn);
+  const activeRunCount = terminal.activeRuns?.length ?? 0;
+  const waitingRun = terminal.activeRuns?.some(
+    (run) => run.status === "waiting" || run.pendingActionCount > 0,
+  );
 
   useEffect(() => {
     const el = holder.current;
@@ -167,6 +192,14 @@ export function TerminalPane({
     }
   }
 
+  function startSelectedHarness(harness: CodingHarness) {
+    toast.promise(launchHarness.mutateAsync({ id: terminal.terminalId, harness }), {
+      loading: t("Starting {harness}…", { harness }),
+      success: t("{harness} launched", { harness }),
+      error: (e) => String(e),
+    });
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#0d1117]">
       <div className="flex flex-wrap items-center gap-2 border-b border-(--hairline) px-3 py-1.5 text-xs text-(--mute)">
@@ -174,6 +207,17 @@ export function TerminalPane({
           {terminal.title} · {terminal.cwd.split("/").pop()}
         </span>
         <span className={status.cls}>{status.text}</span>
+        {activeRunCount > 0 && (
+          <span
+            className={
+              waitingRun
+                ? "rounded-full border border-(--warn)/40 bg-(--warn)/10 px-2 py-0.5 text-[10px] font-medium text-(--warn)"
+                : "rounded-full border border-(--primary)/40 bg-(--primary)/10 px-2 py-0.5 text-[10px] font-medium text-(--primary)"
+            }
+          >
+            {waitingRun ? t("Approval needed") : t("Worker active")}
+          </span>
+        )}
         {terminal.requirementId && (
           <EntityLink
             kind="requirement"
@@ -193,30 +237,46 @@ export function TerminalPane({
           />
         )}
         <div className="ml-auto flex items-center gap-1">
+          <Select
+            items={CODING_HARNESS_OPTIONS.map((h) => ({ value: h, label: h }))}
+            value={selectedHarness}
+            onValueChange={(value) => {
+              if (value) setSelectedHarness(value as CodingHarness);
+            }}
+          >
+            <SelectTrigger
+              className="h-7 w-22 border-(--hairline) bg-transparent px-2 text-xs text-(--body)"
+              aria-label={t("Select CLI harness")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CODING_HARNESS_OPTIONS.map((h) => (
+                <SelectItem key={h} value={h}>
+                  {h}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button
             variant="ghost"
             size="sm"
             className="h-7 px-2 text-xs"
-            disabled={exited}
-            title={t("Start oma in this pane")}
-            onClick={() =>
-              toast.promise(api.launchOmaInTerminal(terminal.terminalId), {
-                loading: t("Starting oma…"),
-                success: t("oma launched"),
-                error: (e) => String(e),
-              })
-            }
+            disabled={exited || launchHarness.isPending}
+            title={t("Start {harness} in this pane", { harness: selectedHarness })}
+            onClick={() => startSelectedHarness(selectedHarness)}
           >
             <SparklesIcon className="size-3.5" />
-            <span className="ml-1">oma</span>
+            <span className="ml-1">{t("Launch")}</span>
           </Button>
           <Button
             variant="ghost"
             size="sm"
             className="h-7 px-2 text-xs"
+            disabled={respawnTerminal.isPending}
             title={t("Restart the process in this pane")}
             onClick={() =>
-              toast.promise(api.respawnCodingTerminal(terminal.terminalId), {
+              toast.promise(respawnTerminal.mutateAsync(terminal.terminalId), {
                 loading: t("Restarting…"),
                 success: t("Pane restarted"),
                 error: (e) => String(e),

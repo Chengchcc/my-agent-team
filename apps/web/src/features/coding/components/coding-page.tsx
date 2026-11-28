@@ -1,11 +1,31 @@
 "use client";
 
-import { Columns2Icon, PlusIcon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  BellIcon,
+  BellOffIcon,
+  BellRingIcon,
+  Columns2Icon,
+  FileDiffIcon,
+  GitBranchIcon,
+  MessageSquareIcon,
+  PlusIcon,
+  TerminalIcon,
+} from "lucide-react";
+import Link from "next/link";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/page";
 import { ActiveFilterBar, type ActiveFilterChip } from "@/components/ui/active-filter-bar";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { entityLabelText } from "@/components/ui/entity-link";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAgentList } from "@/features/agents/hooks";
@@ -13,20 +33,45 @@ import { useAllConversations } from "@/features/conversations/hooks";
 import { useProjectList } from "@/features/projects/hooks";
 import { useRequirement } from "@/features/requirements/hooks";
 import { isRequirementDetail } from "@/features/requirements/queries";
-import type { CodingTerminalRow, ProjectRow } from "@/lib/api";
+import type { CodingHarness, CodingTerminalRow, CodingWorkspaceRow, ProjectRow } from "@/lib/api";
 import { conversationDisplayName } from "@/lib/conversation-title";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { useCloseTerminal, useCodingTerminals, useSpawnTerminal } from "../hooks";
-import { isTaskWorktreeCwd, type LocateMiss, type LocateRegistry, resolveLocate } from "../locate";
-import { CodingRail, type CodingSelection, terminalDot } from "./coding-rail";
+import {
+  useCloseTerminal,
+  useCodingTerminals,
+  useCodingWorkspaces,
+  useCodingWorktreeDiff,
+  useSpawnTerminal,
+} from "../hooks";
+import {
+  buildCodingUrl,
+  CODING_HARNESS_OPTIONS,
+  type LocateMiss,
+  type LocateRegistry,
+  pickResumeTerminal,
+  resolveLocate,
+  terminalsForSelection,
+} from "../locate";
+import {
+  type CodingNotifyPref,
+  readNotifyPref,
+  subscribeNotifyPref,
+  writeNotifyPref,
+} from "../notifications";
+import {
+  CodingRail,
+  type CodingSelection,
+  selectionOfTerminal,
+  terminalDot,
+  workspaceDot,
+} from "./coding-rail";
 import { NewTerminalDialog, type TerminalPrefill } from "./new-terminal-dialog";
 import { SplitView } from "./split-view";
 import { TerminalPane } from "./terminal-pane";
 
-/** What the address asked for when the page opened (ADR 0073 `?agent=`, ADR 0076 `?project=`).
- *  Read once: the page keeps the address in step with the focused pane, which would otherwise
- *  erase the request before the lists have loaded. */
+/** What the address asked for when the page opened (ADR 0073 `?agent=`, ADR 0076 `?project=`,
+ *  ADR 0082 `?requirement=`/`?conversation=`). Read once so URL updates never erase initial intent. */
 interface Entry {
   agentId: string | null;
   projectId: string | null;
@@ -68,6 +113,25 @@ function readSplit(): string {
   return window.localStorage.getItem("coding-split") === "1" ? "1" : "0";
 }
 
+function readSavedResume(): { terminalId: string | null; workspaceId: string | null } {
+  if (typeof window === "undefined") return { terminalId: null, workspaceId: null };
+  try {
+    return {
+      terminalId: window.localStorage.getItem("coding-last-terminal"),
+      workspaceId: window.localStorage.getItem("coding-last-workspace"),
+    };
+  } catch {
+    return { terminalId: null, workspaceId: null };
+  }
+}
+
+type BrowserNotifyPerm = "default" | "granted" | "denied" | "unsupported";
+
+function readBrowserNotifyPerm(): BrowserNotifyPerm {
+  if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
+  return window.Notification.permission;
+}
+
 function scopeName(projectId: string | null, registry: LocateRegistry): string {
   if (projectId === null) return t("its own workspace");
   const project = registry.projects.find((row) => row.projectId === projectId);
@@ -94,8 +158,62 @@ function missText(miss: LocateMiss, entry: Entry, registry: LocateRegistry): str
   });
 }
 
+function isHarnessOption(value: string | undefined): value is CodingHarness {
+  return value !== undefined && (CODING_HARNESS_OPTIONS as readonly string[]).includes(value);
+}
+
+function WorktreeDiffDialog({
+  workspace,
+  open,
+  onClose,
+}: {
+  workspace: CodingWorkspaceRow | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const diffQuery = useCodingWorktreeDiff(
+    workspace?.projectId ?? null,
+    workspace?.workspaceId ?? null,
+    open && workspace !== null,
+  );
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogContent className="max-h-[82vh] sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>
+            {t("Workspace diff")} · {workspace?.requirementTitle ?? workspace?.branch ?? ""}
+          </DialogTitle>
+          <DialogDescription>
+            {workspace ? `${workspace.projectName} · ${workspace.branch}` : ""}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[60vh] overflow-auto rounded-lg border border-(--hairline) bg-[#0d1117] p-3 font-mono text-xs text-(--body)">
+          {diffQuery.isLoading ? (
+            <div className="text-(--mute)">{t("Loading git diff…")}</div>
+          ) : diffQuery.isError ? (
+            <div className="text-(--err)">{String(diffQuery.error)}</div>
+          ) : !diffQuery.data?.diff || diffQuery.data.diff.trim() === "" ? (
+            <div className="text-(--mute)">
+              {t("Working tree is clean — no diff against base.")}
+            </div>
+          ) : (
+            <pre className="whitespace-pre-wrap break-all">{diffQuery.data.diff}</pre>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function CodingPage() {
   const terminalsQuery = useCodingTerminals();
+  const workspacesQuery = useCodingWorkspaces();
   const agentsQuery = useAgentList();
   const projectsQuery = useProjectList();
   const conversationsQuery = useAllConversations();
@@ -111,6 +229,8 @@ export function CodingPage() {
   }));
   const reqDetail = useRequirement(contextFilter.requirementId ?? "");
   const allTerminals = terminalsQuery.data === undefined ? [] : terminalsQuery.data.terminals;
+  const allWorkspaces = workspacesQuery.data === undefined ? [] : workspacesQuery.data.workspaces;
+
   const terminals = allTerminals.filter((item) => {
     if (contextFilter.conversationId && item.conversationId !== contextFilter.conversationId) {
       return false;
@@ -120,6 +240,17 @@ export function CodingPage() {
     }
     return true;
   });
+
+  const workspaces = allWorkspaces.filter((ws) => {
+    if (contextFilter.requirementId && ws.requirementId !== contextFilter.requirementId) {
+      return false;
+    }
+    if (contextFilter.projectId && ws.projectId !== contextFilter.projectId) {
+      return false;
+    }
+    return true;
+  });
+
   const agents = agentsQuery.data ?? [];
   const projects: ProjectRow[] =
     projectsQuery.data === undefined ? [] : projectsQuery.data.projects;
@@ -129,6 +260,11 @@ export function CodingPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [splitPref, setSplitPref] = useState(readSplit);
   const [tabHint, setTabHint] = useState<string | null>(landing.tabHint);
+  const [savedResume] = useState(readSavedResume);
+  const [notifyPref, setNotifyPref] = useState<CodingNotifyPref>(readNotifyPref);
+  const [notifyPerm, setNotifyPerm] = useState<BrowserNotifyPerm>(readBrowserNotifyPerm);
+  const [diffOpen, setDiffOpen] = useState(false);
+  const hasAutoResumedRef = useRef(false);
   const spawn = useSpawnTerminal();
   const closeTerminal = useCloseTerminal();
   const { confirm, dialog: confirmDialog } = useConfirm();
@@ -137,6 +273,9 @@ export function CodingPage() {
   const [prefill, setPrefill] = useState<TerminalPrefill | null>(null);
   const [pendingFocus, setPendingFocus] = useState<string | null>(null);
   const split = splitPref === "1";
+
+  useEffect(() => subscribeNotifyPref(setNotifyPref), []);
+
   useEffect(() => {
     try {
       window.localStorage.setItem("coding-split", splitPref);
@@ -145,24 +284,21 @@ export function CodingPage() {
     }
   }, [splitPref]);
 
-  // The lists are the source of truth for "does a pane exist". An empty list while it is still
-  // loading is not "no terminal", so a link waits for it.
   const listReady = terminalsQuery.isSuccess;
   const registryReady = agentsQuery.isSuccess && projectsQuery.isSuccess;
-  // Latest values through refs: the effect fires on a readiness or PARAM change only. Depending
-  // on `terminals` would re-run it on every poll, and depending on `spawn` (a fresh mutation
-  // object each render) would loop.
   const terminalsRef = useRef(terminals);
   terminalsRef.current = terminals;
+  const workspacesRef = useRef(allWorkspaces);
+  workspacesRef.current = allWorkspaces;
   const registryRef = useRef(registry);
   registryRef.current = registry;
   const spawnRef = useRef(spawn);
   spawnRef.current = spawn;
+
   useEffect(() => {
     if (entry === null) return;
     if (entry.locate) {
       if (!listReady || !registryReady) return;
-      // Prefer exact match on conversationId or requirementId when present (ADR 0082 D3).
       const directMatch =
         entry.conversationId || entry.requirementId
           ? terminalsRef.current.find(
@@ -175,6 +311,11 @@ export function CodingPage() {
         setSelected({
           agentId: directMatch.agentId,
           ...(directMatch.projectId !== null ? { projectId: directMatch.projectId } : {}),
+          ...(directMatch.workspaceId
+            ? { workspaceId: directMatch.workspaceId, worktreePath: directMatch.cwd }
+            : {}),
+          ...(directMatch.requirementId ? { requirementId: directMatch.requirementId } : {}),
+          ...(directMatch.conversationId ? { conversationId: directMatch.conversationId } : {}),
         });
         setActiveId(directMatch.terminalId);
         setMiss(null);
@@ -196,60 +337,135 @@ export function CodingPage() {
       return;
     }
     if (!listReady || entry.agentId === null) return;
-    const selection: CodingSelection = { agentId: entry.agentId };
+    const matchedWs = entry.requirementId
+      ? workspacesRef.current.find((ws) => ws.requirementId === entry.requirementId)
+      : undefined;
+    const selection: CodingSelection = {
+      agentId: entry.agentId,
+      ...(entry.projectId !== null ? { projectId: entry.projectId } : {}),
+      ...(matchedWs ? { workspaceId: matchedWs.workspaceId, worktreePath: matchedWs.path } : {}),
+      ...(entry.requirementId ? { requirementId: entry.requirementId } : {}),
+      ...(entry.conversationId ? { conversationId: entry.conversationId } : {}),
+    };
     const body: {
       agentId: string;
       title: string;
       projectId?: string;
+      workspaceId?: string;
       conversationId?: string;
       requirementId?: string;
     } = {
       agentId: entry.agentId,
       title: "bash",
     };
-    if (entry.projectId !== null) {
-      selection.projectId = entry.projectId;
-      body.projectId = entry.projectId;
-    }
+    if (entry.projectId !== null) body.projectId = entry.projectId;
+    if (matchedWs) body.workspaceId = matchedWs.workspaceId;
     if (entry.conversationId !== null) body.conversationId = entry.conversationId;
     if (entry.requirementId !== null) body.requirementId = entry.requirementId;
     setSelected(selection);
     const exists = terminalsRef.current.some(
       (row) => row.agentId === entry.agentId && (row.projectId ?? null) === entry.projectId,
     );
-    // The legacy link is meant to do something on click: it opens one when this member has no
-    // terminal there yet. `?locate=1` never does.
     if (!exists) spawnRef.current.mutate(body);
   }, [entry, listReady, registryReady]);
 
-  const selTerminals = selected
-    ? terminals.filter((x) => {
-        if (x.agentId !== selected.agentId) return false;
-        if (selected.projectId === undefined) {
-          // ADR 0073: a workspace pane — no project, no worktree split.
-          return x.projectId === null;
-        }
-        if (x.projectId !== selected.projectId) return false;
-        // A task-worktree selection groups ONLY that path's terminals;
-        // a main selection groups the terminals whose cwd isn't a task
-        // path (they never set worktreePath at spawn).
-        return selected.worktreePath === undefined
-          ? !isTaskWorktreeCwd(x.cwd)
-          : x.cwd === selected.worktreePath;
-      })
-    : [];
+  const selTerminals = terminalsForSelection(terminals, selected);
   let active = selTerminals.find((x) => x.terminalId === activeId) ?? null;
   if (active === null) active = selTerminals.find((x) => x.terminalId === tabHint) ?? null;
   if (active === null) active = selTerminals.at(0) ?? null;
+
+  // ADR 0083 D6: automatically resume the previous coding agent terminal when opening `/coding`
+  // (URL `?t=` hint -> last focused terminal -> last workspace -> highest-attention running pane).
   useEffect(() => {
-    if (active !== null) setActiveId(active.terminalId);
+    if (hasAutoResumedRef.current) return;
+    if (entry !== null || selected !== null || miss !== null) return;
+    if (!listReady) return;
+    hasAutoResumedRef.current = true;
+    const resumed = pickResumeTerminal(terminalsRef.current, {
+      tabHint,
+      savedTerminalId: savedResume.terminalId,
+      savedWorkspaceId: savedResume.workspaceId,
+    });
+    if (resumed === null) return;
+    const matchedWs = workspacesRef.current.find(
+      (ws) =>
+        (resumed.workspaceId !== null && ws.workspaceId === resumed.workspaceId) ||
+        ws.path === resumed.cwd,
+    );
+    const sel: CodingSelection = selectionOfTerminal(resumed);
+    if (matchedWs) {
+      sel.workspaceId = matchedWs.workspaceId;
+      sel.worktreePath = matchedWs.path;
+      if (matchedWs.requirementId) sel.requirementId = matchedWs.requirementId;
+      if (matchedWs.conversationId) sel.conversationId = matchedWs.conversationId;
+    }
+    setSelected(sel);
+    setActiveId(resumed.terminalId);
+  }, [entry, listReady, miss, savedResume, selected, tabHint]);
+
+  useEffect(() => {
+    if (active === null) return;
+    setActiveId(active.terminalId);
+    try {
+      window.localStorage.setItem("coding-last-terminal", active.terminalId);
+      if (active.workspaceId) {
+        window.localStorage.setItem("coding-last-workspace", active.workspaceId);
+      } else {
+        window.localStorage.removeItem("coding-last-workspace");
+      }
+    } catch {
+      /* private mode */
+    }
   }, [active]);
 
-  // Keep the URL in sync so a refresh lands back on the same pane.
+  // Resolve the active workspace context (for dual-view bar, git diff, and anti-collision banner).
+  const activeWorkspace: CodingWorkspaceRow | null =
+    allWorkspaces.find(
+      (ws) =>
+        (selected?.workspaceId !== undefined && ws.workspaceId === selected.workspaceId) ||
+        (active?.workspaceId !== null &&
+          active?.workspaceId !== undefined &&
+          ws.workspaceId === active.workspaceId) ||
+        (active !== null && ws.path === active.cwd) ||
+        (selected?.worktreePath !== undefined && ws.path === selected.worktreePath),
+    ) ??
+    (contextFilter.requirementId
+      ? (allWorkspaces.find((ws) => ws.requirementId === contextFilter.requirementId) ?? null)
+      : null);
+
+  const linkedRequirementId =
+    active?.requirementId ??
+    activeWorkspace?.requirementId ??
+    selected?.requirementId ??
+    contextFilter.requirementId;
+  const linkedConversationId =
+    active?.conversationId ??
+    activeWorkspace?.conversationId ??
+    selected?.conversationId ??
+    contextFilter.conversationId;
+  const linkedProjectId =
+    active?.projectId ??
+    activeWorkspace?.projectId ??
+    selected?.projectId ??
+    contextFilter.projectId;
+
+  // Keep the URL in sync WITHOUT erasing dual-view context params (ADR 0083 D5).
   useEffect(() => {
-    const url = active === null ? "/coding" : `/coding?t=${active.terminalId}`;
+    const url = buildCodingUrl({
+      terminalId: active?.terminalId ?? null,
+      requirementId: contextFilter.requirementId ?? activeWorkspace?.requirementId ?? null,
+      conversationId: contextFilter.conversationId ?? activeWorkspace?.conversationId ?? null,
+      projectId: contextFilter.projectId ?? null,
+    });
     window.history.replaceState(null, "", url);
-  }, [active]);
+  }, [
+    active?.terminalId,
+    contextFilter.requirementId,
+    contextFilter.conversationId,
+    contextFilter.projectId,
+    activeWorkspace?.requirementId,
+    activeWorkspace?.conversationId,
+  ]);
 
   // A terminal that was just created is focused as soon as the list knows it.
   useEffect(() => {
@@ -265,7 +481,7 @@ export function CodingPage() {
       dead ||
       (await confirm({
         title: t("Close terminal?"),
-        description: t("This kills the running process. Its oma history stays on disk."),
+        description: t("This kills the running process. Its session history stays on disk."),
       }))
     ) {
       closeTerminal.mutate(term.terminalId);
@@ -279,18 +495,103 @@ export function CodingPage() {
     setSelected(sel);
     setActiveId(null);
     setTabHint(null);
+    setMiss(null);
   }
   function focusTerminal(sel: CodingSelection, terminalId: string): void {
     setSelected(sel);
     setActiveId(terminalId);
     setTabHint(null);
+    setMiss(null);
   }
   function openNew(withPrefill: TerminalPrefill | null): void {
     setPrefill(withPrefill);
     setNewOpen("open");
   }
 
+  const defaultHarnessFor = (term: CodingTerminalRow): CodingHarness => {
+    const agent = agents.find((a) => a.id === term.agentId);
+    if (isHarnessOption(agent?.harness)) return agent.harness;
+    if (activeWorkspace && isHarnessOption(activeWorkspace.defaultHarness)) {
+      return activeWorkspace.defaultHarness;
+    }
+    return "oma";
+  };
+
+  // Merge active ACP runs for the selected workspace / active terminal (anti-collision banner).
+  const activeRunsMap = new Map<
+    string,
+    {
+      runId: string;
+      agentName: string;
+      status: string;
+      conversationId: string;
+      pendingActionCount: number;
+    }
+  >();
+  for (const run of activeWorkspace?.activeRuns ?? []) {
+    activeRunsMap.set(run.runId, run);
+  }
+  for (const run of active?.activeRuns ?? []) {
+    activeRunsMap.set(run.runId, run);
+  }
+  const activeRuns = [...activeRunsMap.values()];
+  const waitingRun = activeRuns.find((r) => r.status === "waiting" || r.pendingActionCount > 0);
+  const primaryActiveRun = waitingRun ?? activeRuns[0] ?? null;
+
+  const conversationHref = linkedConversationId
+    ? `/chat/${encodeURIComponent(linkedConversationId)}`
+    : linkedRequirementId
+      ? `/requirements/${encodeURIComponent(linkedRequirementId)}`
+      : null;
+
+  async function toggleNotifications(): Promise<void> {
+    if (notifyPref === "muted") {
+      writeNotifyPref("on");
+      if (notifyPerm === "default" && typeof window !== "undefined" && "Notification" in window) {
+        const next = await window.Notification.requestPermission();
+        setNotifyPerm(next);
+        if (next === "granted") {
+          toast.success(t("Desktop & in-app notifications enabled"));
+          return;
+        }
+      }
+      toast.success(t("Notifications enabled"));
+      return;
+    }
+    if (notifyPerm === "default" && typeof window !== "undefined" && "Notification" in window) {
+      const next = await window.Notification.requestPermission();
+      setNotifyPerm(next);
+      if (next === "granted") {
+        toast.success(t("Desktop & in-app notifications enabled"));
+      } else {
+        toast.info(t("Browser desktop notifications blocked; in-app toasts stay active."));
+      }
+      return;
+    }
+    writeNotifyPref("muted");
+    toast.info(t("Coding notifications muted"));
+  }
+
+  const notifyLabel =
+    notifyPref === "muted"
+      ? t("Muted")
+      : notifyPerm === "granted"
+        ? t("Alerts on")
+        : t("Enable desktop alerts");
+
+  const notifyTitle =
+    notifyPref === "muted"
+      ? t("Coding agent completion & approval notifications are muted. Click to enable.")
+      : notifyPerm === "granted"
+        ? t(
+            "Toast & desktop notifications active when coding agents finish or need input. Click to mute.",
+          )
+        : notifyPerm === "default"
+          ? t("In-app toasts active. Click to also enable OS desktop notifications.")
+          : t("In-app toast notifications active. Click to mute.");
+
   const running = terminals.filter((row) => row.status === "running").length;
+  const blockedCount = workspaces.filter((ws) => ws.state === "blocked").length;
   const fewPanes = selTerminals.length < 2;
   const splitHint = fewPanes
     ? t("Needs at least two terminals in this scope. It never creates one.")
@@ -310,15 +611,28 @@ export function CodingPage() {
     </div>
   );
   if (active !== null) {
-    panes = <TerminalPane key={active.terminalId} terminal={active} onClosed={closeById} />;
+    panes = (
+      <TerminalPane
+        key={active.terminalId}
+        terminal={active}
+        defaultHarness={defaultHarnessFor(active)}
+        onClosed={closeById}
+      />
+    );
   }
   if (split) {
-    panes = <SplitView terminals={selTerminals} onClosed={closeById} />;
+    panes = (
+      <SplitView
+        terminals={selTerminals}
+        defaultHarnessFor={defaultHarnessFor}
+        onClosed={closeById}
+      />
+    );
   }
 
   let main: ReactNode = (
     <div className="flex h-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-(--hairline) p-6 text-center text-sm text-(--mute)">
-      <div>{t("Pick a worktree on the left to open its terminal.")}</div>
+      <div>{t("Pick a workspace on the left to open its terminal.")}</div>
       <div className="text-xs text-(--faint)">
         {t("Terminals keep running when you leave this page — detach, not close.")}
       </div>
@@ -334,15 +648,16 @@ export function CodingPage() {
         <p className="max-w-md text-xs leading-[1.8] text-(--mute)">
           {missText(miss, entry, registry)}
         </p>
-        <p className="max-w-md text-[10px]/[1.8]  text-(--faint)">
+        <p className="max-w-md text-[10px]/[1.8] text-(--faint)">
           {t("This link only locates a view that already exists. Nothing was created.")}
         </p>
         <div className="flex flex-wrap items-center justify-center gap-2">
           <Button
             onClick={() =>
               openNew({
-                agentId: entry.agentId ?? undefined,
-                projectId: entry.projectId === null ? undefined : entry.projectId,
+                agentId: entry.agentId ?? activeWorkspace?.defaultAgentId,
+                projectId: entry.projectId === null ? activeWorkspace?.projectId : entry.projectId,
+                workspaceId: activeWorkspace?.workspaceId,
                 conversationId: entry.conversationId ?? undefined,
                 requirementId: entry.requirementId ?? undefined,
               })
@@ -360,6 +675,40 @@ export function CodingPage() {
   if (selected !== null) {
     main = (
       <>
+        {primaryActiveRun !== null ? (
+          <div
+            role="status"
+            className={cn(
+              "mb-2 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-xs",
+              waitingRun
+                ? "border-(--warn)/40 bg-(--warn)/10 text-(--warn)"
+                : "border-(--primary)/35 bg-(--primary)/10 text-(--ink)",
+            )}
+          >
+            <AlertTriangleIcon className="size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">
+              {waitingRun
+                ? t("{name} is waiting for approval in this workspace.", {
+                    name: primaryActiveRun.agentName,
+                  })
+                : t(
+                    "ACP worker {name} is actively running in this workspace. Interactive edits here may collide with the worker.",
+                    { name: primaryActiveRun.agentName },
+                  )}
+            </span>
+            <Button
+              size="sm"
+              variant={waitingRun ? "default" : "outline"}
+              className="h-7 text-xs"
+              render={
+                <Link href={`/chat/${encodeURIComponent(primaryActiveRun.conversationId)}`} />
+              }
+            >
+              <MessageSquareIcon className="size-3" />
+              {waitingRun ? t("Review in Conversation") : t("Open Conversation")}
+            </Button>
+          </div>
+        ) : null}
         <div className="flex items-center gap-1 rounded-t-xl border border-(--hairline) bg-(--panel) px-2 py-1">
           {selTerminals.map((term) => {
             const dot = terminalDot(term);
@@ -402,8 +751,11 @@ export function CodingPage() {
                   aria-label={t("New terminal in this worktree")}
                   onClick={() =>
                     spawn.mutate({
-                      projectId: selected.projectId,
+                      ...(selected.projectId ? { projectId: selected.projectId } : {}),
                       agentId: selected.agentId,
+                      ...(selected.workspaceId ? { workspaceId: selected.workspaceId } : {}),
+                      ...(linkedRequirementId ? { requirementId: linkedRequirementId } : {}),
+                      ...(linkedConversationId ? { conversationId: linkedConversationId } : {}),
                       title: "bash",
                     })
                   }
@@ -428,23 +780,28 @@ export function CodingPage() {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       {confirmDialog}
+      <WorktreeDiffDialog
+        workspace={activeWorkspace}
+        open={diffOpen}
+        onClose={() => setDiffOpen(false)}
+      />
       <PageHeader
-        kicker={t("Terminals · every member")}
+        kicker={t("Coding workbench · dual view")}
         title={t("Coding")}
         description={t(
-          "A clear work site for code work. Each member's console keeps its own context, and a view keeps running when you leave this page.",
+          "Workspaces shared between Conversation and Coding. Launch oma, claude, pi, or omp in detachable terminals with live semantic state.",
         )}
         actions={
           <Button
             onClick={() =>
               openNew(
-                contextFilter.conversationId ||
-                  contextFilter.requirementId ||
-                  contextFilter.projectId
+                linkedConversationId || linkedRequirementId || linkedProjectId || activeWorkspace
                   ? {
-                      projectId: contextFilter.projectId ?? undefined,
-                      conversationId: contextFilter.conversationId ?? undefined,
-                      requirementId: contextFilter.requirementId ?? undefined,
+                      agentId: selected?.agentId ?? activeWorkspace?.defaultAgentId,
+                      projectId: linkedProjectId ?? undefined,
+                      workspaceId: activeWorkspace?.workspaceId,
+                      conversationId: linkedConversationId ?? undefined,
+                      requirementId: linkedRequirementId ?? undefined,
                     }
                   : null,
               )
@@ -469,9 +826,12 @@ export function CodingPage() {
                         contextFilter.requirementId,
                         isRequirementDetail(reqDetail.data)
                           ? reqDetail.data.requirement.title
-                          : allTerminals.find(
-                              (x) => x.requirementId === contextFilter.requirementId,
-                            )?.labels?.requirementTitle,
+                          : (allWorkspaces.find(
+                              (ws) => ws.requirementId === contextFilter.requirementId,
+                            )?.requirementTitle ??
+                              allTerminals.find(
+                                (x) => x.requirementId === contextFilter.requirementId,
+                              )?.labels?.requirementTitle),
                       ),
                       href: `/requirements/${encodeURIComponent(contextFilter.requirementId)}`,
                       onRemove: () => {
@@ -518,9 +878,84 @@ export function CodingPage() {
       )}
       <div className="flex flex-wrap items-center gap-2.5 px-4 sm:px-6 lg:px-8">
         <span className="text-xs leading-[1.8] text-(--mute)">
-          {t("{open} open views · {running} running", { open: terminals.length, running })}
+          {t("{workspaces} workspaces · {open} panes · {running} running", {
+            workspaces: workspaces.length,
+            open: terminals.length,
+            running,
+          })}
+          {blockedCount > 0 ? (
+            <span className="ml-2 font-medium text-(--warn)">
+              · {t("{n} blocked", { n: blockedCount })}
+            </span>
+          ) : null}
         </span>
+
+        {activeWorkspace !== null ? (
+          <div className="flex items-center gap-1.5 rounded-lg border border-(--hairline) bg-(--panel) px-2.5 py-1 text-xs">
+            <span className={workspaceDot(activeWorkspace.state).cls}>
+              {workspaceDot(activeWorkspace.state).mark}
+            </span>
+            <span className="max-w-48 truncate font-medium text-(--ink)">
+              {activeWorkspace.requirementTitle ?? activeWorkspace.branch}
+            </span>
+            <span className="hidden items-center gap-1 font-mono text-[10px] text-(--mute) sm:inline-flex">
+              <GitBranchIcon className="size-3" />
+              {activeWorkspace.branch}
+              {activeWorkspace.ahead > 0 ? ` ↑${activeWorkspace.ahead}` : ""}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-1 h-6 px-2 text-[11px]"
+              onClick={() => setDiffOpen(true)}
+            >
+              <FileDiffIcon className="size-3" />
+              {t("Diff")}
+            </Button>
+          </div>
+        ) : null}
+
         <span className="flex-1" />
+
+        {conversationHref !== null ? (
+          <div
+            className="inline-flex items-center rounded-lg border border-(--hairline) bg-(--panel) p-0.5 text-xs"
+            role="group"
+            aria-label={t("Switch view")}
+          >
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 gap-1.5 rounded-md px-2.5 text-xs text-(--mute) hover:text-(--ink)"
+              render={<Link href={conversationHref} />}
+            >
+              <MessageSquareIcon className="size-3.5" />
+              {t("Conversation view")}
+            </Button>
+            <span className="inline-flex h-7 items-center gap-1.5 rounded-md bg-(--panel2) px-2.5 text-xs font-medium text-(--ink)">
+              <TerminalIcon className="size-3.5 text-(--primary)" />
+              {t("Coding view")}
+            </span>
+          </div>
+        ) : null}
+
+        <Button
+          size="sm"
+          variant="outline"
+          aria-pressed={notifyPref === "on"}
+          title={notifyTitle}
+          onClick={() => void toggleNotifications()}
+        >
+          {notifyPref === "muted" ? (
+            <BellOffIcon className="size-3.5 text-(--mute)" />
+          ) : notifyPerm === "granted" ? (
+            <BellRingIcon className="size-3.5 text-(--primary)" />
+          ) : (
+            <BellIcon className="size-3.5" />
+          )}
+          {notifyLabel}
+        </Button>
+
         <Button
           size="sm"
           variant="outline"
@@ -535,8 +970,10 @@ export function CodingPage() {
       </div>
       <div className="flex min-h-0 flex-1 gap-4 px-4 pt-[18px] pb-4 sm:px-6 lg:px-8">
         <CodingRail
+          workspaces={workspaces}
           terminals={terminals}
           selected={selected}
+          activeTerminalId={active?.terminalId ?? null}
           onSelect={selectScope}
           onFocus={focusTerminal}
         />

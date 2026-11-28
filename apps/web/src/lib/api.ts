@@ -23,6 +23,8 @@ export type PendingProposalRow = NonNullable<ApiReturn<typeof api.getPendingProp
 
 export type ProjectRow = ApiReturn<typeof api.listProjects>["projects"][number];
 export type CodingTerminalRow = ApiReturn<typeof api.listCodingTerminals>["terminals"][number];
+export type CodingWorkspaceRow = ApiReturn<typeof api.listCodingWorkspaces>["workspaces"][number];
+export type CodingHarness = "oma" | "claude" | "pi" | "omp";
 export type LarkSetupSession = ApiReturn<typeof api.larkSetup>;
 export type AgentRow = ApiReturn<typeof api.listAgents>[number] & {
   enabled?: boolean;
@@ -364,13 +366,17 @@ export const api = {
     },
   ) => unwrap(client.api.projects({ id }).patch(body)),
   deleteProject: (id: string) => unwrap(client.api.projects({ id }).delete()),
-  // Coding terminals (worktree PTYs)
+  // Coding terminals & workspaces (Herdr-style worktree PTYs)
+  listCodingWorkspaces: (signal?: AbortSignal) =>
+    unwrap(client.api.coding.workspaces.get(signal ? { fetch: { signal } } : undefined)),
   listCodingTerminals: (signal?: AbortSignal) =>
     unwrap(client.api.coding.terminals.get(signal ? { fetch: { signal } } : undefined)),
   spawnCodingTerminal: (body: Parameters<typeof client.api.coding.terminals.post>[0]) =>
     unwrap(client.api.coding.terminals.post(body)),
   closeCodingTerminal: (id: string) => unwrap(client.api.coding.terminals({ id }).delete()),
   respawnCodingTerminal: (id: string) => unwrap(client.api.coding.terminals({ id }).respawn.post()),
+  launchHarnessInTerminal: (id: string, harness?: CodingHarness) =>
+    unwrap(client.api.coding.terminals({ id }).launch.post(harness ? { harness } : {})),
   launchOmaInTerminal: (id: string) =>
     unwrap(client.api.coding.terminals({ id })["launch-oma"].post()),
   codingWsTicket: () => unwrap(client.api.coding["ws-ticket"].post()),

@@ -4,9 +4,13 @@ import { join } from "node:path";
 import type { BackendConfig } from "../config.js";
 import type { AgentService } from "../features/agent/index.js";
 import {
+  type CodingHarness,
   type CodingTarget,
+  createCodingWorkspaceReader,
   createSqliteCodingTerminalStore,
   createTerminalRegistry,
+  isCodingHarness,
+  type TerminalCommand,
 } from "../features/coding/index.js";
 import type { ProjectPort, ProjectService } from "../features/project/index.js";
 import { createWorktreeOps } from "../features/project/worktree-ops.js";
@@ -47,16 +51,42 @@ export function wireCodingAndWorktrees(deps: CodingWiringDeps) {
     const oma = resolveOmaCommand(config);
     const shQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
     const omaLaunchLine = [oma.executable, ...(oma.args ?? [])].map(shQuote).join(" ");
-    const targetOf = (cwd: string, omaEnv?: Record<string, string | undefined>): CodingTarget => ({
-      cwd,
-      shell: { executable: shellBin, args: [], env: omaEnv ?? oma.env },
-      omaLaunch: omaLaunchLine,
-      omaPane: {
-        executable: shellBin,
-        args: ["-c", `${omaLaunchLine} --continue; exec ${shQuote(shellBin)}`],
-        env: omaEnv ?? oma.env,
-      },
+    const configuredHarness = agent.config.runtime_config.harness;
+    const defaultHarness: CodingHarness = isCodingHarness(configuredHarness)
+      ? configuredHarness
+      : "oma";
+    const harnessLaunch: Record<CodingHarness, string> = {
+      oma: omaLaunchLine,
+      claude: "claude",
+      pi: "pi",
+      omp: "omp",
+    };
+    const makePane = (
+      cmd: string,
+      env: Record<string, string | undefined> | undefined,
+    ): TerminalCommand => ({
+      executable: shellBin,
+      args: ["-c", `${cmd} --continue; exec ${shQuote(shellBin)}`],
+      env,
     });
+    const targetOf = (cwd: string, omaEnv?: Record<string, string | undefined>): CodingTarget => {
+      const env = omaEnv ?? oma.env;
+      const omaPane = makePane(omaLaunchLine, env);
+      return {
+        cwd,
+        shell: { executable: shellBin, args: [], env },
+        omaLaunch: omaLaunchLine,
+        omaPane,
+        harnessLaunch,
+        harnessPane: {
+          oma: omaPane,
+          claude: makePane("claude", env),
+          pi: makePane("pi", env),
+          omp: makePane("omp", env),
+        },
+        defaultHarness,
+      };
+    };
     if (workspaceId) {
       const ws = workspaceSvc.getById(workspaceId);
       if (!ws) throw new NotFoundError("workspace", workspaceId);
@@ -82,6 +112,13 @@ export function wireCodingAndWorktrees(deps: CodingWiringDeps) {
     persist: (snapshot) => codingTerminalStore.saveAll(snapshot),
   });
 
+  const codingWorkspaceReader = createCodingWorkspaceReader({
+    db,
+    agentSvc,
+    worktreeOps,
+    registry: codingRegistry,
+  });
+
   const restoreCodingTerminals = async (): Promise<void> => {
     for (const entry of codingTerminalStore.loadAll()) {
       try {
@@ -91,6 +128,9 @@ export function wireCodingAndWorktrees(deps: CodingWiringDeps) {
           entry.workspaceId ?? undefined,
         );
         const cwd = existsSync(entry.cwd) ? entry.cwd : target.cwd;
+        const command = isCodingHarness(entry.kind)
+          ? (target.harnessPane?.[entry.kind] ?? target.omaPane)
+          : target.shell;
         codingRegistry.spawn({
           terminalId: entry.terminalId,
           projectId: entry.projectId,
@@ -101,7 +141,7 @@ export function wireCodingAndWorktrees(deps: CodingWiringDeps) {
           cwd,
           title: entry.title,
           kind: entry.kind,
-          command: entry.kind === "oma" ? target.omaPane : target.shell,
+          command,
         });
       } catch {
         // agent/project gone — drop silently; sync() below prunes it
@@ -116,6 +156,7 @@ export function wireCodingAndWorktrees(deps: CodingWiringDeps) {
     worktreeOps,
     resolveCodingTarget,
     codingRegistry,
+    codingWorkspaceReader,
     restoreCodingTerminals,
   };
 }

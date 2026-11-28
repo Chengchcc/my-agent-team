@@ -62,6 +62,43 @@ describe("createSqliteCodingTerminalStore (ADR 0082 D3)", () => {
     expect(store.loadAll()).toEqual([]);
   });
 
+  test("preserves multi-harness kinds (claude, pi, omp) across SQLite round-trip (ADR 0083 D3)", () => {
+    const db = makeDb();
+    const store = createSqliteCodingTerminalStore(db);
+    store.saveAll([
+      {
+        terminalId: "t-claude",
+        projectId: "p1",
+        agentId: "coder",
+        cwd: "/tmp/p1",
+        title: "claude",
+        kind: "claude",
+      },
+      {
+        terminalId: "t-pi",
+        projectId: "p1",
+        agentId: "coder",
+        cwd: "/tmp/p1",
+        title: "pi",
+        kind: "pi",
+      },
+      {
+        terminalId: "t-omp",
+        projectId: "p1",
+        agentId: "coder",
+        cwd: "/tmp/p1",
+        title: "omp",
+        kind: "omp",
+      },
+    ]);
+    const loaded = store.loadAll().map((t) => [t.terminalId, t.kind]);
+    expect(loaded).toEqual([
+      ["t-claude", "claude"],
+      ["t-pi", "pi"],
+      ["t-omp", "omp"],
+    ]);
+  });
+
   test("imports legacy terminals.json once when table is empty", () => {
     const dir = mkdtempSync(join(tmpdir(), "coding-sql-"));
     dirs.push(dir);

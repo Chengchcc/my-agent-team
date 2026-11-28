@@ -187,4 +187,22 @@ describe("terminal registry P2 (kind, persist, restore)", () => {
     );
     reg.closeAll();
   }, 10_000);
+
+  test("tracks live output activity tail and lastOutputAt for semantic state detection", async () => {
+    const reg = createTerminalRegistry();
+    const t = reg.spawn({
+      projectId: "p",
+      agentId: "a",
+      cwd: dir,
+      kind: "claude",
+      title: "claude",
+      command: { executable: "/bin/bash", args: ["-c", "echo 'Allow once? (y/n)'; sleep 30"] },
+    });
+    await waitFor(() => (reg.getActivity(t.terminalId)?.tail ?? "").includes("Allow once?"));
+    const act = reg.getActivity(t.terminalId)!;
+    expect(act.lastOutputAt).not.toBeNull();
+    expect(act.tail).toContain("Allow once? (y/n)");
+    expect(reg.getActivity("missing-id")).toBeNull();
+    reg.closeAll();
+  }, 10_000);
 });

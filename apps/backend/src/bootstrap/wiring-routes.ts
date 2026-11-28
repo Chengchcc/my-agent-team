@@ -17,6 +17,7 @@ import { type ArtifactService, artifactRoutes } from "../features/artifact/index
 import { authRoutes, type PasswordService } from "../features/auth/index.js";
 import {
   type CodingTarget,
+  type CodingWorkspaceReader,
   codingRoutes,
   type TerminalRegistry,
 } from "../features/coding/index.js";
@@ -85,6 +86,7 @@ export interface FeatureRoutesWiringDeps {
   modelCostsSnapshot: ReturnType<typeof wireWorkspaceAndRecall>["modelCostsSnapshot"];
   budgetGate: BudgetGate;
   codingRegistry: TerminalRegistry;
+  codingWorkspaceReader: CodingWorkspaceReader;
   resolveCodingTarget: (
     projectId: string | null | undefined,
     agentId: string,
@@ -134,6 +136,7 @@ export function wireFeatureSet(deps: FeatureRoutesWiringDeps): FeatureSet {
     modelCostsSnapshot,
     budgetGate,
     codingRegistry,
+    codingWorkspaceReader,
     resolveCodingTarget,
     browserWsBase,
     ahpHost,
@@ -253,6 +256,8 @@ export function wireFeatureSet(deps: FeatureRoutesWiringDeps): FeatureSet {
       resolveTarget: resolveCodingTarget,
       wsBase: browserWsBase,
       labelResolver: entityLabels,
+      listWorkspaces: () => codingWorkspaceReader.listWorkspaces(),
+      listActiveRuns: () => codingWorkspaceReader.listActiveRuns(),
       requirementOfConversation: (conversationId: string) => {
         const row = db
           .query(

@@ -12,19 +12,79 @@ import { createTerminalRegistry } from "./terminal-registry.js";
 const dir = mkdtempSync(join(tmpdir(), "coding-http-"));
 const wsDir = join(dir, "ws-req-1");
 mkdirSync(wsDir, { recursive: true });
+const seenWorkspaceIds: Array<string | undefined> = [];
 const registry = createTerminalRegistry();
 const app = new Elysia().use(
   codingRoutes({
     registry,
     resolveTarget: async (projectId, _agentId, workspaceId) => {
       if (projectId === "ghost") throw new NotFoundError("project", projectId);
+      seenWorkspaceIds.push(workspaceId);
       return {
         cwd: workspaceId === "ws-1" ? wsDir : dir,
         shell: { executable: "/bin/bash", args: ["-c", "echo boot-marker; exec bash"] },
         omaLaunch: "echo oma-launch-line",
         omaPane: { executable: "/bin/bash", args: ["-c", "echo oma-pane-boot; exec bash"] },
+        harnessLaunch: {
+          oma: "echo oma-launch-line",
+          claude: "echo claude-launch-line && echo 'Do you want to proceed? (y/n)'",
+          pi: "echo pi-launch-line",
+          omp: "echo omp-launch-line",
+        },
+        harnessPane: {
+          oma: { executable: "/bin/bash", args: ["-c", "echo oma-pane-boot; exec bash"] },
+          claude: { executable: "/bin/bash", args: ["-c", "echo claude-pane-boot; exec bash"] },
+        },
+        defaultHarness: "claude",
       };
     },
+    listWorkspaces: async () => [
+      {
+        workspaceId: "ws-1",
+        projectId: "p1",
+        projectName: "Console",
+        requirementId: "req-1",
+        requirementTitle: "Herdr Coding Upgrade",
+        conversationId: "conv-1",
+        conversationTitle: "Coding discussion",
+        defaultAgentId: "a1",
+        defaultHarness: "claude",
+        path: wsDir,
+        branch: "req/req-1",
+        ahead: 2,
+        behind: 0,
+        worktreeReady: true,
+        state: "blocked",
+        pendingActionCount: 1,
+        activeRuns: [
+          {
+            runId: "run-1",
+            agentId: "a1",
+            agentName: "Coder",
+            status: "waiting",
+            conversationId: "conv-1",
+            requirementId: "req-1",
+            workspaceRoot: wsDir,
+            pendingActionCount: 1,
+            startedAt: 1_000,
+          },
+        ],
+        terminalIds: [],
+      },
+    ],
+    listActiveRuns: async () => [
+      {
+        runId: "run-1",
+        agentId: "a1",
+        agentName: "Coder",
+        status: "waiting",
+        conversationId: "conv-1",
+        requirementId: "req-1",
+        workspaceRoot: wsDir,
+        pendingActionCount: 1,
+        startedAt: 1_000,
+      },
+    ],
     wsBase: "ws://127.0.0.1:1",
   }),
 );
@@ -226,4 +286,91 @@ describe("coding agent status enrichment (P2)", () => {
     const mine = listed.terminals.find((t) => t.terminalId === terminal.terminalId);
     expect(mine?.cwd).toBe(wsDir);
   });
+});
+
+describe("ADR 0083 Herdr dual-view workspaces, multi-harness launch, and semantic PTY state", () => {
+  test("GET /api/coding/workspaces returns rolled-up workspace summaries", async () => {
+    const res = await fetch(`${base}/api/coding/workspaces`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      workspaces: Array<{
+        workspaceId: string;
+        requirementTitle: string | null;
+        state: string;
+        pendingActionCount: number;
+      }>;
+    };
+    expect(body.workspaces).toHaveLength(1);
+    expect(body.workspaces[0]).toMatchObject({
+      workspaceId: "ws-1",
+      requirementTitle: "Herdr Coding Upgrade",
+      state: "blocked",
+      pendingActionCount: 1,
+    });
+  });
+
+  test("launch supports multi-harness (claude), propagates workspaceId, infers blocked PTY state, and attaches activeRuns", async () => {
+    seenWorkspaceIds.length = 0;
+    const spawnRes = await fetch(`${base}/api/coding/terminals`, {
+      method: "POST",
+      body: JSON.stringify({
+        projectId: "p1",
+        agentId: "a1",
+        workspaceId: "ws-1",
+        requirementId: "req-1",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(spawnRes.status).toBe(201);
+    const { terminal, defaultHarness } = (await spawnRes.json()) as {
+      terminal: { terminalId: string };
+      defaultHarness: string;
+    };
+    expect(defaultHarness).toBe("claude");
+
+    // Launch with omitted harness uses defaultHarness ("claude") and preserves workspaceId.
+    const launchRes = await fetch(`${base}/api/coding/terminals/${terminal.terminalId}/launch`, {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "content-type": "application/json" },
+    });
+    expect(launchRes.status).toBe(200);
+    const launchBody = (await launchRes.json()) as { ok: boolean; harness: string };
+    expect(launchBody).toEqual({ ok: true, harness: "claude" });
+    expect(seenWorkspaceIds.at(-1)).toBe("ws-1");
+
+    // Wait for the injected claude prompt line to hit the PTY buffer and infer "blocked".
+    const deadline = Date.now() + 4_000;
+    let matched:
+      | {
+          terminalId: string;
+          kind: string;
+          agentState?: string;
+          activeRuns?: Array<{ runId: string; status: string }>;
+        }
+      | undefined;
+    while (Date.now() < deadline) {
+      const listed = (await (await fetch(`${base}/api/coding/terminals`)).json()) as {
+        terminals: Array<{
+          terminalId: string;
+          kind: string;
+          agentState?: string;
+          activeRuns?: Array<{ runId: string; status: string }>;
+        }>;
+      };
+      matched = listed.terminals.find((t) => t.terminalId === terminal.terminalId);
+      if (matched?.agentState === "blocked") break;
+      await Bun.sleep(50);
+    }
+    expect(matched?.kind).toBe("claude");
+    expect(matched?.agentState).toBe("blocked");
+    expect(matched?.activeRuns?.[0]?.runId).toBe("run-1");
+
+    // Respawn also passes workspaceId and uses the claude harnessPane.
+    const respawnRes = await fetch(`${base}/api/coding/terminals/${terminal.terminalId}/respawn`, {
+      method: "POST",
+    });
+    expect(respawnRes.status).toBe(200);
+    expect(seenWorkspaceIds.at(-1)).toBe("ws-1");
+  }, 10_000);
 });

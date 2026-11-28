@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { codingTerminal } from "../../infra/db/schema.js";
 import { loadPersistedTerminals } from "./persist.js";
-import type { PersistedTerminal, TerminalKind } from "./terminal-registry.js";
+import { isTerminalKind, type PersistedTerminal, type TerminalKind } from "./terminal-registry.js";
 
 export interface CodingTerminalStore {
   loadAll(): PersistedTerminal[];
@@ -33,7 +33,7 @@ export function createSqliteCodingTerminalStore(db: Database): CodingTerminalSto
       requirementId: r.requirementId ?? null,
       cwd: r.cwd,
       title: r.title,
-      kind: (r.kind === "oma" ? "oma" : "shell") as TerminalKind,
+      kind: (isTerminalKind(r.kind) ? r.kind : "shell") as TerminalKind,
     }));
   }
 

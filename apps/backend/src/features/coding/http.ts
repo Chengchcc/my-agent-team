@@ -2,10 +2,21 @@ import { Elysia, t } from "elysia";
 import { ConflictError, NotFoundError, ValidationError } from "../../infra/domain-errors.js";
 import type { EntityLabelResolver } from "../../infra/entity-labels.js";
 import { createWsTicketRegistry } from "../../infra/ws-ticket.js";
-import { readAgentStatusFor } from "./agent-status.js";
-import type { TerminalCommand, TerminalInfo, TerminalRegistry } from "./terminal-registry.js";
+import {
+  type CodingHarness,
+  isCodingHarness,
+  type TerminalCommand,
+  type TerminalInfo,
+  type TerminalRegistry,
+} from "./terminal-registry.js";
+import {
+  type CodingActiveRun,
+  type CodingWorkspaceSummary,
+  matchRunsForTarget,
+  resolveTerminalAgentState,
+} from "./workspaces.js";
 
-/** Coding-page surface (Herd-style terminals for project worktrees).
+/** Coding-page surface (Herdr-style terminals for requirement & agent workspaces).
  *
  *  REST endpoints ride the normal auth chain (BFF → x-auth-token). The
  *  terminal byte stream cannot: browser WebSocket cannot set headers and
@@ -25,6 +36,12 @@ export interface CodingTarget {
    *  drop into a shell when it exits. Used by the restart button and by
    *  boot restore — injection is for live shells only (startup race). */
   omaPane: TerminalCommand;
+  /** ADR 0083 D3: per-harness interactive launch lines (`oma`, `claude`, `pi`, `omp`). */
+  harnessLaunch?: Partial<Record<CodingHarness, string>>;
+  /** ADR 0083 D3: per-harness respawn/boot-restore commands (`<cli> --continue; exec bash`). */
+  harnessPane?: Partial<Record<CodingHarness, TerminalCommand>>;
+  /** Member's configured default harness (falls back to `"oma"`). */
+  defaultHarness?: CodingHarness;
 }
 
 export interface CodingRoutesDeps {
@@ -44,6 +61,10 @@ export interface CodingRoutesDeps {
   labelResolver?: EntityLabelResolver;
   /** ADR 0082 D3: resolve current requirement for a conversation when spawning a terminal. */
   requirementOfConversation?: (conversationId: string) => string | null;
+  /** ADR 0083 D2: unified workspace read model combining ADR 0077 checkouts, ACP runs & PTYs. */
+  listWorkspaces?: () => Promise<CodingWorkspaceSummary[]>;
+  /** ADR 0083 D2: active ACP runs for per-terminal anti-collision banners. */
+  listActiveRuns?: () => Promise<CodingActiveRun[]>;
 }
 
 interface WsIn {
@@ -53,6 +74,13 @@ interface WsIn {
 
   rows?: number;
 }
+
+const HARNESS_SCHEMA = t.Union([
+  t.Literal("oma"),
+  t.Literal("claude"),
+  t.Literal("pi"),
+  t.Literal("omp"),
+]);
 
 export function codingRoutes(deps: CodingRoutesDeps) {
   const { registry, resolveTarget, wsBase } = deps;
@@ -84,10 +112,43 @@ export function codingRoutes(deps: CodingRoutesDeps) {
           ? Response.json({ error: err.message }, { status: 422 })
           : null;
 
+  async function launchHarnessInPane(id: string, requestedHarness?: CodingHarness) {
+    const info = registry.get(id);
+    if (!info) return Response.json({ error: "terminal not found" }, { status: 404 });
+    if (info.status !== "running") {
+      return Response.json(
+        { error: "terminal process has exited — restart the pane first" },
+        { status: 409 },
+      );
+    }
+    try {
+      const target = await resolveTarget(
+        info.projectId,
+        info.agentId,
+        info.workspaceId ?? undefined,
+      );
+      const harness: CodingHarness = requestedHarness ?? target.defaultHarness ?? "oma";
+      const launchLine =
+        target.harnessLaunch?.[harness] ?? (harness === "oma" ? target.omaLaunch : harness);
+      registry.write(id, `${launchLine}\n`);
+      // The pane is now a harness pane: restart and boot-restore use the
+      // --continue form instead of a bare shell.
+      registry.setKind(id, harness, harness);
+      return { ok: true as const, harness };
+    } catch (err) {
+      const mapped = mapDomainError(err);
+      if (mapped) return mapped;
+      throw err;
+    }
+  }
+
   return new Elysia()
+    .get("/api/coding/workspaces", async () => ({
+      workspaces: deps.listWorkspaces ? await deps.listWorkspaces() : [],
+    }))
     .get(
       "/api/coding/terminals",
-      ({ query }) => {
+      async ({ query }) => {
         const list = registry.list().filter((item) => {
           if (query.conversationId && item.conversationId !== query.conversationId) return false;
           if (query.requirementId && item.requirementId !== query.requirementId) return false;
@@ -101,6 +162,7 @@ export function codingRoutes(deps: CodingRoutesDeps) {
           conversationIds: list.map((item) => item.conversationId),
           requirementIds: list.map((item) => item.requirementId),
         });
+        const allActiveRuns = deps.listActiveRuns ? await deps.listActiveRuns() : [];
         return {
           terminals: list.map((item) => {
             const labels = deps.labelResolver?.labelsFor(
@@ -112,13 +174,16 @@ export function codingRoutes(deps: CodingRoutesDeps) {
               },
               maps,
             );
+            const agentState = resolveTerminalAgentState(item, registry);
+            const activeRuns = matchRunsForTarget(allActiveRuns, {
+              cwd: item.cwd,
+              requirementId: item.requirementId,
+            });
             return {
               ...item,
               ...(labels ? { labels } : {}),
-              // Structured pane state (P2): only a live oma pane carries one.
-              ...(item.kind === "oma" && item.status === "running"
-                ? { agentState: readAgentStatusFor(item.cwd)?.state }
-                : {}),
+              ...(agentState !== undefined ? { agentState } : {}),
+              ...(activeRuns.length > 0 ? { activeRuns } : {}),
             };
           }),
         };
@@ -168,6 +233,7 @@ export function codingRoutes(deps: CodingRoutesDeps) {
           return {
             terminal: { ...terminal, ...(labels ? { labels } : {}) },
             omaLaunch: target.omaLaunch,
+            defaultHarness: target.defaultHarness ?? ("oma" as CodingHarness),
           };
         } catch (err) {
           const mapped = mapDomainError(err);
@@ -189,35 +255,33 @@ export function codingRoutes(deps: CodingRoutesDeps) {
         }),
       },
     )
-    .post("/api/coding/terminals/:id/launch-oma", async ({ params: { id } }) => {
-      const info = registry.get(id);
-      if (!info) return Response.json({ error: "terminal not found" }, { status: 404 });
-      if (info.status !== "running") {
-        return Response.json(
-          { error: "terminal process has exited — restart the pane first" },
-          { status: 409 },
-        );
-      }
-      try {
-        const target = await resolveTarget(info.projectId, info.agentId);
-        registry.write(id, `${target.omaLaunch}\n`);
-        // The pane is now an oma pane: restart and boot-restore use the
-        // --continue form instead of a bare shell.
-        registry.setKind(id, "oma", "oma");
-        return { ok: true };
-      } catch (err) {
-        const mapped = mapDomainError(err);
-        if (mapped) return mapped;
-        throw err;
-      }
-    })
+    .post(
+      "/api/coding/terminals/:id/launch",
+      ({ params: { id }, body }) => launchHarnessInPane(id, body?.harness),
+      {
+        body: t.Optional(
+          t.Object({
+            harness: t.Optional(HARNESS_SCHEMA),
+          }),
+        ),
+      },
+    )
+    .post("/api/coding/terminals/:id/launch-oma", ({ params: { id } }) =>
+      launchHarnessInPane(id, "oma"),
+    )
     .post("/api/coding/terminals/:id/respawn", async ({ params: { id } }) => {
       const info = registry.get(id);
       if (!info) return Response.json({ error: "terminal not found" }, { status: 404 });
-      if (info.kind === "oma") {
+      if (isCodingHarness(info.kind)) {
         try {
-          const target = await resolveTarget(info.projectId, info.agentId);
-          const terminal = registry.respawn(id, target.omaPane);
+          const target = await resolveTarget(
+            info.projectId,
+            info.agentId,
+            info.workspaceId ?? undefined,
+          );
+          const paneSpec =
+            target.harnessPane?.[info.kind] ?? (info.kind === "oma" ? target.omaPane : undefined);
+          const terminal = registry.respawn(id, paneSpec);
           if (!terminal) return Response.json({ error: "terminal not found" }, { status: 404 });
           return { terminal };
         } catch (err) {

@@ -6,6 +6,7 @@ import { GlobalSearch } from "@/components/GlobalSearch";
 import { HeapSentinel } from "@/components/HeapSentinel";
 import { NetworkStatus } from "@/components/NetworkStatus";
 import { Toaster } from "@/components/ui/sonner";
+import { CodingNotifier } from "@/features/coding/components/coding-notifier";
 import { hasLocale, setLocale } from "@/lib/i18n";
 import { NavRail } from "./NavRail";
 import { TopBar } from "./TopBar";
@@ -37,6 +38,7 @@ export function AppShell({ children, locale }: { children: ReactNode; locale: st
     <>
       <HeapSentinel />
       <NetworkStatus />
+      <CodingNotifier />
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
       <NavRail />
       <main className="relative flex flex-1 min-w-0 flex-col overflow-y-auto h-svh bg-background">

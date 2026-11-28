@@ -26,10 +26,11 @@ import { useSpawnTerminal } from "../hooks";
 /** The "no project" choice: a terminal in the member's own workspace (ADR 0073). */
 export const NO_PROJECT = "none";
 
-/** What a locate link named, to prefill the form with. */
+/** What a locate link or workspace action named, to prefill the form with. */
 export interface TerminalPrefill {
   agentId?: string;
   projectId?: string;
+  workspaceId?: string;
   conversationId?: string;
   requirementId?: string;
 }
@@ -62,7 +63,7 @@ export function NewTerminalDialog({
   onClose: () => void;
   agents: AgentRow[];
   projects: ProjectRow[];
-  /** What to prefill: the member and project a locate link named. */
+  /** What to prefill: the member, project, and workspace a locate link named. */
   prefill: TerminalPrefill | null;
   /** The terminal that was created, so the page can focus its pane. */
   onCreated: (terminalId: string) => void;
@@ -98,6 +99,7 @@ export function NewTerminalDialog({
       agentId: string;
       title: string;
       projectId?: string;
+      workspaceId?: string;
       conversationId?: string;
       requirementId?: string;
     } = {
@@ -105,6 +107,9 @@ export function NewTerminalDialog({
       title: title.trim() === "" ? "bash" : title.trim(),
     };
     if (project !== NO_PROJECT) body.projectId = project;
+    if (prefill?.workspaceId && project === prefill.projectId) {
+      body.workspaceId = prefill.workspaceId;
+    }
     if (prefill?.conversationId) body.conversationId = prefill.conversationId;
     if (prefill?.requirementId) body.requirementId = prefill.requirementId;
     spawn.mutate(body, {

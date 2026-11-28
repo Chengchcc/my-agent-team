@@ -71,6 +71,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useAgentList } from "@/features/agents/hooks";
+import { useCodingTerminals, useCodingWorkspaces } from "@/features/coding/hooks";
 import {
   conversationKeys,
   useAllConversations,
@@ -113,6 +114,19 @@ function NavContent() {
 
   // U4: badge the Workflows nav when any execution waits for a human.
   const { data: waitingGates } = useQuery(waitingGatesQuery());
+  const { data: codingTerminalsData } = useCodingTerminals();
+  const { data: codingWorkspacesData } = useCodingWorkspaces();
+  const codingBlockedCount =
+    (codingWorkspacesData?.workspaces.filter((ws) => ws.state === "blocked").length ?? 0) +
+    (codingTerminalsData?.terminals.filter(
+      (term) => term.status === "running" && term.agentState === "blocked" && !term.workspaceId,
+    ).length ?? 0);
+  const codingWorking =
+    (codingWorkspacesData?.workspaces.some((ws) => ws.state === "working") ?? false) ||
+    (codingTerminalsData?.terminals.some(
+      (term) => term.status === "running" && term.agentState === "working",
+    ) ??
+      false);
   const createConversation = useCreateConversation();
   const chatScrollRef = useRef<HTMLDivElement>(null);
   // ADR 0074 S0: team-member rooms (dispatch origin) fold UNDER the room that
@@ -263,6 +277,19 @@ function NavContent() {
               >
                 <TerminalIcon />
                 <span className="truncate">{t("Coding")}</span>
+                {codingBlockedCount > 0 ? (
+                  <span
+                    className="ml-auto flex size-4 shrink-0 items-center justify-center rounded-full bg-(--warn) text-[9px] font-semibold text-(--canvas)"
+                    title={t("{n} coding agent waiting for input", { n: codingBlockedCount })}
+                  >
+                    {codingBlockedCount}
+                  </span>
+                ) : codingWorking ? (
+                  <span
+                    className="ml-auto size-2 shrink-0 animate-pulse rounded-full bg-(--primary)"
+                    title={t("Coding agent working")}
+                  />
+                ) : null}
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { CodingTerminalRow } from "@/lib/api";
+import type { CodingHarness, CodingTerminalRow } from "@/lib/api";
 import { TerminalPane } from "./terminal-pane";
 
 /** Side-by-side arrangement of a worktree's terminals — the same panes as
@@ -10,9 +10,11 @@ import { TerminalPane } from "./terminal-pane";
  *  closed pane's space redistributes via the flex ratios. */
 export function SplitView({
   terminals,
+  defaultHarnessFor,
   onClosed,
 }: {
   terminals: CodingTerminalRow[];
+  defaultHarnessFor?: (term: CodingTerminalRow) => CodingHarness;
   onClosed: (id: string) => void;
 }) {
   const [grow, setGrow] = useState<number[]>([]);
@@ -76,7 +78,11 @@ export function SplitView({
             />
           )}
           <div className="min-h-0 min-w-0 flex-1">
-            <TerminalPane terminal={term} onClosed={onClosed} />
+            <TerminalPane
+              terminal={term}
+              defaultHarness={defaultHarnessFor?.(term)}
+              onClosed={onClosed}
+            />
           </div>
         </div>
       ))}

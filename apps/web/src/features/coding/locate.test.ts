@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { CodingTerminalRow } from "@/lib/api";
-import { isTaskWorktreeCwd, type LocateRegistry, resolveLocate } from "./locate";
+import {
+  buildCodingUrl,
+  isTaskWorktreeCwd,
+  type LocateRegistry,
+  resolveLocate,
+  terminalsForSelection,
+} from "./locate";
 
 function terminalOf(fields: {
   id: string;
@@ -126,5 +132,50 @@ describe("resolveLocate", () => {
       ok: false,
       miss: { reason: "unknown-project" },
     });
+  });
+});
+
+describe("buildCodingUrl & terminalsForSelection (ADR 0083 D5)", () => {
+  test("preserves requirement, conversation, project, and terminal tab params", () => {
+    expect(
+      buildCodingUrl({
+        terminalId: "t-9",
+        requirementId: "req-1",
+        conversationId: "conv-2",
+        projectId: "proj-3",
+      }),
+    ).toBe("/coding?requirement=req-1&conversation=conv-2&project=proj-3&t=t-9");
+    expect(buildCodingUrl({})).toBe("/coding");
+  });
+
+  test("groups terminals by workspaceId or matching worktreePath regardless of agent", () => {
+    const wsTermA: CodingTerminalRow = {
+      ...MAIN,
+      terminalId: "t-a",
+      agentId: "coder-1",
+      workspaceId: "ws-1",
+      cwd: "/data/workspaces/req-1/agent-workspace",
+    };
+    const wsTermB: CodingTerminalRow = {
+      ...MAIN,
+      terminalId: "t-b",
+      agentId: "coder-2",
+      workspaceId: null,
+      cwd: "/data/workspaces/req-1/agent-workspace",
+    };
+    const otherWs: CodingTerminalRow = {
+      ...MAIN,
+      terminalId: "t-c",
+      agentId: "coder-1",
+      workspaceId: "ws-2",
+      cwd: "/data/workspaces/req-2/agent-workspace",
+    };
+    const matched = terminalsForSelection([wsTermA, wsTermB, otherWs], {
+      agentId: "coder-1",
+      projectId: "agent-workspace",
+      workspaceId: "ws-1",
+      worktreePath: "/data/workspaces/req-1/agent-workspace",
+    });
+    expect(matched.map((t) => t.terminalId)).toEqual(["t-a", "t-b"]);
   });
 });

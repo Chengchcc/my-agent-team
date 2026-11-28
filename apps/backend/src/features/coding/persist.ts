@@ -1,11 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
-import type { PersistedTerminal, TerminalKind } from "./terminal-registry.js";
+import { isTerminalKind, type PersistedTerminal } from "./terminal-registry.js";
 
 /** Membership snapshot for boot restore. The file is a HINT, never truth:
  *  a corrupt/stale file drops entries; agents/projects that vanished since
  *  the last run are skipped (and pruned on the next persist). */
-
-const KINDS: readonly TerminalKind[] = ["shell", "oma"];
 
 function isPersisted(value: unknown): value is PersistedTerminal {
   if (typeof value !== "object" || value === null) return false;
@@ -18,7 +16,7 @@ function isPersisted(value: unknown): value is PersistedTerminal {
     typeof v.cwd === "string" &&
     typeof v.title === "string" &&
     typeof v.kind === "string" &&
-    KINDS.includes(v.kind as TerminalKind)
+    isTerminalKind(v.kind)
   );
 }
 export function loadPersistedTerminals(file: string): PersistedTerminal[] {

@@ -19,7 +19,7 @@ Agent configuration, identity, skills, MCP endpoints, and Git repositories live 
 - `apps/backend/src/features/project/requirement-workspace.ts` & `apps/backend/src/features/workspace/service.ts` — Requirement-owned checkouts (`req/<requirementId>`)
 - `apps/backend/src/features/project/push.ts` — Safe worker push (`agent/<runId>`)
 - `apps/backend/src/features/project/workspace-lock.ts` — Per-root promise-chain mutex
-- `apps/backend/src/features/coding/terminal-registry.ts` & `adapter-sqlite.ts` & `http.ts` — `bun-pty` registry, `coding_terminal` table, `/ws/coding/:id`
+- `apps/backend/src/features/coding/terminal-registry.ts`, `pty-state.ts`, `workspaces.ts`, `adapter-sqlite.ts`, `http.ts` — `bun-pty` registry, multi-harness PTY semantic state, unified workspace rollup (`GET /api/coding/workspaces`), `coding_terminal` table, `/ws/coding/:id`
 
 ## Agent Workspace Layout & Config
 
@@ -83,15 +83,17 @@ Every registered `project` (`project` table; `repoUrl` rejects leading `-` and s
   - HTTPS remotes require `PROJECT_PUSH_TOKEN` and host match against `["github.com", "gitlab.com", "bitbucket.org"]` (or subdomain). Passes token via `-c http.extraHeader=AUTHORIZATION: Basic ...` (never embedded in remote URL) and redacts raw/encoded/base64 token from all errors.
 - **Workspace lock (`project/workspace-lock.ts`):** per-canonical-path (`realpathSync`) promise-chain mutex. Failed holders never poison subsequent waiters; logs a warning if a waiter exceeds `30_000 ms` (e.g., holder parked on HITL).
 
-## Coding PTY Terminals (`features/coding/`)
+## Coding PTY Terminals (`features/coding/`, ADR 0083)
 
-- **Process ownership (`terminal-registry.ts`):** real `bun-pty` (`xterm-256color`, default `80x24`, clamped `2..500 × 2..300`, `400_000`-char scrollback ring buffer) owned by the backend process.
+- **Process ownership (`terminal-registry.ts`):** real `bun-pty` (`xterm-256color`, default `80x24`, clamped `2..500 × 2..300`, `400_000`-char scrollback ring buffer, live `lastOutputAt` + 4 KiB activity tail) owned by the backend process. Supports `TerminalKind = "shell" | "oma" | "claude" | "pi" | "omp"`.
 - **Secret stripping:** strips `BACKEND_AUTH_TOKEN`, `PROJECT_PUSH_TOKEN`, `MOCK_PASSWORD`, `MCP_ENCRYPTION_KEY`, `LARK_APP_SECRET`, `LARK_ENCRYPT_KEY`, and `LARK_VERIFICATION_TOKEN` from PTY env.
-- **Target resolution (`bootstrap/wiring-coding.ts`):**
-  - `projectId: null` (ADR 0073) opens directly in `agent.workspacePath` (no project binding required).
-  - Non-null `projectId` requires agent attachment (`409`) and opens in the requirement or project worktree.
-  - `launch-oma` sends `<omaLaunch>\n` and flips `kind = "oma"`; `GET /api/coding/terminals` overlays live `agentState` from `readAgentStatusFor(cwd)`.
-- **Persistence & WS protocol:** layout & ADR 0082 linkage (`project_id`, `workspace_id`, `conversation_id`, `requirement_id`) persist in SQLite `coding_terminal`; boot respawns shells (`oma` panes respawn with `oma --continue; exec /bin/bash`). `WS /ws/coding/:id?ticket=<hex>` validates a 60s single-use ticket (`4001` invalid, `4404` missing), replays `{ t: "o", d }` + `{ t: "s", status, exitCode }`, accepts `{ t: "i", d }` and `{ t: "r", cols, rows }`, and **detaches without killing the PTY** on socket close.
+- **Target resolution & multi-harness launch (`bootstrap/wiring-coding.ts`):**
+  - `projectId: null` (ADR 0073) opens directly in `agent.workspacePath`; `workspaceId` opens the ADR 0077 requirement checkout directly.
+  - `POST /api/coding/terminals/:id/launch` accepts `{ harness?: "oma" | "claude" | "pi" | "omp" }` (defaulting to the member's `runtime_config.harness`), injects the CLI launch line, persists `kind = harness`, and preserves `workspaceId` across `launch`/`respawn`/`restoreCodingTerminals` (`POST /api/coding/terminals/:id/launch-oma` remains a backward-compatible alias).
+- **Unified workspace read model & semantic PTY state (`workspaces.ts`, `pty-state.ts`):**
+  - `GET /api/coding/workspaces` aggregates open ADR 0077 workspaces with human labels (`requirementTitle`, `projectName`, linked `conversationId`), git status (`branch`, `ahead`, `behind`), active ACP `agent_run`s (`running`/`waiting` + pending approval counts), and matched PTY panes, rolling up a single priority state (`blocked > working > running > idle > exited > empty`).
+  - `GET /api/coding/terminals` attaches `agentState` (`readAgentStatusFor(cwd)` for `oma` per ADR 0029; `inferPtyHarnessState()` ANSI-stripped prompt/recency detection for `claude`/`pi`/`omp`) and matching `activeRuns` for anti-collision banners.
+- **Persistence & WS protocol:** layout & ADR 0082 linkage (`project_id`, `workspace_id`, `conversation_id`, `requirement_id`, `kind`) persist in SQLite `coding_terminal`; boot respawns shells (harness panes respawn with `<cli> --continue; exec /bin/bash`). `WS /ws/coding/:id?ticket=<hex>` validates a 60s single-use ticket (`4001` invalid, `4404` missing), replays `{ t: "o", d }` + `{ t: "s", status, exitCode }`, accepts `{ t: "i", d }` and `{ t: "r", cols, rows }`, and **detaches without killing the PTY** on socket close.
 
 ## See also
 

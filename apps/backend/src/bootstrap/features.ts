@@ -411,15 +411,20 @@ export async function installFeatures(services: BackendServices): Promise<Instal
   agentRunExecutionRef = agentRunExecution;
 
   // ─── 6. Coding Terminals, Workflows, Auth & Routes ──────────
-  const { worktreeOps, resolveCodingTarget, codingRegistry, restoreCodingTerminals } =
-    wireCodingAndWorktrees({
-      config,
-      db,
-      agentSvc,
-      projectPort,
-      projectSvc,
-      workspaceSvc,
-    });
+  const {
+    worktreeOps,
+    resolveCodingTarget,
+    codingRegistry,
+    codingWorkspaceReader,
+    restoreCodingTerminals,
+  } = wireCodingAndWorktrees({
+    config,
+    db,
+    agentSvc,
+    projectPort,
+    projectSvc,
+    workspaceSvc,
+  });
 
   const { workflowExecutionService, workflowTriggerScheduler, workflowApp } = wireWorkflows({
     config,
@@ -479,6 +484,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     modelCostsSnapshot,
     budgetGate,
     codingRegistry,
+    codingWorkspaceReader,
     resolveCodingTarget,
     browserWsBase,
     ahpHost,

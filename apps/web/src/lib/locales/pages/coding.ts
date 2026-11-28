@@ -1,19 +1,28 @@
-/** Coding's words (`/coding`): the head, the toolbar, the terminal inventory, the locate miss
- *  and the New terminal dialog. The worktree management's words were already in the dictionary. */
+/** Coding's words (`/coding`): dual-view workbench, Herdr workspace rail, multi-harness launcher,
+ *  anti-collision banner, diff dialog, locate miss, and New terminal dialog. */
 export const codingZh: Record<string, string> = {
   "Terminals · every member": "终端 · 全部成员",
+  "Coding workbench · dual view": "编码工作台 · 双视角",
   "A clear work site for code work. Each member's console keeps its own context, and a view keeps running when you leave this page.":
     "给代码工作一个清楚的现场。每位成员的控制台保留独立上下文；离开这一页后视图仍在运行。",
+  "Workspaces shared between Conversation and Coding. Launch oma, claude, pi, or omp in detachable terminals with live semantic state.":
+    "会话与编码共享同一工作区。在可断连终端里启动 oma、claude、pi 或 omp，并实时汇聚语义状态。",
   "New terminal": "新建终端",
   "{open} open views · {running} running": "{open} 个打开的视图 · {running} 个运行中",
+  "{workspaces} workspaces · {open} panes · {running} running":
+    "{workspaces} 个工作区 · {open} 个窗格 · {running} 个运行中",
+  "{n} blocked": "{n} 个待处理",
   "Needs at least two terminals in this scope. It never creates one.":
     "这个范围里至少要有两个终端。它不会自动新建。",
   "Single view": "单栏视图",
   "Split · two columns": "分栏 · 两列",
   "Terminals · all": "终端 · 全部",
+  Workspaces: "工作区",
+  "Agent workspaces": "成员工作区",
   "Focus only brings a view to the front. It never creates a terminal.":
     "聚焦只是把视图调到前面。它不会新建终端。",
   "No terminal yet. New terminal starts one.": "还没有终端。新建终端会启动一个。",
+  "Pick a workspace on the left to open its terminal.": "在左侧选择一个工作区打开终端。",
   "Own workspace": "个人工作区",
   Focus: "聚焦",
   shell: "shell",
@@ -21,6 +30,53 @@ export const codingZh: Record<string, string> = {
   working: "工作中",
   blocked: "被阻塞",
   "not ready": "未就绪",
+  "Worker active": "工人执行中",
+  "Approval needed": "待审批",
+  "Select CLI harness": "选择 CLI 引擎",
+  Launch: "启动",
+  "Starting {harness}…": "正在启动 {harness}……",
+  "{harness} launched": "已启动 {harness}",
+  "Start {harness} in this pane": "在此窗格启动 {harness}",
+  "This kills the running process. Its session history stays on disk.":
+    "这会终止当前运行中的进程，会话历史仍保留在磁盘上。",
+  "Workspace diff": "工作区差异",
+  Diff: "差异",
+  "Loading git diff…": "正在加载 git diff……",
+  "Working tree is clean — no diff against base.": "工作树干净，相对基线无变更。",
+  "Switch view": "切换视角",
+  "Conversation view": "会话视角",
+  "Coding view": "编码视角",
+  "{name} is waiting for approval in this workspace.": "{name} 正在此工作区等待审批。",
+  "ACP worker {name} is actively running in this workspace. Interactive edits here may collide with the worker.":
+    "ACP 工人 {name} 正在此工作区执行任务。此时在交互终端修改文件可能与工人冲突。",
+  "Review in Conversation": "前往会话审批",
+  "Open Conversation": "打开会话",
+  Review: "去查看",
+  Muted: "已静音",
+  "Alerts on": "通知已开启",
+  "Enable desktop alerts": "开启桌面通知",
+  "Desktop & in-app notifications enabled": "已开启桌面与站内通知",
+  "Notifications enabled": "已开启通知",
+  "Browser desktop notifications blocked; in-app toasts stay active.":
+    "浏览器桌面通知被拒绝，站内提示仍保持开启。",
+  "Coding notifications muted": "已静音编码通知",
+  "Coding agent completion & approval notifications are muted. Click to enable.":
+    "编码代理完成与审批通知已静音，点击重新开启。",
+  "Toast & desktop notifications active when coding agents finish or need input. Click to mute.":
+    "编码代理完成或需要输入时将推送站内与桌面通知，点击可静音。",
+  "In-app toasts active. Click to also enable OS desktop notifications.":
+    "站内通知已开启，点击可同时授权系统桌面通知。",
+  "In-app toast notifications active. Click to mute.": "站内通知已开启，点击可静音。",
+  "{harness} needs input": "{harness} 等待输入",
+  "{label} is waiting for your approval or reply.": "{label} 正在等待你的审批或回复。",
+  "{harness} finished": "{harness} 执行完成",
+  "{label} completed its turn and is ready to review.": "{label} 已完成本轮执行，可以查看结果。",
+  "Worker waiting for approval": "工人等待审批",
+  "{label} has a pending decision in Conversation.": "{label} 在会话中有待处理的审批决策。",
+  "Worker finished": "工人执行完成",
+  "{label} finished executing in workspace.": "{label} 在工作区的任务已执行完成。",
+  "{n} coding agent waiting for input": "{n} 个编码代理等待输入",
+  "Coding agent working": "编码代理正在执行",
   "No terminal to locate": "没有可定位的终端",
   "No member with the id {id} is registered.": "没有登记 id 为 {id} 的成员。",
   "No project with the id {id} is registered.": "没有登记 id 为 {id} 的项目。",

@@ -14,9 +14,20 @@ import { NotFoundError } from "../../infra/domain-errors.js";
  * the worktree's session files; only the processes and scrollback die). */
 
 export type TerminalStatus = "running" | "exited";
-/** What the pane is FOR — drives respawn/restore shape. "oma" panes
- *  restart as `bash -c "<oma> --continue; exec bash"`. */
-export type TerminalKind = "shell" | "oma";
+/** Interactive AI coding CLI harnesses that can run inside a Coding PTY pane (ADR 0083 D3). */
+export const CODING_HARNESSES = ["oma", "claude", "pi", "omp"] as const;
+export type CodingHarness = (typeof CODING_HARNESSES)[number];
+/** What the pane is FOR — drives respawn/restore shape and semantic state detection. */
+export type TerminalKind = "shell" | CodingHarness;
+export const TERMINAL_KINDS: readonly TerminalKind[] = ["shell", ...CODING_HARNESSES];
+
+export function isCodingHarness(value: string): value is CodingHarness {
+  return (CODING_HARNESSES as readonly string[]).includes(value);
+}
+
+export function isTerminalKind(value: string): value is TerminalKind {
+  return (TERMINAL_KINDS as readonly string[]).includes(value);
+}
 
 export interface TerminalCommand {
   readonly executable: string;
@@ -63,6 +74,8 @@ interface Slot {
   spec: TerminalCommand;
   pty: IPty | null;
   buffer: string;
+  /** Timestamp (epoch ms) of the last byte emitted by this PTY, for semantic state inference. */
+  lastOutputAt: number | null;
   /** Last-known pane size: respawn reuses it instead of snapping to
    *  80x24 (attached clients do not re-send resize on respawn). */
   cols: number;
@@ -108,8 +121,10 @@ export interface TerminalRegistry {
    *  spec replaces the stored one (oma panes respawn in the --continue
    *  form even though the original process was a plain shell + injection). */
   respawn(terminalId: string, specOverride?: TerminalCommand): TerminalInfo | null;
-  /** Record what the pane became (launch-oma marks it). */
+  /** Record what the pane became (launch marks it). */
   setKind(terminalId: string, kind: TerminalKind, title?: string): boolean;
+  /** Tail snapshot + last output timestamp for PTY semantic state detection (ADR 0083 D4). */
+  getActivity(terminalId: string): { tail: string; lastOutputAt: number | null } | null;
   /** Persist the current membership snapshot now (boot-restore pruning). */
   sync(): void;
   closeAll(): void;
@@ -181,12 +196,14 @@ export function createTerminalRegistry(
 
   function emit(slot: Slot, data: string): void {
     slot.buffer = (slot.buffer + data).slice(-cap);
+    slot.lastOutputAt = Date.now();
     for (const fn of slot.dataListeners) fn(data);
   }
 
   function startPty(slot: Slot, cols: number, rows: number): void {
     slot.cols = cols;
     slot.rows = rows;
+    slot.lastOutputAt = null;
     const pty = ptySpawn(slot.spec.executable, [...slot.spec.args], {
       name: "xterm-256color",
       cols,
@@ -234,6 +251,7 @@ export function createTerminalRegistry(
       spec: input.command,
       pty: null,
       buffer: "",
+      lastOutputAt: null,
       cols: input.cols ?? 80,
       rows: input.rows ?? 24,
       dataListeners: new Set(),
@@ -312,6 +330,11 @@ export function createTerminalRegistry(
       if (title !== undefined) s.info.title = title;
       persist();
       return true;
+    },
+    getActivity: (id) => {
+      const s = slotOf(id);
+      if (!s) return null;
+      return { tail: s.buffer.slice(-4096), lastOutputAt: s.lastOutputAt };
     },
     closeAll: () => {
       for (const s of slots.values()) s.pty?.kill();
