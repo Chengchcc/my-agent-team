@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { isFileTrusted, readTrustedPlugins, trustFile } from "../plugins/plugin-trust.js";
 import { normalizeReasoningEffort, type ReasoningEffort } from "../runtime/model-effort.js";
+import { agentDir } from "../session/session-paths.js";
 
 /** Project-level oma settings (`.oma/settings.json` in the workspace root).
  *
@@ -114,6 +115,11 @@ export interface ProjectSettings {
    *  it is in PROTECTED_FILES). A backend RPC run ignores the workspace value
    *  entirely and keeps the default. */
   editFreshness?: "off" | "require";
+  /** Pattern-based tool permission rules (e.g. `bash:bun test*`, `edit:src/**`).
+   *  `deny` always beats `allow` and is honored from every tier; `allow` in
+   *  workspace files (`.oma/settings.json`, `.oma/settings.local.json`) requires
+   *  local trust so an untrusted clone cannot auto-approve arbitrary commands. */
+  permissions?: PermissionRulesConfig;
 }
 
 /** Tool-output pruning knobs (see tool-pruning.ts for the mechanics). */
@@ -126,20 +132,40 @@ export interface PruneKnobs {
   protectedTools?: string[];
 }
 
+export interface PermissionRulesConfig {
+  allow?: string[];
+  deny?: string[];
+}
+
+/** User-global settings path (`$OMA_HOME/settings.json` or `~/.oma/settings.json`). */
+export function userSettingsPath(): string {
+  return join(process.env.OMA_HOME || agentDir(), "settings.json");
+}
+
 function settingsPath(root: string): string {
   return join(root, ".oma", "settings.json");
 }
 
-/** Read project settings. Missing/corrupt file degrades to `{}`. */
-export function loadProjectSettings(root: string): ProjectSettings {
+/** Machine-local, gitignored workspace override (`.oma/settings.local.json`). */
+export function localSettingsPath(root: string): string {
+  return join(root, ".oma", "settings.local.json");
+}
+
+function sanitizeRuleList(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const cleaned = raw
+    .filter((v): v is string => typeof v === "string")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+  return cleaned.length > 0 ? [...new Set(cleaned)] : undefined;
+}
+
+/** Parse one settings file. Security-weakening fields (`permissionMode: "yolo"`,
+ *  `browserLocalNetwork: true`, `permissions.allow`) are gated on `trusted`. */
+function parseSettingsFile(path: string, trusted: boolean): ProjectSettings {
   try {
-    const path = settingsPath(root);
     const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
     if (typeof parsed !== "object" || parsed === null) return {};
-    // Security-weakening workspace settings (`permissionMode: "yolo"`,
-    // `browserLocalNetwork: true`) require explicit local trust so a cloned
-    // repo's `.oma/settings.json` cannot silently disarm gating or open LAN SSRF.
-    const trusted = isFileTrusted(path, readTrustedPlugins());
     const result: ProjectSettings = {};
     if ("model" in parsed && typeof parsed.model === "string") result.model = parsed.model;
     if ("reasoningEffort" in parsed) {
@@ -270,16 +296,133 @@ export function loadProjectSettings(root: string): ProjectSettings {
       }
       if (Object.keys(prune).length > 0) result.prune = prune;
     }
+    if (
+      "permissions" in parsed &&
+      typeof parsed.permissions === "object" &&
+      parsed.permissions !== null
+    ) {
+      const raw = parsed.permissions as Record<string, unknown>;
+      const perms: PermissionRulesConfig = {};
+      const deny = sanitizeRuleList(raw.deny);
+      if (deny) perms.deny = deny;
+      if (trusted) {
+        const allow = sanitizeRuleList(raw.allow);
+        if (allow) perms.allow = allow;
+      }
+      if (perms.allow || perms.deny) result.permissions = perms;
+    }
     return result;
   } catch {
     return {};
   }
 }
 
+function mergeTwoSettings(base: ProjectSettings, overlay: ProjectSettings): ProjectSettings {
+  const merged: ProjectSettings = { ...base, ...overlay };
+  if (base.prune || overlay.prune) {
+    merged.prune = { ...base.prune, ...overlay.prune };
+  }
+  if (base.memoryVector || overlay.memoryVector) {
+    merged.memoryVector = { ...base.memoryVector, ...overlay.memoryVector };
+  }
+  if (base.permissions || overlay.permissions) {
+    const allow = [
+      ...new Set([...(base.permissions?.allow ?? []), ...(overlay.permissions?.allow ?? [])]),
+    ];
+    const deny = [
+      ...new Set([...(base.permissions?.deny ?? []), ...(overlay.permissions?.deny ?? [])]),
+    ];
+    const perms: PermissionRulesConfig = {};
+    if (allow.length > 0) perms.allow = allow;
+    if (deny.length > 0) perms.deny = deny;
+    if (perms.allow || perms.deny) merged.permissions = perms;
+  }
+  return merged;
+}
+
+/** Read user-global settings (`~/.oma/settings.json`). Always trusted. */
+export function loadUserSettings(): ProjectSettings {
+  return parseSettingsFile(userSettingsPath(), true);
+}
+
+/** Read machine-local workspace settings (`.oma/settings.local.json`). */
+export function loadLocalSettings(root: string): ProjectSettings {
+  const path = localSettingsPath(root);
+  return parseSettingsFile(path, isFileTrusted(path, readTrustedPlugins()));
+}
+
+/** Read effective settings merged across 3 tiers:
+ *  `~/.oma/settings.json` (user) → `.oma/settings.json` (project) → `.oma/settings.local.json` (local).
+ *  Missing/corrupt files degrade cleanly to `{}`. */
+export function loadProjectSettings(root: string): ProjectSettings {
+  const trusted = readTrustedPlugins();
+  const user = parseSettingsFile(userSettingsPath(), true);
+  const projectFile = settingsPath(root);
+  const project = parseSettingsFile(projectFile, isFileTrusted(projectFile, trusted));
+  const localFile = localSettingsPath(root);
+  const local = parseSettingsFile(localFile, isFileTrusted(localFile, trusted));
+  return mergeTwoSettings(mergeTwoSettings(user, project), local);
+}
+
+function writeSettingsFile(path: string, settings: ProjectSettings, markTrusted: boolean): void {
+  let existing: Record<string, unknown> = {};
+  const hadFile = existsSync(path);
+  const wasTrusted = hadFile && isFileTrusted(path, readTrustedPlugins());
+  try {
+    const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    if (typeof raw === "object" && raw !== null) existing = raw as Record<string, unknown>;
+  } catch {
+    /* no existing file */
+  }
+  // Security invariant: writing a benign key (e.g. saveProjectModel) into a
+  // previously UNTRUSTED workspace settings file must never silently trust
+  // pre-existing security-weakening keys from a cloned repo.
+  if (markTrusted && hadFile && !wasTrusted) {
+    if (existing.permissionMode === "yolo") existing.permissionMode = "ask";
+    if (existing.browserLocalNetwork === true) delete existing.browserLocalNetwork;
+    if (typeof existing.permissions === "object" && existing.permissions !== null) {
+      const perms = { ...(existing.permissions as Record<string, unknown>) };
+      delete perms.allow;
+      if (Object.keys(perms).length > 0) existing.permissions = perms;
+      else delete existing.permissions;
+    }
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify({ ...existing, ...settings }, null, 2)}\n`, "utf8");
+  if (markTrusted) {
+    try {
+      trustFile(path);
+    } catch {
+      /* best-effort in read-only agentDir environments */
+    }
+  }
+}
+
+/** Persist settings to user-global `~/.oma/settings.json`, preserving unknown keys. */
+export function saveUserSettings(settings: ProjectSettings): void {
+  writeSettingsFile(userSettingsPath(), settings, false);
+}
+
 /** Persist a full settings object to `.oma/settings.json`, preserving any
  *  unknown keys already present in the file. */
 export function saveProjectSettings(root: string, settings: ProjectSettings): void {
-  const path = settingsPath(root);
+  writeSettingsFile(settingsPath(root), settings, true);
+}
+
+/** Persist local override settings to `.oma/settings.local.json` and trust it. */
+export function saveLocalSettings(root: string, settings: ProjectSettings): void {
+  writeSettingsFile(localSettingsPath(root), settings, true);
+}
+
+/** Append a deduped permission rule to `.oma/settings.local.json` and trust it. */
+export function appendLocalPermissionRule(
+  root: string,
+  kind: "allow" | "deny",
+  rule: string,
+): void {
+  const trimmed = rule.trim();
+  if (!trimmed) return;
+  const path = localSettingsPath(root);
   let existing: Record<string, unknown> = {};
   try {
     const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
@@ -287,8 +430,19 @@ export function saveProjectSettings(root: string, settings: ProjectSettings): vo
   } catch {
     /* no existing file */
   }
-  mkdirSync(join(root, ".oma"), { recursive: true });
-  writeFileSync(path, `${JSON.stringify({ ...existing, ...settings }, null, 2)}\n`, "utf8");
+  const existingPerms =
+    typeof existing.permissions === "object" && existing.permissions !== null
+      ? (existing.permissions as Record<string, unknown>)
+      : {};
+  const currentList = sanitizeRuleList(existingPerms[kind]) ?? [];
+  const nextList = [...new Set([...currentList, trimmed])];
+  const nextPerms: Record<string, unknown> = { ...existingPerms, [kind]: nextList };
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(
+    path,
+    `${JSON.stringify({ ...existing, permissions: nextPerms }, null, 2)}\n`,
+    "utf8",
+  );
   try {
     trustFile(path);
   } catch {
@@ -296,15 +450,36 @@ export function saveProjectSettings(root: string, settings: ProjectSettings): vo
   }
 }
 
-/** Persist a TUI model choice to `.oma/settings.json`, preserving other keys. */
-export function saveProjectModel(root: string, modelId: string): void {
-  const current = loadProjectSettings(root);
-  saveProjectSettings(root, { ...current, model: modelId });
+/** Clear saved permission rules from `.oma/settings.local.json` (preserving other keys). */
+export function clearLocalPermissionRules(root: string): boolean {
+  const path = localSettingsPath(root);
+  if (!existsSync(path)) return false;
+  try {
+    const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    if (typeof raw !== "object" || raw === null) return false;
+    const next = { ...(raw as Record<string, unknown>) };
+    if (!("permissions" in next)) return false;
+    delete next.permissions;
+    writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+    try {
+      trustFile(path);
+    } catch {
+      /* ignore */
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-/** True when the file exists (used by tests to assert a write happened). */
+/** Persist a TUI model choice to `.oma/settings.json`, preserving other keys. */
+export function saveProjectModel(root: string, modelId: string): void {
+  saveProjectSettings(root, { model: modelId });
+}
+
+/** True when `.oma/settings.json` or `.oma/settings.local.json` exists. */
 export function hasProjectSettings(root: string): boolean {
-  return existsSync(settingsPath(root));
+  return existsSync(settingsPath(root)) || existsSync(localSettingsPath(root));
 }
 
 // ─── Runtime knobs (settings/env → runtime deps) ──────────────────────────
@@ -346,6 +521,8 @@ export interface RuntimeKnobs {
   memoryMinToolCalls?: number;
   /** When present, old tool results are pruned before each model call. */
   prune?: PruneKnobs;
+  /** Pattern-based allow/deny tool permission rules (standalone only). */
+  permissionRules?: PermissionRulesConfig;
 }
 
 function envNumber(
@@ -417,6 +594,7 @@ export function resolveRuntimeKnobs(
   }
   if (s.memoryModel) knobs.memoryModel = s.memoryModel;
   if (s.prune) knobs.prune = s.prune;
+  if (s.permissions) knobs.permissionRules = s.permissions;
   const browserLocalNetwork =
     s.browserLocalNetwork ?? (env.OMA_BROWSER_LOCAL_NETWORK === "1" ? true : undefined);
   if (browserLocalNetwork !== undefined) knobs.browserLocalNetwork = browserLocalNetwork;

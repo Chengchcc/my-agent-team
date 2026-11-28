@@ -9,6 +9,7 @@ import {
   DEFAULT_CLASSIFIER_TIMEOUT_MS,
   isCriticalDeletion,
 } from "./permission-classifier.js";
+import { findMatchingPermissionRule } from "./permission-rules.js";
 import type { RunRuntimeDeps } from "./run-runtime.js";
 
 export type RunModelStream = (
@@ -96,6 +97,19 @@ export function createRunPermissionGates(
 
   const alwaysAllowed = new Set<string>();
   const alwaysDenied = new Set<string>();
+  const allowRules = new Set<string>(knobs.permissionRules?.allow ?? []);
+  const denyRules = new Set<string>(knobs.permissionRules?.deny ?? []);
+
+  const matchDenyRule = (toolName: string, input: unknown): string | undefined =>
+    findMatchingPermissionRule(denyRules, toolName, input, {
+      workspaceRoot: deps.workspaceRoot,
+      mode: "deny",
+    });
+  const matchAllowRule = (toolName: string, input: unknown): string | undefined =>
+    findMatchingPermissionRule(allowRules, toolName, input, {
+      workspaceRoot: deps.workspaceRoot,
+      mode: "allow",
+    });
 
   const autoGateDecision = async (
     toolName: string,
@@ -109,10 +123,14 @@ export function createRunPermissionGates(
         reason: `${toolName}: critical-path deletion (root/top-level/home target) — re-issue with a narrower named path`,
       };
     }
-    if (alwaysAllowed.has(toolName)) return undefined;
+    const deniedByRule = matchDenyRule(toolName, input);
+    if (deniedByRule) {
+      return { block: true, reason: `${toolName}: blocked by permission rule (${deniedByRule})` };
+    }
     if (alwaysDenied.has(toolName)) {
       return { block: true, reason: `${toolName}: denied for this run by the user` };
     }
+    if (alwaysAllowed.has(toolName) || matchAllowRule(toolName, input)) return undefined;
     const verdict = await classifyPermissionAction({
       toolName,
       input,
@@ -149,6 +167,10 @@ export function createRunPermissionGates(
     const human = await requestApproval(deps.approvalHandler, escalation, approvalDeadlineMs);
     if (human.decision === "allow_always") {
       alwaysAllowed.add(toolName);
+      return undefined;
+    }
+    if (human.decision === "allow_rule") {
+      if (human.rule) allowRules.add(human.rule);
       return undefined;
     }
     if (human.decision === "allow") return undefined;
@@ -199,10 +221,14 @@ export function createRunPermissionGates(
       if (deps.permissionMode === "deny") {
         return { block: true, reason: `${toolName}: blocked by permissionMode=deny` };
       }
+      const deniedByRule = matchDenyRule(toolName, input);
+      if (deniedByRule) {
+        return { block: true, reason: `${toolName}: blocked by permission rule (${deniedByRule})` };
+      }
       if (alwaysDenied.has(toolName)) {
         return { block: true, reason: `${toolName}: denied for this run by the user` };
       }
-      if (alwaysAllowed.has(toolName)) return undefined;
+      if (alwaysAllowed.has(toolName) || matchAllowRule(toolName, input)) return undefined;
       if (!deps.approvalHandler) {
         return {
           block: true,
@@ -222,7 +248,7 @@ export function createRunPermissionGates(
         source: "permission",
       };
       if (toolName === "bash") approvalInput.sandboxed = bashSandboxed;
-      let verdict: { decision: string; reason?: string };
+      let verdict: { decision: string; rule?: string; reason?: string };
       try {
         verdict = await requestApproval(deps.approvalHandler, approvalInput, approvalDeadlineMs);
       } catch (err) {
@@ -234,6 +260,10 @@ export function createRunPermissionGates(
         };
       }
       if (verdict.decision === "allow") return undefined;
+      if (verdict.decision === "allow_rule") {
+        if (verdict.rule) allowRules.add(verdict.rule);
+        return undefined;
+      }
       if (verdict.decision === "allow_always") {
         alwaysAllowed.add(toolName);
         return undefined;

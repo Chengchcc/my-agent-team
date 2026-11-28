@@ -7,6 +7,7 @@ import { DOCTOR_USAGE } from "./doctor-command.js";
 import { GATEWAY_USAGE, type GatewayCommand, isGatewayCommand } from "./gateway-commands.js";
 import { SETUP_USAGE } from "./setup-wizard.js";
 import { UPDATE_USAGE } from "./update-command.js";
+import { isValidWorktreeName } from "./worktree.js";
 
 export type CliMode = "print" | "json" | "tui" | "acp";
 
@@ -59,6 +60,8 @@ export interface CliArgs {
   maxBudgetUsd?: number;
   /** `--output-schema <path|json>`: structured JSON schema constraint for headless runs. */
   outputSchema?: string;
+  /** `-w / --worktree [<name>]`: run isolated inside a git worktree under `.oma/worktrees/`. */
+  worktree?: string | true;
 }
 
 export class UsageError extends Error {}
@@ -94,6 +97,7 @@ Usage:
                                  cap estimated USD spend in headless runs
   oma --output-schema <file|json> -p "..."
                                  constrain headless output to a JSON schema
+  oma -w [<name>]                isolate the run in a git worktree (.oma/worktrees/)
   oma --model <provider/model> -p "<prompt>"
                                           pick a model by canonical id
                                           (default: first available model)
@@ -260,6 +264,26 @@ export function parseArgs(argv: readonly string[]): CliArgs {
         throw new UsageError("--output-schema requires a file path or JSON schema string");
       }
       args.outputSchema = value;
+    } else if (arg === "--worktree" || arg === "-w") {
+      const next = argv[i + 1];
+      if (next && !next.startsWith("-") && isValidWorktreeName(next)) {
+        args.worktree = next;
+        i++;
+      } else {
+        args.worktree = true;
+      }
+    } else if (arg.startsWith("--worktree=")) {
+      const value = arg.slice("--worktree=".length);
+      if (!value || !isValidWorktreeName(value)) {
+        throw new UsageError(`invalid --worktree name "${value}"`);
+      }
+      args.worktree = value;
+    } else if (arg.startsWith("-w=")) {
+      const value = arg.slice("-w=".length);
+      if (!value || !isValidWorktreeName(value)) {
+        throw new UsageError(`invalid -w worktree name "${value}"`);
+      }
+      args.worktree = value;
     } else if (arg === "--help" || arg === "-h") {
       throw new UsageError(USAGE);
     } else if (arg.startsWith("-")) {

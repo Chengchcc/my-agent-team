@@ -25,7 +25,7 @@ tags: [oma, runtime, tools, tui, delegation]
 
 ## CLI Entrypoints & 4 Execution Modes
 
-Reserved subcommands `oma gateway <up|down|fetch|status|doctor|passwd>`, `oma update [--check] [--version]`, `oma doctor [--json]`, and `oma setup` dispatch before the flag parser (`exit 0` ok, `1` runtime error, `2` `UsageError`); on an interactive TTY with 0 configured models, `oma` auto-launches the setup wizard. Key flags: `-p <prompt>`, `--mode <print|json|tui|acp>` (defaults to `tui` when TTY without `-p`, else `print`), `--list-models`, `--model <provider/model>`, `--effort <none|low|high|max>`, `--max-turns <n>`, `--max-budget-usd <n>`, `--output-schema <file|json>`, `--session <id>`, `--continue/-c`, `--permission <ask|auto|deny|off|yolo>`, `--yolo`, `--read-only`, `--tools <csv>` (`name` whitelist or `!name` blacklist).
+Reserved subcommands `oma gateway <up|down|fetch|status|doctor|passwd>`, `oma update [--check] [--version]`, `oma doctor [--json]`, and `oma setup` dispatch before the flag parser (`exit 0` ok, `1` runtime error, `2` `UsageError`); on an interactive TTY with 0 configured models, `oma` auto-launches the setup wizard. Key flags: `-p <prompt>`, `--mode <print|json|tui|acp>` (defaults to `tui` when TTY without `-p`, else `print`), `--list-models`, `--model <provider/model>`, `--effort <none|low|high|max>`, `--max-turns <n>`, `--max-budget-usd <n>`, `--output-schema <file|json>`, `-w / --worktree [<name>]` (isolates runs in `.oma/worktrees/<name>` on branch `oma/<name>` with clean auto-removal), `--session <id>`, `--continue/-c`, `--permission <ask|auto|deny|off|yolo>`, `--yolo`, `--read-only`, `--tools <csv>` (`name` whitelist or `!name` blacklist).
 
 | Mode | Lifecycle | Approvals & Memory | Output |
 |---|---|---|---|
@@ -45,7 +45,7 @@ Reserved subcommands `oma gateway <up|down|fetch|status|doctor|passwd>`, `oma up
 - **`createOmaRuntime()` (`create-runtime.ts`) & `assembleRunRuntime()` (`run-runtime.ts`):**
   - Constants: `DEFAULT_MODEL_TIMEOUT_MS = 300_000`, `DEFAULT_MAX_STEPS = 500`, `SUMMARY_MAX_TOKENS = 4_096`.
   - `run()` is single-use and resolves only after reaching a safe steer boundary (`message_start` or `agent_end`). Merges subagent usage into `BackendRunOutcome.usage`. `close()` bounds MCP/store teardown to `2 s`.
-  - **Workspace settings trust:** standalone mode reads `.oma/settings.json` in full (requiring `isFileTrusted` for `yolo` or `browserLocalNetwork`); ACP/product runs honor **only** `bashSandbox` from workspace settings.
+  - **Workspace settings trust:** standalone mode merges 3 settings tiers (`~/.oma/settings.json` → `.oma/settings.json` → `.oma/settings.local.json`), requiring `isFileTrusted` for security-weakening workspace knobs (`yolo`, `browserLocalNetwork`, `permissions.allow`), while `permissions.deny` is always honored (`deny` always beats `allow`; bash prefix allow rules reject shell compound/substitution syntax); ACP/product runs honor **only** `bashSandbox` from workspace settings.
 - **Wire boundary (`protocol/mapping.ts`):** `forWire()` strips `data.input` on `tool_execution_start`, forwarding only sanitized `presentation` + `activity` (ADR 0033); approval requests intentionally retain `input` so operators can inspect what they approve.
 
 ## Native Tools & MCP Mount (`core/tools/`, `run-tools.ts`)

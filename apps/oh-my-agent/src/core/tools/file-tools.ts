@@ -116,7 +116,9 @@ const PROTECTED_FILES: Record<string, true> = {
   ".mcp.json": true,
   "mcp.json": true,
   ".oma/settings.json": true,
+  ".oma/settings.local.json": true,
   ".claude/settings.json": true,
+  ".claude/settings.local.json": true,
 };
 
 /** Backend-injected write policy (network-deployment gate: native tool

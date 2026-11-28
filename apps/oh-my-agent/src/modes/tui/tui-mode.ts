@@ -25,7 +25,9 @@ import { estimateMessageTokens } from "../../core/runtime/context-estimate.js";
 import type { BackendRunInput, BackendRunOutcome } from "../../core/runtime/contract/index.js";
 import { calculateUsageCostUsd } from "../../core/runtime/cost.js";
 import { createOmaRuntime, type OmaRuntime } from "../../core/runtime/create-runtime.js";
+import { suggestPermissionRule } from "../../core/runtime/permission-rules.js";
 import {
+  appendLocalPermissionRule,
   resolvePermissionMode,
   resolveRuntimeKnobs,
 } from "../../core/settings/project-settings.js";
@@ -516,7 +518,10 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   let conditionSandboxValue: BashSandbox | undefined;
   const conditionSandbox = (): BashSandbox | undefined => {
     const settings = loadProjectSettings(opts.workspaceRoot);
-    const mode = resolvePermissionMode(permissionOverride ?? opts.permissionMode);
+    const mode = resolvePermissionMode(
+      permissionOverride ?? opts.permissionMode,
+      opts.workspaceRoot,
+    );
     if (settings.bashSandbox !== true && mode !== "yolo") return undefined;
     if (!conditionSandboxResolved) {
       conditionSandboxResolved = true;
@@ -960,10 +965,16 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
           // HITL: docked approval panel; absent picker or cancel = deny (fail-closed).
           approvalHandler: async (req) => {
             writeAgentStatus(opts.workspaceRoot, "blocked", session.sessionId);
+            const suggestedRule = suggestPermissionRule(
+              req.toolName,
+              req.input,
+              opts.workspaceRoot,
+            );
             try {
               const verdict = await io.confirmApproval?.({
                 toolName: req.toolName,
                 allowAlways: true,
+                ...(suggestedRule ? { suggestedRule } : {}),
                 ...(req.callId ? { callId: req.callId } : {}),
                 ...(req.input !== undefined ? { input: req.input } : {}),
                 ...(req.source ? { source: req.source } : {}),
@@ -971,6 +982,10 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
                 ...(req.reason ? { reason: req.reason } : {}),
               });
               if (verdict === "allow") return { decision: "allow" };
+              if (verdict === "allow_rule" && suggestedRule) {
+                appendLocalPermissionRule(opts.workspaceRoot, "allow", suggestedRule);
+                return { decision: "allow_rule", rule: suggestedRule };
+              }
               if (verdict === "allow_always") return { decision: "allow_always" };
               if (verdict === "deny_always") {
                 return { decision: "deny_always", reason: "user denied always" };

@@ -100,7 +100,23 @@ export class ApprovalPanel implements Component, Focusable {
     private readonly req: ApprovalPromptRequest,
     private readonly options: ApprovalPanelOptions,
   ) {
-    this.actions = req.allowAlways ? ALL_ACTIONS : SIMPLE_ACTIONS;
+    if (req.allowAlways && req.suggestedRule) {
+      const ruleLabel = truncateToWidth(req.suggestedRule, 28);
+      this.actions = [
+        ALL_ACTIONS[0]!,
+        {
+          verdict: "allow_rule",
+          key: "p",
+          label: `Always ${ruleLabel}`,
+          color: tuiTheme.accent,
+        },
+        ALL_ACTIONS[1]!,
+        ALL_ACTIONS[2]!,
+        ALL_ACTIONS[3]!,
+      ];
+    } else {
+      this.actions = req.allowAlways ? ALL_ACTIONS : SIMPLE_ACTIONS;
+    }
   }
 
   setViewportRows(rows: number): void {
@@ -188,7 +204,9 @@ export class ApprovalPanel implements Component, Focusable {
       .join(" ");
 
     const hint = this.req.allowAlways
-      ? "y allow · a always · n deny · d deny always · ←/→ Enter · Esc cancel"
+      ? this.req.suggestedRule
+        ? "y allow · p persist rule · a session tool · n deny · d deny always · ←/→ Enter"
+        : "y allow · a always · n deny · d deny always · ←/→ Enter · Esc cancel"
       : "y allow · n deny · ←/→ Enter · Esc cancel";
 
     return renderOutputBlock({

@@ -83,7 +83,12 @@ export class NullBashSandbox implements BashSandbox {
 /** Workspace-relative config files that remain read-only even inside a
  *  writable workspace bind so a sandboxed command cannot tamper with MCP
  *  endpoints, plugins, or workspace policy settings. */
-const BWRAP_RO_WORKSPACE_FILES = [".mcp.json", ".oma/plugins.json", ".oma/settings.json"] as const;
+const BWRAP_RO_WORKSPACE_FILES = [
+  ".mcp.json",
+  ".oma/plugins.json",
+  ".oma/settings.json",
+  ".oma/settings.local.json",
+] as const;
 
 /** Build the bwrap argv for a sandboxed bash command. Exported so security
  *  invariants (--unshare-pid, sensitive dir masking, protected workspace files,

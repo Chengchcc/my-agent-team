@@ -29,9 +29,11 @@ export interface ApprovalDecision {
    *  that remembers it is built once per run. */
   /** `allow_always` / `deny_always` apply to every later call of the SAME tool
    *  for the rest of the run (the ACP options of the same name; ADR 0039
-   *  decision 5 leaves the agent its own authorization policy). They never
-   *  outlive the run: the gate that remembers them is built once per run. */
-  readonly decision: "allow" | "allow_always" | "deny" | "deny_always";
+   *  decision 5 leaves the agent its own authorization policy). `allow_rule`
+   *  allows calls matching `rule` (e.g. `bash:bun test*`) for this run (and the
+   *  TUI persists it to `.oma/settings.local.json`). */
+  readonly decision: "allow" | "allow_always" | "allow_rule" | "deny" | "deny_always";
+  readonly rule?: string;
   readonly reason?: string;
 }
 

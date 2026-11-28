@@ -10,9 +10,9 @@ import { omaVersion } from "./version.js";
 
 /** --session <id> wins; --continue resolves the workspace's newest session
  *  (missing files degrade to a fresh session downstream). */
-function resolveSessionArg(args: CliArgs): string | undefined {
+function resolveSessionArg(args: CliArgs, workspaceRoot: string): string | undefined {
   if (args.session) return args.session;
-  if (args.continueLast) return listSessions(process.cwd())[0]?.id;
+  if (args.continueLast) return listSessions(workspaceRoot)[0]?.id;
   return undefined;
 }
 
@@ -104,71 +104,92 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     }
   }
 
-  if (args.mode === "tui" || (!args.modeExplicit && process.stdin.isTTY)) {
-    // Day-0 onboarding: when launching the interactive TUI in a real terminal
-    // with zero configured providers/models, guide the user through setup
-    // instead of failing on their first message.
-    if (process.stdin.isTTY && process.env.OMA_FAKE_PROVIDER !== "1") {
-      const cat = await modelRuntime.getCatalog();
-      if (!cat.models.some((m) => m.available !== false)) {
-        const { runSetupWizard } = await import("./cli/setup-wizard.js");
-        const setupRes = await runSetupWizard();
-        if (setupRes.configured) {
-          registerBuiltinProviders(modelRuntime, process.env);
-        }
-      }
-    }
-    const { runTuiMode } = await import("./modes/tui/tui-mode.js");
-    return runTuiMode({
-      modelRuntime,
-      workspaceRoot: process.cwd(),
-      model: args.model,
-      ...(args.effort ? { effort: args.effort } : {}),
-      sessionId: resolveSessionArg(args),
-      ...(args.permission ? { permissionMode: args.permission } : {}),
-      ...(args.readOnly ? { readOnly: true } : {}),
-      ...(args.tools ? { toolFilter: parseToolFilter(args.tools) } : {}),
-      ...(args.prompt ? { initialPrompt: args.prompt } : {}),
-      checkUpdate: upgradeHint,
-    });
-  }
-
-  const prompt = mergeInitialInput({
-    prompt: args.prompt,
-    piped: await readPipedStdin(),
-  });
-  if (!prompt) {
-    throw new UsageError(
-      'bare oma opens the interactive TUI - run it in a terminal. Outside a terminal, give a prompt: oma -p "<prompt>" (or piped stdin)',
+  const worktree = args.worktree
+    ? (await import("./cli/worktree.js")).enterWorktree(
+        process.cwd(),
+        typeof args.worktree === "string" ? args.worktree : undefined,
+      )
+    : undefined;
+  const workspaceRoot = worktree?.worktreePath ?? process.cwd();
+  if (worktree) {
+    process.stderr.write(
+      `[oma] worktree ${worktree.reused ? "reused" : "ready"}: ${worktree.worktreePath} (branch: ${worktree.branch})\n`,
     );
   }
 
-  const outputSchema = args.outputSchema
-    ? resolveOutputSchemaArg(args.outputSchema, process.cwd())
-    : undefined;
-  const opts = {
-    prompt,
-    workspaceRoot: process.cwd(),
-    modelRuntime,
-    // Both one-shot modes honor --model: `buildCliRunInput` is the only
-    // place the flag is applied, so dropping it here silently ran the
-    // catalog's first model instead.
-    ...(args.model ? { model: args.model } : {}),
-    ...(args.effort ? { effort: args.effort } : {}),
-    ...(args.maxTurns !== undefined ? { maxTurns: args.maxTurns } : {}),
-    ...(args.maxBudgetUsd !== undefined ? { maxBudgetUsd: args.maxBudgetUsd } : {}),
-    ...(outputSchema ? { outputSchema } : {}),
-    sessionId: resolveSessionArg(args),
-    permissionMode: resolvePermissionMode(args.permission, process.cwd()),
-    ...(args.readOnly ? { readOnly: true } : {}),
-    ...(args.tools ? { toolFilter: parseToolFilter(args.tools) } : {}),
-  };
-  if (args.mode === "json") {
-    const { runJsonMode } = await import("./modes/json-mode.js");
-    return runJsonMode(opts);
+  try {
+    if (args.mode === "tui" || (!args.modeExplicit && process.stdin.isTTY)) {
+      // Day-0 onboarding: when launching the interactive TUI in a real terminal
+      // with zero configured providers/models, guide the user through setup
+      // instead of failing on their first message.
+      if (process.stdin.isTTY && process.env.OMA_FAKE_PROVIDER !== "1") {
+        const cat = await modelRuntime.getCatalog();
+        if (!cat.models.some((m) => m.available !== false)) {
+          const { runSetupWizard } = await import("./cli/setup-wizard.js");
+          const setupRes = await runSetupWizard();
+          if (setupRes.configured) {
+            registerBuiltinProviders(modelRuntime, process.env);
+          }
+        }
+      }
+      const { runTuiMode } = await import("./modes/tui/tui-mode.js");
+      return await runTuiMode({
+        modelRuntime,
+        workspaceRoot,
+        model: args.model,
+        ...(args.effort ? { effort: args.effort } : {}),
+        sessionId: resolveSessionArg(args, workspaceRoot),
+        ...(args.permission ? { permissionMode: args.permission } : {}),
+        ...(args.readOnly ? { readOnly: true } : {}),
+        ...(args.tools ? { toolFilter: parseToolFilter(args.tools) } : {}),
+        ...(args.prompt ? { initialPrompt: args.prompt } : {}),
+        checkUpdate: upgradeHint,
+      });
+    }
+
+    const prompt = mergeInitialInput({
+      prompt: args.prompt,
+      piped: await readPipedStdin(),
+    });
+    if (!prompt) {
+      throw new UsageError(
+        'bare oma opens the interactive TUI - run it in a terminal. Outside a terminal, give a prompt: oma -p "<prompt>" (or piped stdin)',
+      );
+    }
+
+    const outputSchema = args.outputSchema
+      ? resolveOutputSchemaArg(args.outputSchema, workspaceRoot)
+      : undefined;
+    const opts = {
+      prompt,
+      workspaceRoot,
+      modelRuntime,
+      // Both one-shot modes honor --model: `buildCliRunInput` is the only
+      // place the flag is applied, so dropping it here silently ran the
+      // catalog's first model instead.
+      ...(args.model ? { model: args.model } : {}),
+      ...(args.effort ? { effort: args.effort } : {}),
+      ...(args.maxTurns !== undefined ? { maxTurns: args.maxTurns } : {}),
+      ...(args.maxBudgetUsd !== undefined ? { maxBudgetUsd: args.maxBudgetUsd } : {}),
+      ...(outputSchema ? { outputSchema } : {}),
+      sessionId: resolveSessionArg(args, workspaceRoot),
+      permissionMode: resolvePermissionMode(args.permission, workspaceRoot),
+      ...(args.readOnly ? { readOnly: true } : {}),
+      ...(args.tools ? { toolFilter: parseToolFilter(args.tools) } : {}),
+    };
+    if (args.mode === "json") {
+      const { runJsonMode } = await import("./modes/json-mode.js");
+      return await runJsonMode(opts);
+    }
+    const { runPrintMode } = await import("./modes/print-mode.js");
+    return await runPrintMode(opts);
+  } finally {
+    if (worktree) {
+      const { exitWorktree } = await import("./cli/worktree.js");
+      const summary = exitWorktree(worktree);
+      process.stderr.write(`${summary.message}\n`);
+    }
   }
-  const { runPrintMode } = await import("./modes/print-mode.js");
-  return runPrintMode(opts);
 }
 
 /** CLI entry wrapper: run main() and map errors to stderr + exit codes.

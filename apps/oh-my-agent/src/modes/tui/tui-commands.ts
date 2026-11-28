@@ -68,6 +68,8 @@ import { trustFile, trustPlugin } from "../../core/plugins/plugin-trust.js";
 import type { OmaRuntime } from "../../core/runtime/create-runtime.js";
 import { readMemorySummary } from "../../core/runtime/prompts.js";
 import {
+  appendLocalPermissionRule,
+  clearLocalPermissionRules,
   loadProjectSettings,
   saveProjectModel,
   saveProjectSettings,
@@ -343,19 +345,48 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
     },
     {
       name: "permission",
-      description: "show or set the permission gate (ask/auto/deny/off/yolo)",
-      argumentHint: "[ask|auto|deny|off|yolo]",
+      description: "show/set permission gate or manage allow/deny rules",
+      argumentHint: "[ask|auto|deny|off|yolo | allow <rule> | deny <rule> | rules | clear-rules]",
       group: "settings",
       live: true,
       run: (args) => {
         const value = args.trim();
-        if (!value) {
+        if (!value || value === "rules") {
+          const settings = loadProjectSettings(ctx.opts.workspaceRoot);
           const effective =
             ctx.permissionOverride ??
             ctx.opts.permissionMode ??
-            loadProjectSettings(ctx.opts.workspaceRoot).permissionMode ??
+            settings.permissionMode ??
             "off (ungated)";
-          ctx.pushStatus(`permission: ${effective} — /permission ask|auto|deny|off|yolo`);
+          const allow = settings.permissions?.allow ?? [];
+          const deny = settings.permissions?.deny ?? [];
+          const lines = [`permission: ${effective} — /permission ask|auto|deny|off|yolo`];
+          if (allow.length > 0) lines.push(`  allow (${allow.length}): ${allow.join(", ")}`);
+          if (deny.length > 0) lines.push(`  deny (${deny.length}): ${deny.join(", ")}`);
+          if (value === "rules" && allow.length === 0 && deny.length === 0) {
+            lines.push("  (no saved rules — use /permission allow bash:bun test* or deny <rule>)");
+          }
+          ctx.pushStatus(lines);
+          return;
+        }
+        if (value === "clear-rules") {
+          const cleared = clearLocalPermissionRules(ctx.opts.workspaceRoot);
+          ctx.pushStatus(
+            cleared
+              ? "permission rules cleared from .oma/settings.local.json"
+              : "no local permission rules to clear",
+          );
+          return;
+        }
+        if (value.startsWith("allow ") || value.startsWith("deny ")) {
+          const kind = value.startsWith("allow ") ? "allow" : "deny";
+          const rule = value.slice(kind.length + 1).trim();
+          if (!rule) {
+            ctx.pushStatus(`usage: /permission ${kind} <rule> (e.g. bash:bun test*)`);
+            return;
+          }
+          appendLocalPermissionRule(ctx.opts.workspaceRoot, kind, rule);
+          ctx.pushStatus(`saved ${kind} rule "${rule}" -> .oma/settings.local.json`);
           return;
         }
         const known =
@@ -365,7 +396,9 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           value === "off" ||
           value === "yolo";
         if (!known) {
-          ctx.pushStatus(`unknown mode "${value}" — /permission ask|auto|deny|off|yolo`);
+          ctx.pushStatus(
+            `unknown mode "${value}" — /permission ask|auto|deny|off|yolo | allow <rule> | deny <rule> | rules`,
+          );
           return;
         }
         ctx.permissionOverride = value;
@@ -378,7 +411,9 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
           ]);
           return;
         }
-        ctx.pushStatus(`permission: ${value} (this session — .oma/settings.json persists it)`);
+        ctx.pushStatus(
+          `permission: ${value} (this session — .oma/settings.local.json persists it)`,
+        );
       },
     },
     {

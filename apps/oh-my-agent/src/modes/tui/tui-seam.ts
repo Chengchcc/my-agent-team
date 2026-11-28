@@ -50,7 +50,7 @@ export type TuiCommand =
   | "cycleMode"
   | "pasteImage";
 
-export type ApprovalVerdict = "allow" | "allow_always" | "deny" | "deny_always";
+export type ApprovalVerdict = "allow" | "allow_always" | "allow_rule" | "deny" | "deny_always";
 
 export interface ApprovalPromptRequest {
   toolName: string;
@@ -61,6 +61,9 @@ export interface ApprovalPromptRequest {
   sandboxed?: boolean;
   /** True for tool permission prompts that support session-level allow/deny always. */
   allowAlways?: boolean;
+  /** Optional scoped persistent rule (e.g. `bash:bun test*`) offered alongside
+   *  session-only allow_always and saved to `.oma/settings.local.json`. */
+  suggestedRule?: string;
 }
 
 export interface ContextUsageInfo {
