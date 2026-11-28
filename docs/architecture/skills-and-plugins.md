@@ -82,7 +82,7 @@ Plugins are plain objects `{ name, hooks?, tools?, meta? }` validated by `valida
 
 | Mode | Behavior |
 |---|---|
-| `ask` | Prompts human on high-risk tools (`bash`, `browser`, `eval`, `write`, `edit`, `workflow_run`, `learn`, `manage_skill`, `mcp__*`, plugin code tools). Exempts `OMA_CONSENTED_MCP_TOOLS`. Headless `print`/`json` use `denyAllApprovals`. |
+| `ask` | Prompts human on high-risk tools (`bash`, `browser`, `eval`, `write`, `edit`, `orchestrate`, `learn`, `manage_skill`, `mcp__*`, plugin code tools). Exempts `OMA_CONSENTED_MCP_TOOLS`. Headless `print`/`json` use `denyAllApprovals`. |
 | `auto` | Runs deterministic `isCriticalDeletion()` circuit breaker (blocks `rm`/`rmdir` on `/`, `~`, `$HOME`, system roots) + LLM classifier (`OMA_PERMISSION_CLASSIFIER_MODEL`, 30s timeout, fail-closed, 1 retry on no verdict, user-only context, truncates inputs >8000 chars) for effect-escaping tools; max 1 human escalation per unique `toolName:JSON(input)`. |
 | `deny` | Blocks all high-risk tools and drops all `codePlugins` before `import()`. |
 | `yolo` | Skips judgment gates, **force-enables OS bash sandbox** when available, and still obeys backend-injected `OMA_DENY_WRITE_PATHS` / `OMA_ALLOW_WRITE_PATHS` / `OMA_DENY_COMMANDS`. Untrusted `.oma/settings.json` requesting `yolo` downgrades to `ask`. |

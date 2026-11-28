@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ModelRuntime } from "@chengchenccc/ai";
 import type { AskQuestionInput, Message } from "@chengchenccc/message";
@@ -195,8 +196,9 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
   /** Prompt queued by a command (skill invocations): submitted as the next
    *  normal run. */
   let pendingPrompt: string | undefined;
-  /** Workflow script queued by /workflow: injected into the next run input. */
-  let pendingWorkflowScript: string | undefined;
+  /** Orchestration script queued by /orchestrate (alias /workflow): injected
+   *  into the next run input. */
+  let pendingWorkflowScript: { script: string; args?: unknown; label: string } | undefined;
   /** /permission session override: wins over the --permission flag and the
    *  settings file for every subsequent run this session. */
   let permissionOverride: PermissionFlag | undefined;
@@ -794,11 +796,18 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       readOnly: opts.readOnly,
       ...(images.length > 0 ? { images } : {}),
     });
-    // `/workflow` queued a script: this run executes the vm workflow instead
-    // of a conversational loop (create-runtime branches on input.workflow).
+    // `/orchestrate` (or `/workflow`) queued a script: this run executes the
+    // isolated orchestration script instead of a conversational loop.
     let runInput: BackendRunInput = built;
     if (pendingWorkflowScript !== undefined) {
-      runInput = { ...built, workflow: { script: pendingWorkflowScript } };
+      runInput = {
+        ...built,
+        workflow: {
+          script: pendingWorkflowScript.script,
+          label: pendingWorkflowScript.label,
+          ...(pendingWorkflowScript.args !== undefined ? { args: pendingWorkflowScript.args } : {}),
+        },
+      };
       pendingWorkflowScript = undefined;
     }
     modelId = built.run.model.modelId;
@@ -1062,6 +1071,43 @@ export async function runTuiSession(opts: TuiModeOptions, io: TuiIo): Promise<nu
       pendingFocusRecap = lastRunRecap(ctx);
       pushStatus("run finished — switch back for recap");
       io.notify?.();
+    }
+
+    // Orchestration runs bypass the main loop's onPersistMessages hook, so
+    // record a concise user + assistant turn in the session file when one
+    // finishes — follow-up questions in the session can then reference its
+    // findings directly. Oversized values spill to .oma/runs/ so the session
+    // transcript stays compact.
+    if (runInput.workflow !== undefined && outcome.status === "completed" && outcome.workflow) {
+      const rawVal =
+        typeof outcome.workflow.value === "string"
+          ? outcome.workflow.value
+          : (JSON.stringify(outcome.workflow.value, null, 2) ?? "undefined");
+      let summaryBody = rawVal;
+      if (rawVal.length > 8_000) {
+        try {
+          const runsDir = join(opts.workspaceRoot, ".oma", "runs");
+          mkdirSync(runsDir, { recursive: true });
+          const relPath = `.oma/runs/orch-${Date.now()}.json`;
+          writeFileSync(join(opts.workspaceRoot, relPath), rawVal, "utf8");
+          summaryBody = `${rawVal.slice(0, 4_000)}\n… (truncated; full result saved to ${relPath})`;
+        } catch {
+          summaryBody = `${rawVal.slice(0, 8_000)}…`;
+        }
+      }
+      const logBlock =
+        outcome.workflow.logs && outcome.workflow.logs.length > 0
+          ? `\n\nLogs:\n${outcome.workflow.logs.slice(-20).join("\n")}`
+          : "";
+      const orchMessages = [
+        { role: "user", text },
+        {
+          role: "assistant",
+          text: `[orchestrate ${runInput.workflow.label ?? "script"} result]\n${summaryBody}${logBlock}`,
+        },
+      ];
+      appendSessionMessages(session.sessionId, opts.workspaceRoot, orchMessages, session.dir);
+      session.messages = [...session.messages, ...orchMessages];
     }
 
     // Messages were persisted in real time (onPersistMessages); only the

@@ -100,6 +100,7 @@ describe("oma CLI (spawned)", () => {
     expect(tools1).not.toContain("write");
     expect(tools1).not.toContain("edit");
     expect(tools1).not.toContain("bash");
+    expect(tools1).not.toContain("orchestrate");
     expect(tools1).not.toContain("workflow_run");
 
     const res2 = await spawnCli(["--mode", "json", "--read-only", "-p", "inspect"], {
@@ -110,6 +111,7 @@ describe("oma CLI (spawned)", () => {
     expect(tools2).not.toContain("write");
     expect(tools2).not.toContain("edit");
     expect(tools2).not.toContain("bash");
+    expect(tools2).not.toContain("orchestrate");
     expect(tools2).not.toContain("workflow_run");
   }, 15_000);
 

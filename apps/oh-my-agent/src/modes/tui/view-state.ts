@@ -232,12 +232,32 @@ export function applyEvent(state: TuiViewState, event: OmaLoopEvent): void {
       run.fanoutSource = event.source;
       // A `task` fan-out lives in the pinned panel: the transcript keeps only
       // the batch summary the panel cannot express lasting state for. Any
-      // other source (workflow/script, or an unlabelled producer) keeps the
-      // status line it has always had.
+      // other source (orchestrate/script, or an unlabelled producer) keeps a
+      // compact start status line while subagents still populate liveAgents.
       if (event.source === "task") break;
+      const countText = event.agentCount > 0 ? ` (${event.agentCount} agents)` : "";
       run.items.push({
         kind: "status",
-        text: `delegating: ${event.label} (${event.agentCount} agents)`,
+        text:
+          event.source === "workflow"
+            ? `orchestrating: ${event.label}${countText}`
+            : `delegating: ${event.label}${countText}`,
+        streaming: false,
+      });
+      break;
+    }
+    case "delegation_phase": {
+      const run = ensureRunningRun(state);
+      const took = event.durationMs !== undefined ? ` (${formatDurationMs(event.durationMs)})` : "";
+      const mark =
+        event.status === "started"
+          ? "▸"
+          : event.status === "completed"
+            ? `${tuiTheme.success}✔\u001b[0m`
+            : `${tuiTheme.error}✘\u001b[0m`;
+      run.items.push({
+        kind: "status",
+        text: `  ${mark} phase: ${event.phase}${took}`,
         streaming: false,
       });
       break;
@@ -423,17 +443,23 @@ export function applyOutcome(state: TuiViewState, outcome: BackendRunOutcome): v
       running: false,
     });
   } else if (outcome.status === "completed" && outcome.workflow) {
-    const value = JSON.stringify(outcome.workflow.value) ?? "undefined";
-    runs.push({
-      items: [
-        {
-          kind: "status",
-          text: `workflow result: ${value.slice(0, 200)}${value.length > 200 ? "\u2026" : ""}`,
-          streaming: false,
-        },
-      ],
-      running: false,
+    const raw =
+      typeof outcome.workflow.value === "string"
+        ? outcome.workflow.value
+        : (JSON.stringify(outcome.workflow.value, null, 2) ?? "undefined");
+    const clipped = raw.length > 2_000 ? `${raw.slice(0, 2_000)}\u2026` : raw;
+    const items: TranscriptItem[] = [];
+    if (outcome.workflow.logs && outcome.workflow.logs.length > 0) {
+      for (const line of outcome.workflow.logs.slice(-10)) {
+        items.push({ kind: "status", text: `  [log] ${line}`, streaming: false });
+      }
+    }
+    items.push({
+      kind: "status",
+      text: `orchestrate result: ${clipped}`,
+      streaming: false,
     });
+    runs.push({ items, running: false });
   }
 }
 

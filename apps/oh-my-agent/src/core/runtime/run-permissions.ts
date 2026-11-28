@@ -32,6 +32,7 @@ const HIGH_RISK_NATIVE_TOOLS: Record<string, true> = {
   eval: true,
   write: true,
   edit: true,
+  orchestrate: true,
   workflow_run: true,
   learn: true,
   manage_skill: true,
@@ -66,6 +67,7 @@ export function createRunPermissionGates(
     (toolName === "bash" ||
       toolName === "browser" ||
       toolName === "eval" ||
+      toolName === "orchestrate" ||
       toolName === "workflow_run" ||
       toolName === "manage_skill" ||
       (toolName === "learn" && (input as { skill?: unknown } | null)?.skill !== undefined) ||

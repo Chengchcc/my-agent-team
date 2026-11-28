@@ -114,4 +114,74 @@ describe("evaluateOrchestrationScript", () => {
       else process.env.OMA_HOST_SECRET_CANARY = saved;
     }
   });
+
+  test("supports parallel(concurrency), tool(), phase(), console.log(), and AbortSignal", async () => {
+    const phases: Array<{ name: string; status: string }> = [];
+    const logs: string[] = [];
+    let inFlight = 0;
+    let peak = 0;
+    const result = await evaluateOrchestrationScript({
+      script: `
+        const listed = await phase("discover", async () => {
+          console.log("scanning", args.dir);
+          return await tool("glob", { pattern: args.dir + "/*.ts" });
+        });
+        const outputs = await phase("analyze", () =>
+          parallel(
+            listed.files,
+            async (f) => {
+              const r = await agent("inspect " + f, { role: "explore", label: f });
+              return r.text;
+            },
+            { concurrency: 2 },
+          ),
+        );
+        return outputs;
+      `,
+      args: { dir: "src" },
+      primitives: {
+        agent: async (prompt, opts) => {
+          inFlight++;
+          peak = Math.max(peak, inFlight);
+          await Bun.sleep(20);
+          inFlight--;
+          return { text: `${opts?.role}:${prompt}`, ok: true, label: opts?.label ?? "" };
+        },
+        tool: async (name, input) => {
+          expect(name).toBe("glob");
+          expect(input).toEqual({ pattern: "src/*.ts" });
+          return { files: ["a.ts", "b.ts", "c.ts", "d.ts"] };
+        },
+        onPhase: (p) => phases.push({ name: p.name, status: p.status }),
+        onLog: (m) => logs.push(m),
+      },
+    });
+    expect(result.value).toEqual([
+      "explore:inspect a.ts",
+      "explore:inspect b.ts",
+      "explore:inspect c.ts",
+      "explore:inspect d.ts",
+    ]);
+    expect(peak).toBeLessThanOrEqual(2);
+    expect(phases).toEqual([
+      { name: "discover", status: "started" },
+      { name: "discover", status: "completed" },
+      { name: "analyze", status: "started" },
+      { name: "analyze", status: "completed" },
+    ]);
+    expect(logs).toEqual(["scanning src"]);
+    expect(result.logs).toEqual(["scanning src"]);
+
+    // AbortSignal kills a running orchestration script promptly.
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 80);
+    await expect(
+      evaluateOrchestrationScript({
+        script: "await new Promise(() => {});",
+        primitives: primitives as never,
+        signal: ac.signal,
+        timeoutMs: 10_000,
+      }),
+    ).rejects.toThrow(/aborted/i);
+  });
 });

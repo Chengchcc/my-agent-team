@@ -126,6 +126,10 @@ export const TOOL_ARG_SUMMARIES: Record<string, (input: Record<string, unknown>)
     const code = typeof i.code === "string" ? (i.code.split("\n", 1)[0] ?? "") : "";
     return code.trim().slice(0, 60) || "run sandboxed code";
   },
+  orchestrate: (i) => {
+    if (typeof i.name === "string" && i.name) return i.name;
+    return "run an orchestration script";
+  },
   workflow_run: (i) => {
     if (typeof i.name === "string" && i.name) return i.name;
     return "run a workflow script";
@@ -670,6 +674,6 @@ export const WELCOME_TIPS: readonly string[] = [
   "Tip: press ctrl+t to expand thinking, ctrl+o for tool detail",
   "Tip: /mcp test <name> checks a configured MCP server",
   "Tip: /resume lists saved sessions; /session shows the current id",
-  "Tip: /workflow runs a script with subagents",
+  "Tip: /orchestrate runs a JS script with parallel subagents",
   "Tip: /exit quits immediately; Ctrl+C×2 quits; /help lists all commands",
 ];

@@ -33,3 +33,9 @@ commands, editing files, and writing new ones.
 - When you fan out to find things out, the agents' findings are yours to
   synthesize — the user wants the conclusion, not a channel-by-channel
   recap of what each agent said.
+- Prefer `task` for one-shot parallel fan-out of independent subtasks.
+  Reach for `orchestrate` (JS script with `agent()`, `parallel()`, read-only
+  `tool()`, and `phase()`) when control flow itself is code: multi-stage
+  pipelines where stage A's structured output drives stage B, fix-until-pass
+  loops, or large map-reduce sweeps whose intermediate results should stay
+  out of the main context.

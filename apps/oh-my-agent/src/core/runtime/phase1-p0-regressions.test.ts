@@ -212,11 +212,11 @@ describe("Phase 1 P0 regressions", () => {
     expect(approvalCalls).toBe(1);
     expect(pluginToolRan).toBe(false);
 
-    // P0-1: workflow_run blocked under permissionMode="deny"
+    // P0-1: orchestrate blocked under permissionMode="deny"
     const modelRuntime2 = createModelRuntime();
     modelRuntime2.registerProvider(
       fakeProvider({
-        OMA_FAKE_TOOL: JSON.stringify([{ name: "workflow_run", input: { script: "return 42;" } }]),
+        OMA_FAKE_TOOL: JSON.stringify([{ name: "orchestrate", input: { script: "return 42;" } }]),
       }),
     );
     const rt2 = await createOmaRuntime({
@@ -241,13 +241,13 @@ describe("Phase 1 P0 regressions", () => {
     expect(outcome2.status).toBe("completed");
     expect(JSON.stringify(events2)).toContain("permissionMode=deny");
 
-    // P0-1: workflow_run omitted entirely on read_only runs
+    // P0-1: orchestrate omitted entirely on read_only runs
     const toolsFile = join(ws, "advertised-tools.json");
     const modelRuntime3 = createModelRuntime();
     modelRuntime3.registerProvider(
       fakeProvider({
         OMA_FAKE_TOOLS_RECORD: toolsFile,
-        OMA_FAKE_TOOL: JSON.stringify([{ name: "workflow_run", input: { script: "return 42;" } }]),
+        OMA_FAKE_TOOL: JSON.stringify([{ name: "orchestrate", input: { script: "return 42;" } }]),
       }),
     );
     const rt3 = await createOmaRuntime({
@@ -269,6 +269,7 @@ describe("Phase 1 P0 regressions", () => {
     await seg3.outcome;
     await rt3.close();
     const advertised = JSON.parse(await Bun.file(toolsFile).text()) as string[];
+    expect(advertised).not.toContain("orchestrate");
     expect(advertised).not.toContain("workflow_run");
     expect(JSON.stringify(events3)).toMatch(/unknown tool|not found|not available/i);
   });

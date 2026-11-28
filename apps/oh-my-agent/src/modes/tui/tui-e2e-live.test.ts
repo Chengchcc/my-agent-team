@@ -172,9 +172,9 @@ describe("tui e2e live/scrollback/fork", () => {
       );
 
       await typeAndSubmit(vt, "/help");
-      // /workflow lives in the LAST group: its entry always fits the tail.
-      await waitForText(vt, "run a workflow script", 5_000);
-      expect(screen(vt)).toContain("run a workflow script");
+      // /orchestrate lives in the LAST group: its entry always fits the tail.
+      await waitForText(vt, "run a dynamic orchestration script", 5_000);
+      expect(screen(vt)).toContain("run a dynamic orchestration script");
       expect(screen(vt)).not.toContain("lines above");
 
       await quitTui(vt);
@@ -200,9 +200,9 @@ describe("tui e2e live/scrollback/fork", () => {
 
       await typeAndSubmit(vt, "/help");
       // The listing's tail fits the viewport; early groups sit above it.
-      // /workflow lives in the LAST group, so it always makes the tail.
-      await waitForText(vt, "run a workflow script", 5_000);
-      expect(screen(vt)).toContain("run a workflow script");
+      // /orchestrate lives in the LAST group, so it always makes the tail.
+      await waitForText(vt, "run a dynamic orchestration script", 5_000);
+      expect(screen(vt)).toContain("run a dynamic orchestration script");
       expect(screen(vt)).not.toContain("lines above");
 
       await quitTui(vt);

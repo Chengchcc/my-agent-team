@@ -274,21 +274,34 @@ describe("tui session (headless, fake provider)", () => {
       rmSync(sessionDir, { recursive: true, force: true });
     }
   }, 30_000);
-  test("/workflow runs an inline vm script and renders the result", async () => {
+  test("/orchestrate (and /workflow alias) runs saved/inline scripts with --args and persists to session", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "oma-tui-wf-"));
     const sessionDir = mkdtempSync(join(tmpdir(), "oma-tui-wf-sess-"));
     process.env.OMA_SESSION_DIR = sessionDir;
     process.env.OMA_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "oma-tui-wf-agent-"));
+    mkdirSync(join(workspace, ".oma", "orchestrations"), { recursive: true });
+    writeFileSync(
+      join(workspace, ".oma", "orchestrations", "double.js"),
+      'console.log("doubling", args.n); return args.n * 2;',
+      "utf8",
+    );
     try {
-      const io = scriptedIo(["/workflow return 40+2", "/exit", "/exit"]);
+      const io = scriptedIo([
+        "/workflow return 40+2",
+        "/orchestrate double --args '{\"n\":21}'",
+        "/exit",
+        "/exit",
+      ]);
       await runTuiSession({ modelRuntime: testModelRuntime(), workspaceRoot: workspace }, io);
       const statuses = io.renders
         .at(-1)!
         .runs.flatMap((r) => r.items.filter((i) => i.kind === "status"))
         .map((i) => i.text);
-      expect(statuses.some((t) => t.includes("delegating: script"))).toBe(true);
+      expect(statuses.some((t) => t.includes("orchestrating: inline"))).toBe(true);
+      expect(statuses.some((t) => t.includes("orchestrating: double"))).toBe(true);
+      expect(statuses.some((t) => t.includes("[log] doubling 21"))).toBe(true);
       expect(statuses.some((t) => t.includes("delegation done"))).toBe(true);
-      expect(statuses.some((t) => t.includes("workflow result: 42"))).toBe(true);
+      expect(statuses.some((t) => t.includes("orchestrate result: 42"))).toBe(true);
     } finally {
       delete process.env.OMA_SESSION_DIR;
       delete process.env.OMA_CODING_AGENT_DIR;

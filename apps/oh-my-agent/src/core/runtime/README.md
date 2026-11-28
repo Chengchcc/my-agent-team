@@ -38,11 +38,11 @@ deliberate:
 - `core/delegation/` — the **executor**: spawns subagent loops (role files under
   `.oma/agents/`), enforces caps/budget, and the `delegation-tools` plugin,
   whose model-facing tool is `task` (`delegation_batch_*` are the event names).
-- `core/orchestrate/` — the **script engine**: `evaluateOrchestrationScript`
-  runs a vm-sandboxed JS script whose `agent()`/`pipeline()` primitives route
-  INTO the delegation executor. The `orchestrate-tool` plugin shows it to the
-  model as `workflow_run` (in the TUI, `/workflow`); the Run input's `workflow`
-  field is the other surface.
+- `core/orchestrate/` — the **dynamic orchestration script engine**: `evaluateOrchestrationScript`
+  runs an isolated subprocess JS script whose `agent()`/`parallel()`/read-only `tool()`/`phase()`
+  primitives route INTO the delegation executor. The `orchestrate-tool` plugin shows it to the
+  model as `orchestrate` (in the TUI, `/orchestrate`, with `/workflow` alias); the Run input's
+  `workflow` field is the direct script-execution surface.
 - `core/coordination/` — the **handle ledger**: `CoordinationRegistry` tracks
   background jobs and subagent handles per scope; the `hub-tool` plugin is its
   model-facing query/steer/stop surface. The registry outlives a Run only when

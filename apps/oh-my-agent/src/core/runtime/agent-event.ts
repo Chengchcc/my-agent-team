@@ -120,6 +120,14 @@ export type OmaLoopEvent =
     }
   | { type: "delegation_batch_failed"; batchId: string; error: string }
   | {
+      /** Orchestration script phase progress (`phase(name, fn)`). */
+      type: "delegation_phase";
+      batchId: string;
+      phase: string;
+      status: "started" | "completed" | "failed";
+      durationMs?: number;
+    }
+  | {
       /** Live subagent loop event forwarded to the parent stream. */
       type: "delegation_agent_event";
       batchId: string;

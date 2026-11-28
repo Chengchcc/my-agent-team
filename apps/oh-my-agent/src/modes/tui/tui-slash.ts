@@ -1,3 +1,5 @@
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import type { SlashCommand } from "@chengchenccc/tui";
 import { resolveStandaloneSkillRoots } from "../../cli/initial-input.js";
 import { buildSkillIndex } from "../../core/tools/index.js";
@@ -60,6 +62,31 @@ export function buildSlashSystem(ctx: TuiSessionContext, commands: CommandDef[])
               currentWorkspace: ctx.opts.workspaceRoot,
             }).description,
           }));
+    }
+    if (c.name === "orchestrate") {
+      command.getArgumentCompletions = (prefix: string) => {
+        const names = new Set<string>();
+        for (const folder of ["orchestrations", "workflow"]) {
+          const dir = join(ctx.opts.workspaceRoot, ".oma", folder);
+          if (!existsSync(dir)) continue;
+          try {
+            for (const entry of readdirSync(dir)) {
+              if (entry.endsWith(".js")) names.add(entry.slice(0, -3));
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        return [...names]
+          .sort()
+          .filter((name) => name.startsWith(prefix))
+          .slice(0, 20)
+          .map((name) => ({
+            value: name,
+            label: name,
+            description: `.oma/orchestrations/${name}.js`,
+          }));
+      };
     }
     return command;
   });

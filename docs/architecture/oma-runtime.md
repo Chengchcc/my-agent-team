@@ -18,7 +18,7 @@ tags: [oma, runtime, tools, tui, delegation]
 - `apps/oh-my-agent/src/core/runtime/create-runtime.ts` & `run-runtime.ts` — `createOmaRuntime()` & `assembleRunRuntime()`
 - `apps/oh-my-agent/src/core/runtime/run-tools.ts` & `apps/oh-my-agent/src/core/tools/` — Native tools & `mcp-mount.ts`
 - `apps/oh-my-agent/src/core/delegation/executor.ts` & `tool.ts` & `roles.ts` — Subagent fan-out (`task`, `hub`, `yield`)
-- `apps/oh-my-agent/src/core/orchestrate/script-runner.ts` — Sandboxed `workflow_run` JS orchestration VM
+- `apps/oh-my-agent/src/core/orchestrate/script-runner.ts` & `tool.ts` — Sandboxed dynamic orchestration engine (`orchestrate` tool / `/orchestrate`)
 - `apps/oh-my-agent/src/core/memory/autonomous-memory.ts` & `learn.ts` & `vector-memory.ts` — Autonomous memory & `.oma/memory/memory.db`
 - `apps/oh-my-agent/src/core/goals/runtime.ts`, `core/loops/runtime.ts`, `core/plans/runtime.ts` — TUI autonomous turn drivers
 - `apps/oh-my-agent/src/protocol/mapping.ts` — `mapRunEvent()` & `forWire()` (strips raw tool inputs on wire)
@@ -58,13 +58,15 @@ Wrapper backstops: `DEFAULT_NATIVE_TOOL_TIMEOUT_MS = 30_000`, `MAX_BASH_TIMEOUT_
 - **Conditional native tools:** `skill` (`progressive-skill`), `ask_question` & `todo_{write,read}` (automatically yielded when Product MCP supplies them), standalone memory tools (`learn`, `manage_skill`, plus `recall`/`retain` unless `OMA_VECTOR_MEMORY=0`).
 - **MCP mount (`mcp-mount.ts`):** mounts `.mcp.json` (trust-gated in standalone) + plugin MCP configs as `mcp__<sanitizedServer>__<tool>`, skipping server names already served via MCP-over-ACP. Native tools win collisions. `${VAR}` expansion is strictly allowlisted via `OMA_MCP_EXPANDABLE_VARS`. Timeouts: mount `30 s`, call `120 s` (`OMA_MCP_TIMEOUT_MS`).
 
-## Delegation Fan-Out & Sandboxed Orchestration (`core/delegation/`, `core/orchestrate/`)
+## Delegation Fan-Out & Dynamic Orchestration (`core/delegation/`, `core/orchestrate/`)
+
+> **Distinction from Product Backend `Workflow`:** Product Backend [Workflow Engine](./workflow.md) (`packages/workflow`, `*.workflow.json`) is a **declarative, persistent, triggerable DAG** with SQLite execution history, cron/webhook triggers, rework budgets, and human-form gates. Oma's **`orchestrate`** (`core/orchestrate/`) is **in-run programmatic JS orchestration** — ephemeral code control flow (`agent()`, `parallel()`, read-only `tool()`, `phase()`) for multi-stage pipelines, fix-until-pass loops, and large map-reduce sweeps within a single session.
 
 - **`task` tool:** single `{ agent, prompt, schema?, background?, resume? }` or batch `{ context, tasks[] }` (up to `MAX_BATCH_TASKS = 64`), capped at `maxConcurrent = 8`, `maxTotal = 64`, `SUBAGENT_MAX_STEPS = 500`, optional `workflowBudgetTokens`.
 - **Roles:** builtins `explore` and `plan` (read-only: `read`, `grep`, `glob`, `tree`, `read_image`) and `task` (full subagent file tools); custom roles in `.oma/agents/<name>.md` (disabled in `read_only` workspaces).
 - **Structured yield:** schema-bearing subagents receive `yield` validated via JSON Schema (`{ terminate: true }` on accept); oversized outputs spill to `.oma/workflow/`.
 - **`hub` tool (`core/coordination/hub-tool.ts`):** unified `list` / `get` / `wait` / `stop` / `steer` control over subagents and async bash/eval jobs.
-- **`workflow_run` (`core/orchestrate/script-runner.ts`, default `60 s`):** spawns an isolated Bun child (Linux `bwrap --ro-bind / / --unshare-pid --unshare-net --tmpfs /root --tmpfs /home --die-with-parent`), executes `vm.createContext` with `codeGeneration: { strings: false, wasm: false }`, and bridges `agent()` calls over NDJSON stdio IPC (`__OMA_ORCH_IPC__:`).
+- **`orchestrate` tool & TUI `/orchestrate` (alias `/workflow`) (`core/orchestrate/script-runner.ts`):** spawns an isolated Bun child (Linux `bwrap --ro-bind / / --unshare-pid --unshare-net --tmpfs /root --tmpfs /home --die-with-parent`), runs top-level-await JS in `vm.createContext` with `codeGeneration: { strings: false, wasm: false }` (30s sync CPU spin cap, 30 min default wall-clock cap, live `AbortSignal` teardown), and bridges NDJSON stdio IPC (`__OMA_ORCH_IPC__:`) for `agent(prompt, { role?, model?, tools?, schema?, label?, timeoutMs? })`, `parallel(items, fn, { concurrency? })` (alias `pipeline`), read-only `tool('glob'|'grep'|'read'|'ls'|'tree', input)`, `phase(name, fn)`, and `console.log`. Reusable scripts save under `.oma/orchestrations/<name>.js` (legacy read fallback to `.oma/workflow/<name>.js`). TUI `/orchestrate` persists results back into the session transcript (spilling >8 KB outputs to `.oma/runs/`).
 
 ## Autonomous Memory, TUI Layering & Turn Drivers
 

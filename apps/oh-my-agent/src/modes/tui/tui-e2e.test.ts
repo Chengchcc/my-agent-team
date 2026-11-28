@@ -459,9 +459,9 @@ describe("tui e2e: model I/O on a virtual terminal", () => {
       // /help echoes the command table into the transcript (grouped).
       const rendered = screen(vt);
       // The listing is longer than the viewport now: assert on the tail
-      // groups (workflow is last) that always fit the sliced window.
-      expect(rendered).toContain("[workflow]");
-      expect(rendered).toContain("/workflow <path|script>");
+      // groups (orchestrate is last) that always fit the sliced window.
+      expect(rendered).toContain("[orchestrate]");
+      expect(rendered).toContain("/orchestrate|workflow <name|path|script>");
 
       await quitTui(vt);
       expect(await sessionDone).toBe(0);

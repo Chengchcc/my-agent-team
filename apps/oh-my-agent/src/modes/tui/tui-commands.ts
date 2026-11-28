@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { resolveStandaloneSkillRoots } from "../../cli/initial-input.js";
+import { isValidWorkflowName } from "../../core/delegation/roles.js";
 import {
   type GoalRuntime,
   renderGoalPrompt,
@@ -94,7 +95,7 @@ export interface TuiSessionContext {
   quitting: boolean;
   exitArmed: boolean;
   pendingPrompt?: string;
-  pendingWorkflowScript?: string;
+  pendingWorkflowScript?: { script: string; args?: unknown; label: string };
   liveRuntime: OmaRuntime | null;
   pushStatus: (lines: string | readonly string[], replacePrefix?: string) => void;
   commandsWithSkills?: readonly CommandDef[];
@@ -966,27 +967,98 @@ export function buildCommands(ctx: TuiSessionContext): CommandDef[] {
       },
     },
     {
-      name: "workflow",
-      description: "run a workflow script (file path or inline JS)",
-      argumentHint: "<path|script>",
-      group: "workflow",
+      name: "orchestrate",
+      aliases: ["workflow"],
+      description: "run a dynamic orchestration script (name, file path, or inline JS)",
+      argumentHint: "<name|path|script> [--args <json>]",
+      group: "orchestrate",
       run: (args) => {
+        const listSaved = (): string[] => {
+          const names = new Set<string>();
+          for (const folder of ["orchestrations", "workflow"]) {
+            const dir = join(ctx.opts.workspaceRoot, ".oma", folder);
+            if (!existsSync(dir)) continue;
+            try {
+              for (const entry of readdirSync(dir)) {
+                if (entry.endsWith(".js")) names.add(entry.slice(0, -3));
+              }
+            } catch {
+              /* ignore unreadable dir */
+            }
+          }
+          return [...names].sort();
+        };
         if (!args) {
-          ctx.pushStatus("usage: /workflow <path-or-inline-script>");
+          const saved = listSaved();
+          const lines = [
+            "usage: /orchestrate <name|path|inline-js> [--args '<json>']  (alias: /workflow)",
+          ];
+          if (saved.length > 0) lines.push(`saved scripts: ${saved.join(", ")}`);
+          ctx.pushStatus(lines);
           return;
         }
-        const firstToken = args.split(/\s+/)[0] ?? "";
-        let script: string;
-        let label: string;
-        if (existsSync(firstToken) && statSync(firstToken).isFile()) {
-          script = readFileSync(firstToken, "utf8");
-          label = firstToken;
-        } else {
-          script = args;
+        // Optional trailing `--args <json>` for named/file scripts.
+        let rawTarget = args;
+        let parsedArgs: unknown;
+        const argsMatch = /^(.*?)\s+--args\s+([\s\S]+)$/.exec(args);
+        if (argsMatch) {
+          rawTarget = argsMatch[1]!.trim();
+          let jsonText = argsMatch[2]!.trim();
+          if (
+            (jsonText.startsWith("'") && jsonText.endsWith("'")) ||
+            (jsonText.startsWith('"') && jsonText.endsWith('"'))
+          ) {
+            try {
+              JSON.parse(jsonText);
+            } catch {
+              jsonText = jsonText.slice(1, -1);
+            }
+          }
+          try {
+            parsedArgs = JSON.parse(jsonText);
+          } catch (err) {
+            ctx.pushStatus(
+              `invalid --args JSON: ${err instanceof Error ? err.message : String(err)}`,
+            );
+            return;
+          }
+        }
+
+        const firstToken = rawTarget.split(/\s+/)[0] ?? "";
+        const singleToken = rawTarget === firstToken;
+        let script: string | undefined;
+        let label = "inline";
+
+        // 1. Saved orchestration name in .oma/orchestrations/<name>.js (or legacy .oma/workflow/)
+        if (singleToken && isValidWorkflowName(firstToken)) {
+          for (const folder of ["orchestrations", "workflow"]) {
+            const candidate = join(ctx.opts.workspaceRoot, ".oma", folder, `${firstToken}.js`);
+            if (existsSync(candidate) && statSync(candidate).isFile()) {
+              script = readFileSync(candidate, "utf8");
+              label = firstToken;
+              break;
+            }
+          }
+        }
+        // 2. File path resolved against workspaceRoot (or absolute)
+        if (script === undefined && firstToken) {
+          const candidate = resolve(ctx.opts.workspaceRoot, firstToken);
+          if (existsSync(candidate) && statSync(candidate).isFile()) {
+            script = readFileSync(candidate, "utf8");
+            label = firstToken;
+          }
+        }
+        // 3. Inline JS expression/body
+        if (script === undefined) {
+          script = rawTarget;
           label = "inline";
         }
-        ctx.pendingPrompt = `workflow ${label}`;
-        ctx.pendingWorkflowScript = script;
+        ctx.pendingPrompt = `orchestrate ${label}`;
+        ctx.pendingWorkflowScript = {
+          script,
+          label,
+          ...(parsedArgs !== undefined ? { args: parsedArgs } : {}),
+        };
       },
     },
   ];

@@ -43,10 +43,16 @@ export interface BackendRunInput {
    *  the child's permission classifier — the product's own read
    *  surfaces. Absent = every mounted MCP tool is gated. */
   readonly consentedMcpTools?: readonly string[];
-  /** Oma-only execution mode: run the workflow SCRIPT directly (vm sandbox,
-   *  agent() subagents) instead of an interactive loop. The script's return
-   *  value becomes `outcome.workflow.value`. Other backends ignore it. */
-  readonly workflow?: { readonly script: string; readonly args?: unknown };
+  /** Oma-only execution mode: run a dynamic orchestration script directly
+   *  (isolated subprocess VM, agent() subagents, read-only tool()) instead of
+   *  an interactive loop. The script's return value becomes `outcome.workflow.value`.
+   *  Other backends ignore it. */
+  readonly workflow?: {
+    readonly script: string;
+    readonly args?: unknown;
+    readonly label?: string;
+    readonly timeoutMs?: number;
+  };
   /** Product-run identity (conversation/agent/branch). Optional: the RPC
    *  product path always sends it (wire schema requires it); standalone CLI
    *  runs (TUI/print) omit it and carry no product identity. */
@@ -110,12 +116,13 @@ export type BackendRunOutcome =
        *  branch (agent_context_branch.cli_session_ref) as the runtime
        *  truth for context continuation. */
       readonly cliSessionRef?: string;
-      /** Oma workflow-mode result: the script's return value + aggregate
-       *  subagent usage. Present when the run executed via input.workflow. */
+      /** Oma orchestration-mode result: the script's return value + aggregate
+       *  subagent usage + captured logs. Present when executed via input.workflow. */
       readonly workflow?: {
         readonly ok: boolean;
         readonly value: unknown;
         readonly usage?: Usage;
+        readonly logs?: readonly string[];
       };
     }
   | {

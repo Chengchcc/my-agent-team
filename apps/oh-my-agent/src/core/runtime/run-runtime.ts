@@ -19,6 +19,7 @@ import { createManageSkillTool } from "../memory/manage-skill.js";
 import { managedSkillsDir } from "../memory/managed-skills.js";
 import { backfillLearnedLessons, getVectorMemory } from "../memory/vector-memory.js";
 import { createRecallTool, createRetainTool } from "../memory/vector-tools.js";
+import type { OrchestrationScriptResult } from "../orchestrate/tool.js";
 import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
 import {
   loadProjectSettings,
@@ -129,13 +130,16 @@ export interface RunRuntime {
   readonly contextBudget: ContextBudget | undefined;
   /** Set before startLoop so modelStream resolves the run's model. */
   setActiveRun(run: AgentRunSnapshot | null): void;
-  /** Workflow mode: execute a vm-sandboxed script (agent() subagents) and
-   *  return its value. Used directly by create-runtime when the Run input
-   *  carries `workflow`, and by the workflow_run tool otherwise. */
+  /** Orchestration mode: execute an isolated JS script (agent() subagents +
+   *  read-only tools) and return its value. Used directly by create-runtime
+   *  when the Run input carries `workflow`, and by the `orchestrate` tool. */
   executeWorkflow(input: {
     script: string;
     args?: unknown;
-  }): Promise<{ ok: boolean; totalTokens: number; value: unknown }>;
+    label?: string;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  }): Promise<OrchestrationScriptResult>;
   /** Subagent usage accumulated across delegation_agent_completed events
    *  (T5/B6): the run's outcome merges it so fan-out spend reaches the
    *  product ledger, not just the advisory gate. */

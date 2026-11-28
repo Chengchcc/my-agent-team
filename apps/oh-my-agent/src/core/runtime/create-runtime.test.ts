@@ -489,10 +489,10 @@ describe("createOmaRuntime", () => {
       cacheWriteTokens: 0,
     });
   });
-  test("workflow_run evaluates a script, fans out agents, and persists .oma/workflow", async () => {
+  test("orchestrate evaluates a script, fans out agents, and persists .oma/orchestrations", async () => {
     const requests: string[] = [];
     const script =
-      'const a = await agent("one"); const b = await agent("two"); return [a.text, b.text];';
+      'const a = await agent("one", { role: "explore" }); const b = await agent("two"); return [a.text, b.text];';
     const provider: Provider = {
       id: "fake",
       name: "Fake",
@@ -508,7 +508,7 @@ describe("createOmaRuntime", () => {
         }
         if (!requests.includes("script")) {
           requests.push("script");
-          yield { delta: { type: "tool_use", id: "toolu-2", name: "workflow_run" } };
+          yield { delta: { type: "tool_use", id: "toolu-2", name: "orchestrate" } };
           yield {
             delta: {
               type: "input_json_delta",
@@ -542,12 +542,12 @@ describe("createOmaRuntime", () => {
     expect(requests.filter((r) => r === "subagent")).toHaveLength(2);
     expect(events).toContain("delegation_agent_completed");
     expect(events).toContain("delegation_batch_completed");
-    // The script persists to the workspace for inspection/re-runs.
-    const saved = await Bun.file(join(tmp, ".oma/workflow", "audit.js")).text();
+    // The script persists to .oma/orchestrations for inspection/re-runs.
+    const saved = await Bun.file(join(tmp, ".oma/orchestrations", "audit.js")).text();
     expect(saved).toBe(script);
   });
 
-  test("workflow-mode run (input.workflow) executes the script and returns its value", async () => {
+  test("orchestration-mode run (input.workflow) executes script with read-only tool(), accurate usage, and stop() abort", async () => {
     const requests: string[] = [];
     const provider: Provider = {
       id: "fake",
@@ -587,7 +587,14 @@ describe("createOmaRuntime", () => {
       workspace: { root: tmp, access: "read_write" },
       metadata: { conversationId: "c", agentId: "m", branchId: "b" },
       workflow: {
-        script: 'const a = await agent("fix it"); return { verdict: "PASS", evidence: a.text };',
+        label: "verify",
+        script: `
+          const entries = await phase("list", () => tool("ls", {}));
+          let bashBlocked = false;
+          try { await tool("bash", { command: "echo nope" }); } catch (e) { bashBlocked = String(e).includes("not allowed"); }
+          const a = await agent("fix it");
+          return { verdict: "PASS", evidence: a.text, hasLs: entries !== undefined, bashBlocked };
+        `,
       },
     };
     const segment = await rt.run(input);
@@ -596,11 +603,35 @@ describe("createOmaRuntime", () => {
 
     expect(outcome.status).toBe("completed");
     expect(outcome.workflow?.ok).toBe(true);
-    expect(outcome.workflow?.value).toEqual({ verdict: "PASS", evidence: "fixed" });
-    // No main loop call — only the subagent streamed; its usage is exposed
-    // as top-level run usage so product accounting sees it (B6).
+    expect(outcome.workflow?.value).toEqual({
+      verdict: "PASS",
+      evidence: "fixed",
+      hasLs: true,
+      bashBlocked: true,
+    });
+    // No main loop call — only the subagent streamed; its broken-down usage
+    // (input/output/cacheRead) surfaces accurately on outcome.usage.
     expect(requests).toEqual(["subagent"]);
-    expect(outcome.usage).toEqual({ inputTokens: 0, outputTokens: 14 });
+    expect(outcome.usage).toEqual({ inputTokens: 10, outputTokens: 3, cacheReadTokens: 1 });
+
+    // stop() aborts a live orchestration run immediately without blocking rt.run().
+    const rtStop = await createOmaRuntime({
+      runId: "r-wf-stop",
+      modelId: "fake/echo",
+      workspaceRoot: tmp,
+      workspaceAccess: "read_write",
+      modelRuntime,
+      skillRoots: [],
+    });
+    const segStop = await rtStop.run({
+      ...input,
+      run: { ...input.run, runId: "r-wf-stop" },
+      workflow: { script: "await new Promise(() => {});" },
+    });
+    await segStop.stop();
+    const stopOutcome = await segStop.outcome;
+    await rtStop.close();
+    expect(stopOutcome.status).toBe("aborted");
   });
   test("memory pass is gated on run substance (omp minToolCalls)", async () => {
     // A settlement-injected / acknowledgment run has ~no tool calls: the pass

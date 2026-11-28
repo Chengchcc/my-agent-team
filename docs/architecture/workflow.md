@@ -8,6 +8,8 @@ tags: [workflow, artifacts, backend, sandbox]
 
 CrewDesk's Agentic Workflow system has two cleanly separated layers: **`packages/workflow`** (pure domain DSL, validator, JSON-Logic evaluator, DAG engine, rework planner) and **`apps/backend/src/features/workflow`** (persistent execution engine, node runners, cron/webhook triggers, HTTP API, MCP server), paired with **`apps/backend/src/features/artifact`** for typed `artifacts://` handoffs between nodes and rooms.
 
+> **Not to be confused with Oma Dynamic Orchestration (`orchestrate`):** This document covers Product Backend's **declarative, durable, scheduled/HITL `Workflow`** (`*.workflow.json`). For ephemeral JS-based subagent pipelines inside a single Oma coding session (`orchestrate` tool / TUI `/orchestrate` / `.oma/orchestrations/*.js`), see [Oma Runtime — Delegation Fan-Out & Dynamic Orchestration](./oma-runtime.md#delegation-fan-out--dynamic-orchestration-coredelegation-coreorchestrate).
+
 ## Authoritative files
 
 - `packages/workflow/src/types.ts` & `parse.ts` — `WorkflowDefinition` (`version: 1`) and `parseWorkflow()` validator

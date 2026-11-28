@@ -71,7 +71,7 @@ function filterProbeProvider(toolName: string): Provider {
         return;
       }
       sawMain = true;
-      yield { delta: { type: "tool_use", id: "tu-main", name: "workflow_run" } };
+      yield { delta: { type: "tool_use", id: "tu-main", name: "orchestrate" } };
       yield {
         delta: {
           type: "input_json_delta",
@@ -98,9 +98,9 @@ describe("--tools filter governs the subagent tool table", () => {
       modelRuntime,
       skillRoots: [],
       // Whitelist WITHOUT bash: main loop and subagents both lose it.
-      // (workflow_run stays so the main loop can start the fan-out at all —
+      // (orchestrate stays so the main loop can start the fan-out at all —
       // the filter is literal: it governs every tool, orchestration included.)
-      toolFilter: parseToolFilter("read,grep,glob,tree,read_image,workflow_run"),
+      toolFilter: parseToolFilter("read,grep,glob,tree,read_image,orchestrate"),
     });
     try {
       const segment = await rt.run(runInput("r-filter-sub"));

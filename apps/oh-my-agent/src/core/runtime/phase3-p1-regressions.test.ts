@@ -175,6 +175,7 @@ describe("Phase 3 P1 regressions", () => {
     const advertised = JSON.parse(readFileSync(toolsFile, "utf8")) as string[];
     expect(advertised).not.toContain("eval");
     expect(advertised).not.toContain("browser");
+    expect(advertised).not.toContain("orchestrate");
     expect(advertised).not.toContain("workflow_run");
     expect(advertised).not.toContain("learn");
     expect(advertised).not.toContain("manage_skill");

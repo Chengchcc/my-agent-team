@@ -262,6 +262,7 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
   let stopRequested = false;
   let started = false;
   let memoryLearning: Promise<MemoryLearnResult> | undefined;
+  let workflowController: AbortController | null = null;
   return {
     async run(input) {
       if (started) {
@@ -339,18 +340,29 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
       rt.setActiveRun(input.run as never);
       const outcomePromise = (async (): Promise<BackendRunOutcome> => {
         try {
-          // Workflow mode: the input IS a script to execute (Loop items).
-          // No interactive loop, no messages — the script's return value is
-          // the run's product (outcome.workflow.value).
+          // Orchestration mode: the input IS a script to execute (/orchestrate).
+          // No interactive loop, no main-model messages — the script's return
+          // value is the run's product (outcome.workflow.value). Settle `live`
+          // immediately before execution so `rt.run()` returns a live handle
+          // and `stop()` / Esc can cancel the worker and in-flight subagents.
           if (input.workflow) {
-            const result = await rt.executeWorkflow(input.workflow);
-            // Top-level usage so product accounting (usage totals, Loop
-            // budget) sees the subagent spend; workflow.usage mirrors it.
-            const usage = { inputTokens: 0, outputTokens: result.totalTokens };
+            workflowController = new AbortController();
+            if (stopRequested) workflowController.abort();
+            settleLive();
+            const result = await rt.executeWorkflow({
+              ...input.workflow,
+              signal: workflowController.signal,
+            });
+            const usage = result.usage;
             return {
               status: "completed",
               usage,
-              workflow: { ok: result.ok, value: result.value, usage },
+              workflow: {
+                ok: result.ok,
+                value: result.value,
+                usage,
+                ...(result.logs.length > 0 ? { logs: result.logs } : {}),
+              },
             };
           }
           const result = await rt.session.startLoop({
@@ -420,9 +432,13 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
           }
           return outcome;
         } catch (caught) {
+          if (workflowController?.signal.aborted) {
+            return { status: "aborted", error: "stopped by user" };
+          }
           const errObj = caught instanceof Error ? caught : new Error(String(caught));
           return { status: "failed", error: errObj.message };
         } finally {
+          workflowController = null;
           settleLive(); // loop settled without starting: live is still resolved
           unsubscribe();
           closed = true;
@@ -443,6 +459,7 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
         })(),
         outcome: outcomePromise,
         stop: async () => {
+          workflowController?.abort();
           rt.session.stop();
         },
       };
@@ -457,6 +474,7 @@ export async function createOmaRuntime(options: CreateOmaRuntimeOptions): Promis
 
     async stop() {
       stopRequested = true;
+      workflowController?.abort();
       rt.session.stop();
     },
 
