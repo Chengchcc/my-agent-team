@@ -78,6 +78,101 @@ export interface ProductToolsWiringDeps {
   getAgentRunExecution: () => AgentRunExecutionService | null;
 }
 
+/** Enabled, non-archived roster as capability cards — read by `team_list`. */
+export async function buildRosterCards(
+  agentSvc: Pick<AgentService, "list">,
+  projectSvc: Pick<ProjectService, "getById">,
+) {
+  const rows = await agentSvc.list();
+  return rows
+    .filter((row) => row.archivedAt === null && row.config.enabled)
+    .map((row) => ({
+      id: row.id,
+      name: row.config.name,
+      description: row.config.description,
+      skills: row.config.skills.map((s) =>
+        s.description.length > 0 ? `${s.id}：${s.description}` : s.id,
+      ),
+      ...(row.config.runtime_config.projects.length > 0
+        ? {
+            projects: row.config.runtime_config.projects.map((pid) => {
+              const project = projectSvc.getById(pid) as { name?: string } | null;
+              return { projectId: pid, name: project?.name ?? pid };
+            }),
+          }
+        : {}),
+    }));
+}
+
+/** ADR 0076: resolve which project a dispatch targets. The room's bound project
+ *  wins over brief/instruction text matching, restricted to projects attached to
+ *  the target worker. */
+export function resolveDispatchProject<T extends { projectId: string; name: string }>(input: {
+  attached: readonly string[];
+  roomProjectId: string | null;
+  getProject: (projectId: string) => T;
+  briefObject: string;
+  instruction: string;
+}): T | null {
+  const { attached, roomProjectId, getProject, briefObject, instruction } = input;
+  const roomProject =
+    roomProjectId !== null && attached.includes(roomProjectId) ? getProject(roomProjectId) : null;
+  return (
+    roomProject ??
+    attached
+      .map((pid) => getProject(pid))
+      .find((p) => briefObject.includes(p.name) || instruction.includes(p.name)) ??
+    null
+  );
+}
+
+/** ADR 0065 / C2-A: persist human-authorized lessons into the agent's personal
+ *  Wiki page (`personal/<agentId>/memories.md`) with deduplication and 3-attempt
+ *  optimistic CAS retry. */
+export async function rememberLesson(
+  wikiSvc: Pick<WikiService, "read" | "patch" | "create">,
+  input: { agentId: string; conversationId: string; text: string; todayIso?: string },
+): Promise<{ saved: boolean; reason?: string }> {
+  const normalized = input.text.replace(/\s+/g, " ").trim();
+  if (!normalized) return { saved: false, reason: "empty lesson" };
+  const pagePath = `personal/${input.agentId}/memories.md`;
+  const source = `conversation:${input.conversationId}`;
+  const dateStamp = input.todayIso ?? new Date().toISOString().slice(0, 10);
+  const line = `- [${dateStamp}] ${normalized}`;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const existing = wikiSvc.read(pagePath);
+    if (existing) {
+      const already = existing.body
+        .split("\n")
+        .some((row) => row.replace(/^-\s*\[\d{4}-\d{2}-\d{2}\]\s*/, "").trim() === normalized);
+      if (already) return { saved: true, reason: "already remembered" };
+      const body =
+        existing.body.trim() === "" ? line : `${existing.body.replace(/\s+$/, "")}\n${line}`;
+      const res = await wikiSvc.patch({
+        path: pagePath,
+        agentId: input.agentId,
+        content: body,
+        sources: [source],
+        expectedRevision: existing.revision,
+      });
+      if (res.ok) return { saved: true };
+      if (res.reason === "conflict") continue;
+      return { saved: false, reason: res.detail };
+    }
+    const res = await wikiSvc.create({
+      path: pagePath,
+      agentId: input.agentId,
+      title: "Personal Memories",
+      content: line,
+      sources: [source],
+    });
+    if (res.ok) return { saved: true };
+    if (res.reason === "conflict") continue;
+    return { saved: false, reason: res.detail };
+  }
+  return { saved: false, reason: "concurrent update conflict" };
+}
+
 /** Wire ReminderService, ProductToolsService (dispatch, handback, report,
  *  wiki, personal memories, requirements, project push/proposals, worker
  *  steer/cancel), per-run bearer token registry, and the 3 local MCP servers. */
@@ -109,28 +204,7 @@ export async function wireProductTools(deps: ProductToolsWiringDeps) {
     getAgentRunExecution,
   } = deps;
 
-  /** Enabled, non-archived roster as capability cards — read by team_list. */
-  const rosterCards = async () => {
-    const rows = await agentSvc.list();
-    return rows
-      .filter((row) => row.archivedAt === null && row.config.enabled)
-      .map((row) => ({
-        id: row.id,
-        name: row.config.name,
-        description: row.config.description,
-        skills: row.config.skills.map((s) =>
-          s.description.length > 0 ? `${s.id}：${s.description}` : s.id,
-        ),
-        ...(row.config.runtime_config.projects.length > 0
-          ? {
-              projects: row.config.runtime_config.projects.map((pid) => {
-                const project = projectSvc.getById(pid) as { name?: string } | null;
-                return { projectId: pid, name: project?.name ?? pid };
-              }),
-            }
-          : {}),
-      }));
-  };
+  const rosterCards = () => buildRosterCards(agentSvc, projectSvc);
 
   // Reminder service must exist before product tools: remind_me /
   // reminder_list / reminder_cancel call it at request time.
@@ -434,16 +508,13 @@ export async function wireProductTools(deps: ProductToolsWiringDeps) {
       const workerRoot = workerAgent?.workspacePath ?? "";
       const attached = workerAgent?.config.runtime_config.projects ?? [];
       const roomProjectId = convPort.getConversation(conversationId)?.projectId ?? null;
-      const roomProject =
-        roomProjectId !== null && attached.includes(roomProjectId)
-          ? projectSvc.getById(roomProjectId)
-          : null;
-      const namedProject =
-        roomProject ??
-        attached
-          .map((pid: string) => projectSvc.getById(pid))
-          .find((p) => brief.object.includes(p.name) || instruction.includes(p.name)) ??
-        null;
+      const namedProject = resolveDispatchProject({
+        attached,
+        roomProjectId,
+        getProject: (pid) => projectSvc.getById(pid),
+        briefObject: brief.object,
+        instruction,
+      });
       let workerWorktree: string | null = null;
       if (namedProject !== null) {
         let requirementId = namedRequirement ?? workspaceSvc.currentRequirementOf(conversationId);
@@ -591,45 +662,7 @@ export async function wireProductTools(deps: ProductToolsWiringDeps) {
         wake: purpose !== "progress",
       }),
     // ADR 0065 / C2-A: persist human-authorized lessons into personal Wiki page.
-    remember: async ({ agentId, conversationId, text }) => {
-      const normalized = text.replace(/\s+/g, " ").trim();
-      if (!normalized) return { saved: false, reason: "empty lesson" };
-      const pagePath = `personal/${agentId}/memories.md`;
-      const source = `conversation:${conversationId}`;
-      const line = `- [${new Date().toISOString().slice(0, 10)}] ${normalized}`;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const existing = wikiSvc.read(pagePath);
-        if (existing) {
-          const already = existing.body
-            .split("\n")
-            .some((row) => row.replace(/^-\s*\[\d{4}-\d{2}-\d{2}\]\s*/, "").trim() === normalized);
-          if (already) return { saved: true, reason: "already remembered" };
-          const body =
-            existing.body.trim() === "" ? line : `${existing.body.replace(/\s+$/, "")}\n${line}`;
-          const res = await wikiSvc.patch({
-            path: pagePath,
-            agentId,
-            content: body,
-            sources: [source],
-            expectedRevision: existing.revision,
-          });
-          if (res.ok) return { saved: true };
-          if (res.reason === "conflict") continue;
-          return { saved: false, reason: res.detail };
-        }
-        const res = await wikiSvc.create({
-          path: pagePath,
-          agentId,
-          title: "Personal Memories",
-          content: line,
-          sources: [source],
-        });
-        if (res.ok) return { saved: true };
-        if (res.reason === "conflict") continue;
-        return { saved: false, reason: res.detail };
-      }
-      return { saved: false, reason: "concurrent update conflict" };
-    },
+    remember: (input) => rememberLesson(wikiSvc, input),
     // ADR 0059 D6 + ADR 0070: query active runs across both room and child rooms.
     steerWorker: async ({ fromAgentId, conversationId, toAgentId, runId, callId, message }) => {
       const childIds =

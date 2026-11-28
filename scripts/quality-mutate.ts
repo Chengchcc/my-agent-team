@@ -21,7 +21,7 @@
  * Adding an entry: pick the SMALLEST edit that breaks the intent, and make
  * sure the anchor is unique (`old` must appear exactly once in the file).
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
@@ -219,20 +219,20 @@ const MUTATIONS: readonly Mutation[] = [
     nu: '    if (typeof item.id !== "string") continue;',
   },
 
-  // ── apps/backend (HTTP boundary, auth, SSE contract) ──
+  // ── apps/backend (HTTP boundary, auth, workflow, security & invariants) ──
   {
-    label: "[be] auth length gate removed (timing compare throws on mismatch)",
+    label: "[be] auth accepts empty token (blank secret bypass)",
     app: "backend",
     file: "src/infra/auth.ts",
-    old: "  if (header.length !== token.length) return false;",
+    old: "  if (header.length === 0 || token.length === 0) return false;",
     nu: "  if (false) return false;",
   },
   {
-    label: "[be] auth bypass: any token accepted",
+    label: "[be] auth bypass: any non-empty token accepted",
     app: "backend",
     file: "src/infra/auth.ts",
-    old: "  if (header.length !== token.length) return false;",
-    nu: "  if (header.length !== token.length) return true;",
+    old: "  return safeTokenEqual(header, token);",
+    nu: "  return true;",
   },
   {
     label: "[be] artifact folder traversal guard disabled",
@@ -256,11 +256,11 @@ const MUTATIONS: readonly Mutation[] = [
     nu: "      if (false) throw new HttpError(`artifact not found: ${url}`, 404);",
   },
   {
-    label: "[be] terminal event no longer ends the SSE stream",
+    label: "[be] workflow cancel check disabled (cancelled execution keeps driving)",
     app: "backend",
-    file: "src/features/workflow/event-bus.ts",
-    old: '        if (ev.event === "execution_terminal") return;',
-    nu: "        if (false) return;",
+    file: "src/features/workflow/service.ts",
+    old: "    if (cancelled.has(executionId)) throw new WorkflowCancelledError();",
+    nu: "    if (false) throw new WorkflowCancelledError();",
   },
   {
     label: "[be] conversation create no longer idempotent",
@@ -287,8 +287,65 @@ const MUTATIONS: readonly Mutation[] = [
     label: "[be] skill-pack files endpoint leaks raw fs errors (path probe)",
     app: "backend",
     file: "src/features/skill-pack/http.ts",
-    old: '          return { error: "cannot read pack files" };',
-    nu: "          return { error: (err as Error).message };",
+    old: '        } catch {\n          // Generic message: raw fs errors embed absolute paths, which\n          // turns the endpoint into a filesystem probe.\n          set.status = 400;\n          return { error: "cannot read pack files" };',
+    nu: "        } catch (err) {\n          set.status = 400;\n          return { error: (err as Error).message };",
+  },
+  // ── apps/backend Wave 1-5 security, concurrency & invariant probes ──
+  {
+    label: "[be] rate limiter always allows (brute-force guard disabled)",
+    app: "backend",
+    file: "src/infra/rate-limit.ts",
+    old: "      if (bucket.tokens >= cost) {",
+    nu: "      if (true) {",
+  },
+  {
+    label: "[be] mcp create accepts stdio without command",
+    app: "backend",
+    file: "src/features/mcp/service.ts",
+    old: '      if (input.transport === "stdio" && !input.command?.trim()) {',
+    nu: "      if (false) {",
+  },
+  {
+    label: "[be] mcp create accepts sse without url",
+    app: "backend",
+    file: "src/features/mcp/service.ts",
+    old: '      if (input.transport === "sse" && !input.url?.trim()) {',
+    nu: "      if (false) {",
+  },
+  {
+    label: "[be] answerRefusal allows agent to answer irreversible request",
+    app: "backend",
+    file: "src/features/agent-run/answer-guard.ts",
+    old: "  if (irreversible(action.payload)) {",
+    nu: "  if (false) {",
+  },
+  {
+    label: "[be] answerRefusal allows non-owner agent to hijack parked request",
+    app: "backend",
+    file: "src/features/agent-run/answer-guard.ts",
+    old: "  if (action.owner !== `agent:${agentId}`) {",
+    nu: "  if (false) {",
+  },
+  {
+    label: "[be] workspace single-flight lock disabled (double-materialize race)",
+    app: "backend",
+    file: "src/features/workspace/service.ts",
+    old: "      const pending = inFlight.get(key);\n      if (pending) return pending;",
+    nu: "      const pending = inFlight.get(key);\n      if (false) return pending;",
+  },
+  {
+    label: "[be] conversation setSaved drops conversationId scope (cross-room tamper)",
+    app: "backend",
+    file: "src/features/conversation/http.ts",
+    old: "          if (!svc.port.setSaved(seqNum, body.saved, id)) {",
+    nu: "          if (!svc.port.setSaved(seqNum, body.saved)) {",
+  },
+  {
+    label: "[be] rememberLesson deduplication disabled (duplicate personal memories)",
+    app: "backend",
+    file: "src/bootstrap/wiring-product-tools.ts",
+    old: '      if (already) return { saved: true, reason: "already remembered" };',
+    nu: '      if (false) return { saved: true, reason: "already remembered" };',
   },
 ];
 
@@ -310,7 +367,7 @@ function parseArgs(argv: readonly string[]): {
 
 function runSuite(appDir: string): { failed: number; tail: string } {
   const proc = Bun.spawnSync({
-    cmd: [process.execPath, "test"],
+    cmd: [process.execPath, "test", "src"],
     cwd: appDir,
     stdout: "pipe",
     stderr: "pipe",
@@ -335,6 +392,40 @@ function main(): number {
       console.log(`  [${m.app}]  ${m.file}  ${m.label}`);
     if (selected.length === 0) console.error(`no mutation matches --app ${app} --only ${only}`);
     return selected.length === 0 && (only || app) ? 1 : 0;
+  }
+
+  // Validate every target file + unique anchor upfront before paying for test runs.
+  const badAnchors: string[] = [];
+  for (const m of selected) {
+    const path = join(APPS[m.app], m.file);
+    if (!existsSync(path)) {
+      badAnchors.push(`[${m.app}] ${m.label} — file not found: ${m.file}`);
+      continue;
+    }
+    const content = readFileSync(path, "utf8");
+    const count = content.split(m.old).length - 1;
+    if (count !== 1) {
+      badAnchors.push(`[${m.app}] ${m.label} — anchor matched ${count}x in ${m.file}`);
+    }
+  }
+  if (badAnchors.length > 0) {
+    console.error(`FATAL: ${badAnchors.length} broken mutation anchor(s):`);
+    for (const b of badAnchors) console.error(`  - ${b}`);
+    return 2;
+  }
+
+  // Verify the unmutated baseline suite passes for every targeted app first;
+  // otherwise pre-existing failures would falsely mark surviving mutants KILLED.
+  const targetedApps = [...new Set(selected.map((m) => m.app))];
+  for (const appId of targetedApps) {
+    const baseline = runSuite(APPS[appId]);
+    if (baseline.failed !== 0) {
+      console.error(
+        `FATAL: baseline suite for [${appId}] is NOT green (${baseline.tail}) — aborting mutation probe`,
+      );
+      return 2;
+    }
+    console.log(`BASELINE OK [${appId}] — ${baseline.tail}`);
   }
 
   const holes: string[] = [];

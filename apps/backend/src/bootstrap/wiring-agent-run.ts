@@ -306,68 +306,16 @@ export function wireRunCoordination(deps: RunCoordinationDeps) {
     markNotified: (runId) => agentRunPort.markResultNotified(runId),
   });
 
-  /** ADR 0075: a parked request goes to its owner (dispatcher agent or human). */
-  async function surfaceRequest(input: {
-    runId: string;
-    callId: string;
-    kind: string;
-    payload: Readonly<Record<string, unknown>>;
-  }): Promise<void> {
-    const run = await agentRunPort.getRun(input.runId).catch(() => null);
-    if (run === null) return;
-    const room = convPort.getConversation(run.conversationId);
-    if (!room) return;
-    const owner = requestOwnerOf({
-      authorization: run.authorization ?? null,
-      roleOf: roleOfAgent,
-    });
-    const worker =
-      run.agentId === null ? null : await agentSvc.getById(run.agentId).catch(() => null);
-    const workerName = worker?.config.name ?? run.agentId ?? "worker";
-    const detail =
-      input.kind === "approval"
-        ? `审批：${String(input.payload.toolName ?? "动作")} — ${String(input.payload.reason ?? "").slice(0, 200)}`
-        : `提问：${String((input.payload.questions as Array<{ question?: string }> | undefined)?.[0]?.question ?? "").slice(0, 200)}`;
-
-    if (owner.agentId === null) {
-      // Human-owned. A root room already reaches the inbox (and the Lark card
-      // renders the pending action). A child room does not: wake the parent
-      // room's front desk so it escalates with a structured ask card.
-      const parentId = room.parentConversationId;
-      if (!parentId) return;
-      const frontDesk = convPort.getConversation(parentId)?.agentId ?? null;
-      if (frontDesk === null) return;
-      await convSvc.postMessage({
-        conversationId: parentId,
-        senderMemberId: run.agentId ?? "system",
-        content: [
-          `【需要人类决定】${workerName} 在子会话「${room.title ?? "未命名"}」停下了：${detail}`,
-          "用 ask_question 在本房间升级给人：写清谁在问、在做什么、要执行什么、为什么必须由人决定、影响范围，并给出允许/拒绝选项。",
-        ].join("\n"),
-      });
-      return;
-    }
-
-    const target = room.parentConversationId ?? room.conversationId;
-    await convSvc.postMessage({
-      conversationId: target,
-      senderMemberId: run.agentId ?? "system",
-      content: [
-        `【请求】${workerName} 需要你决定：${detail}`,
-        `用 answer_worker_request(run_id="${run.runId}", call_id="${input.callId}", evidence=[...]) 回答；`,
-        "答不了（不可逆操作 / 超出授权 / 验收 / 无证据）就升级给人。",
-      ].join("\n"),
-    });
-  }
-
-  /** Shared callback for both product-tools asks and ACP approval requests. */
   const onRequestCreated = (input: {
     runId: string;
     callId: string;
     kind: string;
     payload: Readonly<Record<string, unknown>>;
   }): void => {
-    void surfaceRequest(input).catch(async (err: unknown) => {
+    void surfaceParkedRequest(
+      { agentSvc, agentRunPort, convPort, convSvc, roleOfAgent },
+      input,
+    ).catch(async (err: unknown) => {
       console.error(
         `[bootstrap] request notice failed: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -381,6 +329,191 @@ export function wireRunCoordination(deps: RunCoordinationDeps) {
   };
 
   return { notifyDispatcher, onRequestCreated };
+}
+
+/** ADR 0075: route a parked request (ask or approval) to its owner — either the
+ *  dispatching agent in its room, or the parent room's front desk when a child
+ *  room parks on a human-owned decision. */
+export async function surfaceParkedRequest(
+  deps: Pick<
+    RunCoordinationDeps,
+    "agentSvc" | "agentRunPort" | "convPort" | "convSvc" | "roleOfAgent"
+  >,
+  input: {
+    runId: string;
+    callId: string;
+    kind: string;
+    payload: Readonly<Record<string, unknown>>;
+  },
+): Promise<void> {
+  const { agentSvc, agentRunPort, convPort, convSvc, roleOfAgent } = deps;
+  const run = await agentRunPort.getRun(input.runId).catch(() => null);
+  if (run === null) return;
+  const room = convPort.getConversation(run.conversationId);
+  if (!room) return;
+  const owner = requestOwnerOf({
+    authorization: run.authorization ?? null,
+    roleOf: roleOfAgent,
+  });
+  const worker =
+    run.agentId === null ? null : await agentSvc.getById(run.agentId).catch(() => null);
+  const workerName = worker?.config.name ?? run.agentId ?? "worker";
+  const detail =
+    input.kind === "approval"
+      ? `审批：${String(input.payload.toolName ?? "动作")} — ${String(input.payload.reason ?? "").slice(0, 200)}`
+      : `提问：${String((input.payload.questions as Array<{ question?: string }> | undefined)?.[0]?.question ?? "").slice(0, 200)}`;
+
+  if (owner.agentId === null) {
+    // Human-owned. A root room already reaches the inbox (and the Lark card
+    // renders the pending action). A child room does not: wake the parent
+    // room's front desk so it escalates with a structured ask card.
+    const parentId = room.parentConversationId;
+    if (!parentId) return;
+    const frontDesk = convPort.getConversation(parentId)?.agentId ?? null;
+    if (frontDesk === null) return;
+    await convSvc.postMessage({
+      conversationId: parentId,
+      senderMemberId: run.agentId ?? "system",
+      content: [
+        `【需要人类决定】${workerName} 在子会话「${room.title ?? "未命名"}」停下了：${detail}`,
+        "用 ask_question 在本房间升级给人：写清谁在问、在做什么、要执行什么、为什么必须由人决定、影响范围，并给出允许/拒绝选项。",
+      ].join("\n"),
+    });
+    return;
+  }
+
+  const target = room.parentConversationId ?? room.conversationId;
+  await convSvc.postMessage({
+    conversationId: target,
+    senderMemberId: run.agentId ?? "system",
+    content: [
+      `【请求】${workerName} 需要你决定：${detail}`,
+      `用 answer_worker_request(run_id="${run.runId}", call_id="${input.callId}", evidence=[...]) 回答；`,
+      "答不了（不可逆操作 / 超出授权 / 验收 / 无证据）就升级给人。",
+    ].join("\n"),
+  });
+}
+
+/** Read the dispatcher's most recent non-empty `todo_snapshot` as markdown lines. */
+export function readDispatcherPlan(db: Database, dispatcherConversationId: string | null): string {
+  if (dispatcherConversationId === null) return "";
+  const row = db
+    .query(
+      `SELECT todo_snapshot FROM agent_run
+        WHERE conversation_id = ? AND todo_snapshot IS NOT NULL AND todo_snapshot <> ''
+        ORDER BY created_at DESC LIMIT 1`,
+    )
+    .get(dispatcherConversationId) as { todo_snapshot: string } | null;
+  if (row === null) return "";
+  try {
+    const parsed: unknown = JSON.parse(row.todo_snapshot);
+    if (!Array.isArray(parsed)) return "";
+    const lines: string[] = [];
+    for (const item of parsed) {
+      if (typeof item !== "object" || item === null) continue;
+      const text = "text" in item && typeof item.text === "string" ? item.text : "";
+      const status = "status" in item && typeof item.status === "string" ? item.status : "";
+      if (text !== "") lines.push(`- [${status || "pending"}] ${text}`);
+    }
+    return lines.join("\n");
+  } catch {
+    return "";
+  }
+}
+
+/** Extract `artifacts://` URLs uploaded by a run from the product_tool_call ledger. */
+export function readRunArtifactUrls(db: Database, runId: string): string[] {
+  const rows = db
+    .query(
+      "SELECT result FROM product_tool_call WHERE run_id = ? AND tool_name = 'artifact_upload'",
+    )
+    .all(runId) as Array<{ result: string | null }>;
+  const urls: string[] = [];
+  for (const row of rows) {
+    if (row.result === null) continue;
+    try {
+      const parsed: unknown = JSON.parse(row.result);
+      if (typeof parsed === "object" && parsed !== null && "url" in parsed) {
+        const url = parsed.url;
+        if (typeof url === "string" && url.startsWith("artifacts://")) urls.push(url);
+      }
+    } catch {
+      /* a malformed row is skipped, never fatal */
+    }
+  }
+  return urls;
+}
+
+export interface CommittedTurnObservationDeps {
+  db: Database;
+  agentSvc: Pick<AgentService, "getById">;
+  agentRunPort: Pick<AgentRunPort, "listPendingActions" | "listDecidedActions">;
+  agentRunService: Pick<AgentRunService, "listInputs">;
+  opsStore: Pick<RuntimeOpsStore, "appendRunEvent">;
+}
+
+/** ADR 0066 + ADR 0075 post-commit telemetry observations (best-effort, never throws).
+ *  Shares agent role, pending actions, and dispatch ledger lookup across all checks. */
+export async function observeCommittedTurn(
+  deps: CommittedTurnObservationDeps,
+  input: {
+    runId: string;
+    agentId: string;
+    branchId: string;
+    output: Message;
+  },
+): Promise<void> {
+  const { db, agentSvc, agentRunPort, agentRunService, opsStore } = deps;
+  const { runId, agentId, branchId, output } = input;
+  try {
+    const answer = extractText(output);
+    const pending = await agentRunPort.listPendingActions(runId).catch(() => []);
+
+    // Observation 1 (ADR 0066): ended with a question without opening an ask.
+    if (endsWithQuestion(answer) && !pending.some((action) => action.kind === "ask")) {
+      opsStore.appendRunEvent(runId, "unasked_question", {
+        tail: lastParagraph(answer).slice(0, 200),
+      });
+    }
+
+    // Observations 2 & 3 (ADR 0075) apply to front-desk turns only.
+    const role = (await agentSvc.getById(agentId).catch(() => null))?.config.role;
+    if (role === "worker") return;
+
+    const dispatchedRows = db
+      .query("SELECT 1 FROM product_tool_call WHERE run_id = ? AND tool_name = 'dispatch' LIMIT 1")
+      .all(runId);
+    const dispatched = dispatchedRows.length > 0;
+
+    // Observation 2: irreversible request unasked / status question dispatched.
+    const inputs = await agentRunService.listInputs(branchId).catch(() => []);
+    const mine = inputs.find((i) => i.runId === runId);
+    const requestText = typeof mine?.message?.text === "string" ? mine.message.text : "";
+    if (requestText !== "") {
+      const decided = await agentRunPort.listDecidedActions(runId).catch(() => []);
+      const asked = pending.some((a) => a.kind === "ask") || decided.some((d) => d.kind === "ask");
+      if (isIrreversibleRequest(requestText) && !asked && !dispatched) {
+        opsStore.appendRunEvent(runId, "irreversible_unasked", {
+          head: requestText.slice(0, 160),
+        });
+      }
+      if (isStatusQuestion(requestText) && dispatched) {
+        opsStore.appendRunEvent(runId, "status_question_dispatched", {
+          head: requestText.slice(0, 160),
+        });
+      }
+    }
+
+    // Observation 3: front desk produced a long-form answer with no dispatch.
+    if (answer.length >= 800 && !dispatched) {
+      opsStore.appendRunEvent(runId, "unrouted_work", {
+        chars: answer.length,
+        head: answer.slice(0, 160),
+      });
+    }
+  } catch {
+    /* an observation must never disturb the turn */
+  }
 }
 
 export interface AgentRunExecutionWiringDeps {
@@ -470,56 +603,6 @@ export async function wireAgentRunExecution(deps: AgentRunExecutionWiringDeps) {
     return agent?.config.name ?? agentId;
   };
 
-  /** The dispatcher's plan as the worker's result will carry it. */
-  const planOfDispatcher = (dispatcherConversationId: string | null): string => {
-    if (dispatcherConversationId === null) return "";
-    const row = db
-      .query(
-        `SELECT todo_snapshot FROM agent_run
-          WHERE conversation_id = ? AND todo_snapshot IS NOT NULL AND todo_snapshot <> ''
-          ORDER BY created_at DESC LIMIT 1`,
-      )
-      .get(dispatcherConversationId) as { todo_snapshot: string } | null;
-    if (row === null) return "";
-    try {
-      const parsed: unknown = JSON.parse(row.todo_snapshot);
-      if (!Array.isArray(parsed)) return "";
-      const lines: string[] = [];
-      for (const item of parsed) {
-        if (typeof item !== "object" || item === null) continue;
-        const text = "text" in item && typeof item.text === "string" ? item.text : "";
-        const status = "status" in item && typeof item.status === "string" ? item.status : "";
-        if (text !== "") lines.push(`- [${status || "pending"}] ${text}`);
-      }
-      return lines.join("\n");
-    } catch {
-      return "";
-    }
-  };
-
-  /** Artifact URLs a run uploaded via product_tool_call ledger. */
-  const artifactUrlsOf = (runId: string): string[] => {
-    const rows = db
-      .query(
-        "SELECT result FROM product_tool_call WHERE run_id = ? AND tool_name = 'artifact_upload'",
-      )
-      .all(runId) as Array<{ result: string | null }>;
-    const urls: string[] = [];
-    for (const row of rows) {
-      if (row.result === null) continue;
-      try {
-        const parsed: unknown = JSON.parse(row.result);
-        if (typeof parsed === "object" && parsed !== null && "url" in parsed) {
-          const url = parsed.url;
-          if (typeof url === "string" && url.startsWith("artifacts://")) urls.push(url);
-        }
-      } catch {
-        /* a malformed row is skipped, never fatal */
-      }
-    }
-    return urls;
-  };
-
   // T3-2: failed/aborted/timeout runs persist an assistant error message so
   // the failure survives refresh (transient bubbles die with the page).
   const onRunFailed = (input: {
@@ -580,79 +663,16 @@ export async function wireAgentRunExecution(deps: AgentRunExecutionWiringDeps) {
         runId,
         Math.max(0, (run.terminalAt ?? Date.now()) - run.createdAt),
       );
-      // Observation (ADR 0066): ended with a question without opening an ask.
-      void (async () => {
-        try {
-          const answer = extractText(output);
-          if (!endsWithQuestion(answer)) return;
-          const asks = await agentRunPort.listPendingActions(runId);
-          if (asks.some((action) => action.kind === "ask")) return;
-          opsStore.appendRunEvent(runId, "unasked_question", {
-            tail: lastParagraph(answer).slice(0, 200),
-          });
-        } catch {
-          /* an observation must never disturb the turn */
-        }
-      })();
-      // Observation (ADR 0075): irreversible unasked / status question dispatched.
-      void (async () => {
-        try {
-          const role = (await agentSvc.getById(run.agentId).catch(() => null))?.config.role;
-          if (role === "worker") return;
-          const inputs = await agentRunService.listInputs(run.branchId).catch(() => []);
-          const mine = inputs.find((i) => i.runId === runId);
-          const requestText = typeof mine?.message?.text === "string" ? mine.message.text : "";
-          if (requestText === "") return;
-          const dispatchedRows = db
-            .query(
-              "SELECT 1 FROM product_tool_call WHERE run_id = ? AND tool_name = 'dispatch' LIMIT 1",
-            )
-            .all(runId);
-          const dispatched = dispatchedRows.length > 0;
-          const pending = await agentRunPort.listPendingActions(runId).catch(() => []);
-          const decided = await agentRunPort.listDecidedActions(runId).catch(() => []);
-          const asked =
-            pending.some((a) => a.kind === "ask") || decided.some((d) => d.kind === "ask");
-          if (isIrreversibleRequest(requestText) && !asked && !dispatched) {
-            opsStore.appendRunEvent(runId, "irreversible_unasked", {
-              head: requestText.slice(0, 160),
-            });
-          }
-          if (isStatusQuestion(requestText) && dispatched) {
-            opsStore.appendRunEvent(runId, "status_question_dispatched", {
-              head: requestText.slice(0, 160),
-            });
-          }
-        } catch {
-          /* an observation must never disturb the turn */
-        }
-      })();
-      // Observation (ADR 0075): front desk produced a long-form answer with no dispatch.
-      void (async () => {
-        try {
-          const frontDesk = (await agentSvc.getById(run.agentId).catch(() => null))?.config.role;
-          if (frontDesk === "worker") return;
-          const answer = extractText(output);
-          if (answer.length < 800) return;
-          const dispatchedRows = db
-            .query(
-              "SELECT 1 FROM product_tool_call WHERE run_id = ? AND tool_name = 'dispatch' LIMIT 1",
-            )
-            .all(runId);
-          if (dispatchedRows.length > 0) return;
-          opsStore.appendRunEvent(runId, "unrouted_work", {
-            chars: answer.length,
-            head: answer.slice(0, 160),
-          });
-        } catch {
-          /* an observation must never disturb the turn */
-        }
-      })();
+      // Best-effort ADR 0066 + ADR 0075 telemetry observations (non-blocking).
+      void observeCommittedTurn(
+        { db, agentSvc, agentRunPort, agentRunService, opsStore },
+        { runId, agentId: run.agentId, branchId: run.branchId, output },
+      );
       // ADR 0059 D5 + ADR 0070 + ADR 0076 H1: materialize deliverable report and
       // notify the dispatcher in its parent room.
       if (run.parentRunId && run.authorization?.startsWith("dispatch:") === true) {
         const finalText = extractText(output);
-        let artifacts = artifactUrlsOf(runId);
+        let artifacts = readRunArtifactUrls(db, runId);
         if (artifacts.length === 0 && finalText.trim() !== "") {
           try {
             const uploaded = await artifactService.upload({
@@ -669,20 +689,18 @@ export async function wireAgentRunExecution(deps: AgentRunExecutionWiringDeps) {
             );
           }
         }
+        const parentConversationId =
+          convPort.getConversation(run.conversationId)?.parentConversationId ?? null;
         await notifyDispatcher({
           fromAgentId: run.agentId,
-          conversationId:
-            convPort.getConversation(run.conversationId)?.parentConversationId ??
-            run.conversationId,
+          conversationId: parentConversationId ?? run.conversationId,
           runId,
           text: frameResultInput(
             await agentNameOf(run.agentId),
             "completed",
             finalText,
             artifacts,
-            planOfDispatcher(
-              convPort.getConversation(run.conversationId)?.parentConversationId ?? null,
-            ),
+            readDispatcherPlan(db, parentConversationId),
           ),
           wake: true,
         });
