@@ -105,7 +105,9 @@ export function MemberCard({
         </div>
         <div className="min-w-0">
           <dt className={metaLabel}>{t("Member workspace")}</dt>
-          <dd className={`${metaValue} font-mono`}>{agent.workspacePath}</dd>
+          <dd className={`${metaValue} truncate font-mono`} title={agent.workspacePath}>
+            {agent.workspacePath.replace(/^.*\/(\.backend-data\/)/, "…/$1")}
+          </dd>
         </div>
         <div className="min-w-0">
           <dt className={metaLabel}>{t("Work context")}</dt>

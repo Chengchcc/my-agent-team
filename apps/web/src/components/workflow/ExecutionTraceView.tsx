@@ -317,8 +317,10 @@ export function ExecutionTraceView({
             depth={dagDepth}
             validated={graph.nodes.length > 0}
             streaming={streamEnabled}
-            onToggleStream={() =>
-              setFollowLive((v) => (v === "following" ? "paused" : "following"))
+            onToggleStream={
+              terminal
+                ? undefined
+                : () => setFollowLive((v) => (v === "following" ? "paused" : "following"))
             }
             zoom={zoomApi ?? undefined}
           />

@@ -1,6 +1,6 @@
 "use client";
 
-import { Search } from "lucide-react";
+import { ArrowUpRight, Search } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useMemo, useState } from "react";
 import { type AskPaRequest, AskPaSheet } from "@/components/AskPaSheet";
@@ -246,10 +246,11 @@ export default function SettingsPage() {
               href="/channels"
               className={cn(
                 buttonVariants({ variant: "ghost", size: "sm" }),
-                "justify-start text-(--mute)",
+                "justify-between text-(--mute)",
               )}
             >
-              {t("Channels")}
+              <span>{t("Channels")}</span>
+              <ArrowUpRight className="size-3.5 opacity-60" />
             </Link>
           </nav>
 

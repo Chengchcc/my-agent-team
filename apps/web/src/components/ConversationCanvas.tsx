@@ -174,7 +174,7 @@ export function ConversationCanvas({
   // right-hand context/preview opens on demand (or automatically when clicking an
   // artifact / requirement chip) and supports drag-to-resize.
   const [asideVisible, setAsideVisible] = useState(false);
-  const [asideWidth, setAsideWidth] = useState<number>(460);
+  const [asideWidth, setAsideWidth] = useState<number>(360);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const draggingRef = useRef(false);
 
@@ -197,11 +197,13 @@ export function ConversationCanvas({
 
   const openArtifact = useCallback((artifact: ArtifactMeta) => {
     setInspectorTarget({ kind: "artifact", artifact });
+    setAsideWidth((w) => Math.max(w, 480));
     setAsideVisible(true);
   }, []);
 
   const openRequirement = useCallback((requirementId: string) => {
     setInspectorTarget({ kind: "requirement", requirementId });
+    setAsideWidth((w) => Math.max(w, 480));
     setAsideVisible(true);
   }, []);
 
@@ -454,7 +456,7 @@ export function ConversationCanvas({
     sessionTerminals.length +
     sessionExecutions.length;
 
-  const effectiveAsideWidth = inspectorTarget ? asideWidth : Math.min(asideWidth, 360);
+  const effectiveAsideWidth = asideWidth;
 
   const contextAside = (
     <>

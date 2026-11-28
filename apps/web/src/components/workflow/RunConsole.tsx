@@ -13,6 +13,7 @@ const EVENT_TAG: Record<string, string> = {
   node_failed: "border-(--err)/30 bg-(--err)/10 text-(--err)",
   routing: "border-(--accent-violet)/30 bg-(--accent-violet)/10 text-(--accent-violet)",
   agent_send: "border-(--warn)/30 bg-(--warn)/10 text-(--warn)",
+  node_agent_started: "border-(--info)/30 bg-(--info)/10 text-(--info)",
   human_gate: "border-(--accent-violet)/30 bg-(--accent-violet)/10 text-(--accent-violet)",
   execution_terminal: "border-(--primary)/30 bg-(--primary)/10 text-(--primary)",
 };
@@ -83,6 +84,10 @@ function renderEventSummary(event: string, data: unknown): string {
       return d.error
         ? t("node {node} failed: {error}", { node, error: String(d.error) })
         : t("node {node} failed", { node });
+    case "node_agent_started":
+      return d.agentId
+        ? t("node {node} running on {agent}", { node, agent: String(d.agentId) })
+        : t("node {node} agent started", { node });
     case "routing":
       return t("routed to {to}", { to: String(d.to ?? UNKNOWN_NODE) });
     case "execution_started":

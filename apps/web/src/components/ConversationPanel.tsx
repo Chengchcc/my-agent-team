@@ -27,6 +27,7 @@ import { Composer, type RecommendedSkill } from "./Composer";
 import { useChatInspector } from "./chat-inspector-context";
 import { type ConversationDensity, ConversationDensityContext } from "./conversation-density";
 import { Timeline } from "./Timeline";
+import { TimelineTransientTrace } from "./TimelineTransientTrace";
 import { TodoPanel } from "./TodoPanel";
 
 /** The composer's connection badge. The same words the chat page has always shown. */
@@ -422,6 +423,11 @@ export function ConversationPanel({
                     }}
                     onDownloadArtifact={handleDownloadArtifact}
                   />
+                  {busy && transientBubbles.length === 0 && (
+                    <div className="mt-4">
+                      <TimelineTransientTrace msgCount={0} thinking="" tools={[]} />
+                    </div>
+                  )}
                 </div>
               )}
             </div>

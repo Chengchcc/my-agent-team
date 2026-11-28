@@ -97,8 +97,8 @@ export function PageHeader({
           <BreadcrumbList>{renderBreadcrumb(breadcrumb)}</BreadcrumbList>
         </Breadcrumb>
       )}
-      <div className="flex flex-wrap items-center justify-between gap-5">
-        <div className="min-w-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-5">
+        <div className="min-w-0 flex-1">
           {kicker && (
             <p className="text-[10px] tracking-[1.8px] uppercase text-(--faint)">{t(kicker)}</p>
           )}
@@ -110,7 +110,9 @@ export function PageHeader({
           </div>
           {line && <p className="mt-0.5 text-xs text-(--mute)">{t(line)}</p>}
         </div>
-        <div className="flex flex-wrap items-center gap-2">{actions ?? action}</div>
+        {(actions || action) && (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">{actions ?? action}</div>
+        )}
       </div>
     </div>
   );

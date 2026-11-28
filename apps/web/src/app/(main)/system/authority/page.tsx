@@ -14,7 +14,7 @@ import {
 import { QueryState } from "@/components/ops/QueryState";
 import { Page, PageBody, PageHeader } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { SubTabs } from "@/components/ui/polish";
 import { useAgentList } from "@/features/agents/hooks";
 import { useAllConversations } from "@/features/conversations/hooks";
@@ -205,10 +205,17 @@ function LedgerList({
               )}
               {!exists && (
                 <>
-                  <Button size="sm" variant="outline" disabled>
-                    {t("Conversation not available")}
-                  </Button>
-                  <Note className="mt-1.5">{missingConversationNote(conversationsKnown)}</Note>
+                  <Link
+                    href={`/system/runs/${row.runId}`}
+                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                  >
+                    {t("Event detail")}
+                  </Link>
+                  <Note className="mt-1.5">
+                    {row.source === "owner"
+                      ? t("Started by the system.")
+                      : missingConversationNote(conversationsKnown)}
+                  </Note>
                 </>
               )}
             </PanelCell>

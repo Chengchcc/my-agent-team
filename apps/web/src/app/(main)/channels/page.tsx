@@ -140,7 +140,7 @@ function ChannelRow({
               {t("Disable")}
             </Button>
           )}
-          <Link href={larkTab} className={buttonVariants({ variant: "ghost", size: "sm" })}>
+          <Link href={larkTab} className={buttonVariants({ variant: "outline", size: "sm" })}>
             {t("Configure")}
           </Link>
         </div>

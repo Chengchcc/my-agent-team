@@ -110,7 +110,10 @@ export function NodePropertyPanel({
       </div>
       <div className="mb-4 space-y-1">
         <Label className="text-xs text-(--mute)">
-          {t("name")} <span className="ml-1.5 font-mono text-[10px] text-(--faint)">name</span>
+          {t("name")}
+          {t("name").toLowerCase() !== "name" && (
+            <span className="ml-1.5 font-mono text-[10px] text-(--faint)">name</span>
+          )}
         </Label>
         <Input
           className="border-(--hairline) bg-(--canvas) text-xs"
@@ -159,8 +162,10 @@ export function NodePropertyPanel({
           </div>
           <div className="mt-3 space-y-1">
             <Label className="text-xs text-(--mute)">
-              {t("model")}{" "}
-              <span className="ml-1.5 font-mono text-[10px] text-(--faint)">model</span>
+              {t("model")}
+              {t("model").toLowerCase() !== "model" && (
+                <span className="ml-1.5 font-mono text-[10px] text-(--faint)">model</span>
+              )}
             </Label>
             <Input
               className="border-(--hairline) bg-(--canvas) font-mono text-xs"
@@ -171,8 +176,10 @@ export function NodePropertyPanel({
           </div>
           <div className="mt-3 space-y-1">
             <Label className="text-xs text-(--mute)">
-              {t("prompt")}{" "}
-              <span className="ml-1.5 font-mono text-[10px] text-(--faint)">prompt</span>
+              {t("prompt")}
+              {t("prompt").toLowerCase() !== "prompt" && (
+                <span className="ml-1.5 font-mono text-[10px] text-(--faint)">prompt</span>
+              )}
             </Label>
             <Textarea
               className="min-h-24 border-(--hairline) bg-(--canvas) font-mono text-xs"

@@ -26,7 +26,11 @@ function TreeRow({
 }) {
   const isFocus = node.runId === focusRunId;
   const active = node.activeDurationMs !== null ? formatDurationMs(node.activeDurationMs) : "—";
-  const cost = node.usage ? `$${node.usage.costUsd.toFixed(4)}` : "—";
+  const totalTokens = node.usage ? node.usage.inputTokens + node.usage.outputTokens : 0;
+  const cost =
+    node.usage && !(node.usage.costUsd === 0 && totalTokens > 0)
+      ? `$${node.usage.costUsd.toFixed(4)}`
+      : "—";
   return (
     <div>
       <div
