@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { artifactContentQuery } from "@/features/artifacts/queries";
-import type { ArtifactContent, ArtifactMeta } from "@/lib/api";
+import type { ArtifactMeta, api } from "@/lib/api";
 import { ArtifactCard, inlineVisualKind } from "./ArtifactCard";
+
+type ArtifactContent = Awaited<ReturnType<typeof api.downloadArtifact>>;
 
 function makeMeta(overrides: Partial<ArtifactMeta> = {}): ArtifactMeta {
   return {

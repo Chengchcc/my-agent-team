@@ -9,8 +9,8 @@ function makeMeta(over: Partial<ArtifactMeta> = {}): ArtifactMeta {
     folder: "demo",
     filename: "file.txt",
     mimeType: "text/plain",
+    encoding: "utf8",
     size: 42,
-    createdAt: 1,
     updatedAt: 1,
     ...over,
   };
