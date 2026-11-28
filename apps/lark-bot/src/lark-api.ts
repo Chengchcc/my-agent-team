@@ -78,26 +78,80 @@ export function resolveProfileCredentials(profile: string): {
   };
 }
 
-export function createTokenProvider(profile: string): TokenProvider {
+/** Lightweight credential probe: verifies the in-memory `appId` + `appSecret`
+ *  can still mint a tenant_access_token. Catches rotated/revoked secrets even
+ *  when an older WebSocket has not been kicked by the platform yet. */
+export async function verifyLarkCredentials(
+  creds: { appId: string; appSecret: string; baseUrl: string },
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = 5_000,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetchImpl(
+      `${creds.baseUrl}/open-apis/auth/v3/tenant_access_token/internal`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ app_id: creds.appId, app_secret: creds.appSecret }),
+        signal: controller.signal,
+      },
+    );
+    if (!resp.ok) {
+      return { ok: false, error: `Lark auth failed: HTTP ${resp.status}` };
+    }
+    const body: {
+      code?: number;
+      msg?: string;
+      tenant_access_token?: string;
+    } = await resp.json();
+    if (body.code !== 0 || !body.tenant_access_token) {
+      return {
+        ok: false,
+        error: `Lark auth failed: code ${body.code ?? "unknown"} ${body.msg ?? ""}`.trim(),
+      };
+    }
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Lark auth probe error: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function createTokenProvider(
+  profile: string,
+  opts?: { onAuthResult?: (ok: boolean, error?: string) => void },
+): TokenProvider {
   let cached: { token: string; expiresAt: number } | null = null;
   let inflight: Promise<string> | null = null;
 
   async function mint(): Promise<string> {
-    const { appId, appSecret, baseUrl } = resolveProfileCredentials(profile);
-    const resp = await fetch(`${baseUrl}/open-apis/auth/v3/tenant_access_token/internal`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
-    });
-    if (!resp.ok) throw new Error(`tenant token endpoint HTTP ${resp.status}`);
-    const body: { code?: number; msg?: string; tenant_access_token?: string; expire?: number } =
-      await resp.json();
-    if (body.code !== 0 || !body.tenant_access_token) {
-      throw new Error(`tenant token mint failed: code ${body.code} ${body.msg ?? ""}`);
+    try {
+      const { appId, appSecret, baseUrl } = resolveProfileCredentials(profile);
+      const resp = await fetch(`${baseUrl}/open-apis/auth/v3/tenant_access_token/internal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+      });
+      if (!resp.ok) throw new Error(`tenant token endpoint HTTP ${resp.status}`);
+      const body: { code?: number; msg?: string; tenant_access_token?: string; expire?: number } =
+        await resp.json();
+      if (body.code !== 0 || !body.tenant_access_token) {
+        throw new Error(`tenant token mint failed: code ${body.code} ${body.msg ?? ""}`);
+      }
+      const ttlMs = (body.expire ?? 3600) * 1000;
+      cached = { token: body.tenant_access_token, expiresAt: Date.now() + ttlMs - 5 * 60_000 };
+      opts?.onAuthResult?.(true);
+      return cached.token;
+    } catch (err) {
+      opts?.onAuthResult?.(false, err instanceof Error ? err.message : String(err));
+      throw err;
     }
-    const ttlMs = (body.expire ?? 3600) * 1000;
-    cached = { token: body.tenant_access_token, expiresAt: Date.now() + ttlMs - 5 * 60_000 };
-    return cached.token;
   }
 
   return {

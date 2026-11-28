@@ -58,7 +58,9 @@ export function withLarkLifecycle(deps: LarkLifecycleDeps): AgentService {
     async update(id: string, input: UpdateAgentInput): Promise<AgentRow> {
       const row = await service.update(id, input);
       if (input.lark) {
-        if (input.lark.enabled === true && row.config.lark.profile_ref) {
+        const shouldRun = (input.lark.enabled ?? row.config.lark.enabled) === true;
+        if (shouldRun && row.config.lark.profile_ref) {
+          let credentialsUpdated = false;
           // If fresh credentials provided, re-init profile first
           if (input.lark.appId && input.lark.appSecret) {
             try {
@@ -68,9 +70,24 @@ export function withLarkLifecycle(deps: LarkLifecycleDeps): AgentService {
                 input.lark.appSecret,
                 input.lark.brand,
               );
+              credentialsUpdated = true;
             } catch (err) {
               console.error(
                 `[lark] profile init failed for ${id}: ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+              );
+            }
+          }
+          // When credentials changed, stop the existing bot first so ensureBot
+          // starts a fresh process holding the new appSecret (ensureBot is
+          // idempotent and skips already-running processes/systemd units).
+          if (credentialsUpdated) {
+            try {
+              await stopBot(id);
+            } catch (err) {
+              console.error(
+                `[lark] stop bot before credential reload failed for ${id}: ${
                   err instanceof Error ? err.message : String(err)
                 }`,
               );

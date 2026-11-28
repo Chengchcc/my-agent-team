@@ -50,7 +50,7 @@ import { ackCommentProcessing, markCommentDone } from "./comment-ack.js";
 import { formatPendingQuestion, parseApprovalAnswer } from "./comment-approval.js";
 import { commentBodyOf } from "./comment-body.js";
 import { commentChatId, isCommentChatId } from "./comment-scope.js";
-import { collectHealth, postHeartbeat } from "./diagnostics.js";
+import { collectHealth, deriveLarkHealthState, postHeartbeat } from "./diagnostics.js";
 import { composeCommentRunText, fetchDocText } from "./doc-context.js";
 import { subscribeDocEvents } from "./doc-subscription.js";
 import type { LarkMessageEvent } from "./event-parser.js";
@@ -58,7 +58,11 @@ import { fetchLarkImage, larkImageKeysOf } from "./image-fetch.js";
 import { imageBytesFromArtifact } from "./image-upload.js";
 import { ingest } from "./ingest.js";
 import { ingestComment } from "./ingest-comment.js";
-import { createTokenProvider, resolveProfileCredentials } from "./lark-api.js";
+import {
+  createTokenProvider,
+  resolveProfileCredentials,
+  verifyLarkCredentials,
+} from "./lark-api.js";
 import { MergeHold, renderMergedMessages } from "./merge-hold.js";
 import { type CardActionDeps, handleCardActionLine } from "./run-card/card-actions.js";
 import { createCardKitClient } from "./run-card/card-kit.js";
@@ -98,12 +102,27 @@ const profile = args.larkProfile ?? `agent:${safeAgentId(args.agentId)}`;
 // delivered to as soon as its watcher starts, and that path needs the channel
 // to already exist.
 const { appId, appSecret, baseUrl } = resolveProfileCredentials(profile);
+
+// Live transport + credential health tracked for truthful heartbeats.
+let everConnected = false;
+let authError: string | null = null;
+let channelError: string | null = null;
+let unrecoverableError: string | null = null;
+let emitHeartbeatNow: (() => Promise<void>) | null = null;
+
 const channel = createLarkChannel({
   appId,
   appSecret,
   // `raw` carries event_id (the dedup key) and the fields the normal form drops.
   includeRawEvent: true,
-  keepalive: { enabled: true },
+  keepalive: {
+    enabled: true,
+    onUnrecoverable: () => {
+      unrecoverableError = "Lark WebSocket unrecoverable after repeated reconnect failures";
+      console.error(`[lark-bot] ${unrecoverableError}`);
+      void emitHeartbeatNow?.();
+    },
+  },
   // Access control stays ours (inbound-policy.ts) — never pre-filter here.
   policy: { requireMention: false, dmMode: "open" },
   source: "my-agent-team/lark-bot",
@@ -463,7 +482,13 @@ for (const binding of listConversationBindings(state.db)) {
 // Hot path is direct HTTPS (CardKit client + tenant token recovered from
 // lark-cli's local secret store); lark-cli keeps profiles, inbound events
 // and the rare plain-text fallback sends.
-const cardTokens = createTokenProvider(profile);
+const cardTokens = createTokenProvider(profile, {
+  onAuthResult: (ok, error) => {
+    const prev = authError;
+    authError = ok ? null : (error ?? "Lark tenant token authentication failed");
+    if (prev !== authError) void emitHeartbeatNow?.();
+  },
+});
 const cardClient = createCardKitClient(cardTokens);
 
 async function startRunCard(
@@ -555,18 +580,57 @@ async function refreshChatNames(): Promise<void> {
   }
 }
 
-const heartbeatTimer = setInterval(() => {
+const CREDENTIAL_PROBE_INTERVAL_MS = 120_000;
+let lastCredProbeAt = 0;
+
+async function probeActiveCredentials(force = false): Promise<void> {
+  const now = Date.now();
+  if (!force && now - lastCredProbeAt < CREDENTIAL_PROBE_INTERVAL_MS) return;
+  lastCredProbeAt = now;
+
+  // Detect out-of-band profile secret rotation on disk while this process still
+  // holds the old secret in memory.
+  try {
+    const disk = resolveProfileCredentials(profile);
+    if (disk.appId !== appId || disk.appSecret !== appSecret) {
+      authError = "Lark credentials changed on disk; restart lark-bot to apply";
+      return;
+    }
+  } catch (err) {
+    authError = `Lark profile unreadable: ${err instanceof Error ? err.message : String(err)}`;
+    return;
+  }
+
+  const check = await verifyLarkCredentials({ appId, appSecret, baseUrl });
+  if (check.ok) {
+    authError = null;
+  } else {
+    authError = check.error;
+    console.error(`[lark-bot] ${check.error}`);
+  }
+}
+
+async function emitHeartbeat(): Promise<void> {
+  const wsState = channel.getConnectionStatus()?.state;
+  const derived = deriveLarkHealthState({
+    wsState,
+    everConnected,
+    authError,
+    channelError,
+    unrecoverableError,
+  });
   const health = collectHealth(
     args.agentId,
     profile,
     { conversation: watchers.size, runDelta: 0 },
-    null,
+    derived.lastError,
     countPendingDeliveries(state.db),
     listBoundChats(state.db, chatNameOf),
+    derived.status,
   );
-  void postHeartbeat(health, args.backendUrl, args.backendAuthToken);
-  void refreshChatNames();
-}, 30_000);
+  await postHeartbeat(health, args.backendUrl, args.backendAuthToken);
+}
+emitHeartbeatNow = emitHeartbeat;
 
 // ─── Inbound events (ADR 0044) ───
 // The official channel SDK owns the long connection; lark-cli's event bus is
@@ -1044,15 +1108,75 @@ channel.on({
     console.log(`[lark-bot] card action: ${outcome}`);
     return cardActionToast(outcome);
   },
-  error: (err) => console.error(`[lark-bot] channel error: ${err.code} ${err.message}`),
-  reconnecting: () => console.warn("[lark-bot] channel reconnecting"),
-  reconnected: () => console.log("[lark-bot] channel reconnected"),
+  error: (err) => {
+    const detail = `${err.code} ${err.message}`.trim();
+    console.error(`[lark-bot] channel error: ${detail}`);
+    channelError = `Lark channel error: ${detail}`;
+    if (/auth|secret|token|credential|10003|10014|99991663|401|403/i.test(detail)) {
+      authError = channelError;
+    }
+    void emitHeartbeat();
+  },
+  reconnecting: () => {
+    console.warn("[lark-bot] channel reconnecting");
+    channelError = channelError ?? "Lark WebSocket reconnecting";
+    void emitHeartbeat();
+  },
+  reconnected: () => {
+    console.log("[lark-bot] channel reconnected");
+    channelError = null;
+    unrecoverableError = null;
+    void probeActiveCredentials(true).finally(() => emitHeartbeat());
+  },
 });
 
-await channel.connect();
+// Verify credentials and establish the long connection BEFORE ever reporting
+// "running". If auth fails (e.g. rotated/invalid secret), immediately post an
+// "error" heartbeat so the Web Channels page surfaces the failure right away.
+await probeActiveCredentials(true);
+if (authError) {
+  await emitHeartbeat();
+  try {
+    unlinkSync(state.pidFile);
+  } catch {
+    /* best-effort */
+  }
+  console.error(`[lark-bot] aborting startup due to credential error: ${authError}`);
+  process.exit(1);
+}
+
+try {
+  await channel.connect();
+  everConnected = true;
+  channelError = null;
+  unrecoverableError = null;
+} catch (err) {
+  const detail = err instanceof Error ? err.message : String(err);
+  channelError = `Lark connect failed: ${detail}`;
+  await probeActiveCredentials(true);
+  await emitHeartbeat();
+  try {
+    unlinkSync(state.pidFile);
+  } catch {
+    /* best-effort */
+  }
+  console.error(`[lark-bot] channel.connect failed: ${detail}`);
+  process.exit(1);
+}
+
 console.log(
   `[lark-bot] channel connected app=${appId} status=${JSON.stringify(channel.getConnectionStatus())}`,
 );
+
+// Emit first truthful heartbeat immediately, then every 30s (with a credential
+// probe every 2m so out-of-band secret rotation in Feishu console is caught).
+void emitHeartbeat();
+const heartbeatTimer = setInterval(() => {
+  void probeActiveCredentials()
+    .then(() => emitHeartbeat())
+    .catch(() => {});
+  void refreshChatNames();
+}, 30_000);
 
 // Forward SIGTERM gracefully
 const cleanup = () => {

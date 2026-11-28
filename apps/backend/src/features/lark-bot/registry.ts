@@ -199,7 +199,9 @@ export class DevLarkBotRegistry implements LarkBotRegistry {
     const bot = this.#bots.get(key);
     if (!bot) return this.#lastError.has(key) ? "error" : "configured";
     if (bot.child.exitCode !== null) return "error";
-    return "running";
+    // Process up, no fresh heartbeat yet -> waiting, never claim "running"
+    // (matches SystemdLarkBotRegistry).
+    return "configured";
   }
 
   async dispose(): Promise<void> {

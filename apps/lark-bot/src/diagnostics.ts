@@ -25,6 +25,51 @@ export interface LarkBotHealth {
   ts: number;
 }
 
+export interface LarkConnectionSnapshot {
+  /** Live transport state from `@larksuite/channel` (`connected`, `connecting`,
+   *  `reconnecting`, `disconnected`, or undefined before connect). */
+  readonly wsState?: string;
+  /** True only after `channel.connect()` has succeeded at least once. */
+  readonly everConnected: boolean;
+  /** Credential / auth error (e.g. rotated or invalid app_secret). */
+  readonly authError: string | null;
+  /** Latest transport/channel error (cleared on reconnect). */
+  readonly channelError: string | null;
+  /** Set when keepalive gives up recovering the WebSocket. */
+  readonly unrecoverableError: string | null;
+}
+
+/** Pure: derive the honest surface status + error line from live WS & auth
+ *  signals. Never reports "running" unless the WebSocket has connected and
+ *  credentials are valid. */
+export function deriveLarkHealthState(snap: LarkConnectionSnapshot): {
+  status: LarkBotHealth["status"];
+  lastError: string | null;
+} {
+  if (snap.authError) {
+    return { status: "error", lastError: snap.authError };
+  }
+  if (snap.unrecoverableError) {
+    return { status: "error", lastError: snap.unrecoverableError };
+  }
+  if (!snap.everConnected) {
+    return {
+      status: snap.channelError ? "error" : "degraded",
+      lastError: snap.channelError ?? "Lark WebSocket not connected yet",
+    };
+  }
+  if (snap.wsState && snap.wsState !== "connected") {
+    return {
+      status: "degraded",
+      lastError: snap.channelError ?? `Lark WebSocket ${snap.wsState}`,
+    };
+  }
+  if (snap.channelError) {
+    return { status: "degraded", lastError: snap.channelError };
+  }
+  return { status: "running", lastError: null };
+}
+
 export function collectHealth(
   agentId: string,
   profileRef: string,
@@ -32,11 +77,12 @@ export function collectHealth(
   lastError: string | null,
   pendingDeliveries: number,
   chats: BoundChatSummary[],
+  statusOverride?: LarkBotHealth["status"],
 ): LarkBotHealth {
   return {
     agentId,
     profileRef,
-    status: lastError ? "degraded" : "running",
+    status: statusOverride ?? (lastError ? "degraded" : "running"),
     watchers: watcherCounts,
     runStreams: {
       starting: 0,

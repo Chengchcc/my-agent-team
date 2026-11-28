@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { collectHealth, heartbeatPayload, type LarkBotHealth } from "./diagnostics.js";
+import {
+  collectHealth,
+  deriveLarkHealthState,
+  heartbeatPayload,
+  type LarkBotHealth,
+} from "./diagnostics.js";
+import { verifyLarkCredentials } from "./lark-api.js";
 
 const HEALTH: LarkBotHealth = {
   agentId: "a1",
@@ -63,5 +69,105 @@ describe("collectHealth", () => {
     expect(sad.status).toBe("degraded");
     expect(sad.lastError).toBe("boom");
     expect(sad.pendingDeliveries).toBe(7);
+
+    const err = collectHealth(
+      "a1",
+      "agent:a1",
+      { conversation: 2, runDelta: 0 },
+      "invalid secret",
+      0,
+      [],
+      "error",
+    );
+    expect(err.status).toBe("error");
+    expect(err.lastError).toBe("invalid secret");
+  });
+});
+
+describe("deriveLarkHealthState", () => {
+  test("reports running only when connected with no auth or transport error", () => {
+    expect(
+      deriveLarkHealthState({
+        wsState: "connected",
+        everConnected: true,
+        authError: null,
+        channelError: null,
+        unrecoverableError: null,
+      }),
+    ).toEqual({ status: "running", lastError: null });
+  });
+
+  test("authError forces error even while an older WS still looks connected", () => {
+    expect(
+      deriveLarkHealthState({
+        wsState: "connected",
+        everConnected: true,
+        authError: "Lark auth failed: code 10014 invalid app secret",
+        channelError: null,
+        unrecoverableError: null,
+      }),
+    ).toEqual({
+      status: "error",
+      lastError: "Lark auth failed: code 10014 invalid app secret",
+    });
+  });
+
+  test("never reports running before initial connect completes", () => {
+    const res = deriveLarkHealthState({
+      wsState: "connecting",
+      everConnected: false,
+      authError: null,
+      channelError: null,
+      unrecoverableError: null,
+    });
+    expect(res.status).toBe("degraded");
+    expect(res.lastError).toContain("not connected");
+  });
+
+  test("reconnecting WS reports degraded, unrecoverable reports error", () => {
+    expect(
+      deriveLarkHealthState({
+        wsState: "reconnecting",
+        everConnected: true,
+        authError: null,
+        channelError: null,
+        unrecoverableError: null,
+      }),
+    ).toEqual({ status: "degraded", lastError: "Lark WebSocket reconnecting" });
+
+    expect(
+      deriveLarkHealthState({
+        wsState: "disconnected",
+        everConnected: true,
+        authError: null,
+        channelError: null,
+        unrecoverableError: "Lark WebSocket unrecoverable",
+      }),
+    ).toEqual({ status: "error", lastError: "Lark WebSocket unrecoverable" });
+  });
+});
+
+describe("verifyLarkCredentials", () => {
+  test("returns ok on code 0 and surfaces exact error on rotated/invalid secret", async () => {
+    const okRes = await verifyLarkCredentials(
+      { appId: "cli_1", appSecret: "good", baseUrl: "https://open.feishu.cn" },
+      (async () =>
+        Response.json({
+          code: 0,
+          tenant_access_token: "t-abc",
+          expire: 7200,
+        })) as unknown as typeof fetch,
+    );
+    expect(okRes).toEqual({ ok: true });
+
+    const badRes = await verifyLarkCredentials(
+      { appId: "cli_1", appSecret: "stale", baseUrl: "https://open.feishu.cn" },
+      (async () =>
+        Response.json({ code: 10014, msg: "app secret invalid" })) as unknown as typeof fetch,
+    );
+    expect(badRes).toEqual({
+      ok: false,
+      error: "Lark auth failed: code 10014 app secret invalid",
+    });
   });
 });
