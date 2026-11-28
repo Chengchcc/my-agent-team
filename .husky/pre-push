@@ -69,7 +69,40 @@ bunx biome check --no-errors-on-unmatched $CHANGED || exit 1
 # announced rather than silent.
 echo "pre-push: eslint on $COUNT changed files (CI runs the full set too)"
 if command -v timeout >/dev/null 2>&1; then
-  timeout 120 bunx eslint $CHANGED || echo "pre-push: eslint did not finish in 120s — leaving it to CI"
+  timeout 120 bunx eslint $CHANGED
+  rc=$?
+  if [ "$rc" -eq 124 ]; then
+    echo "pre-push: eslint did not finish in 120s — leaving it to CI"
+  elif [ "$rc" -ne 0 ]; then
+    exit "$rc"
+  fi
 else
-  bunx eslint $CHANGED
+  bunx eslint $CHANGED || exit 1
+fi
+
+# Incremental typecheck on every workspace package with changed .ts/.tsx files.
+# Catches test-file TS errors (e.g. missing mock deps) that `bun test` strips
+# at runtime, without paying the memory/time cost of full turbo typecheck.
+TS_PKGS=$(printf '%s\n' "$CHANGED" \
+  | grep -E '^(packages|apps)/[^/]+/.*\.tsx?$' \
+  | awk -F/ '{print $1 "/" $2}' \
+  | sort -u)
+if [ -n "$TS_PKGS" ]; then
+  ORDERED_PKGS="$(printf '%s\n' "$TS_PKGS" | grep '^packages/' || true)
+$(printf '%s\n' "$TS_PKGS" | grep '^apps/' || true)"
+  for pkg in $ORDERED_PKGS; do
+    [ -f "$pkg/package.json" ] || continue
+    echo "pre-push: typecheck in $pkg"
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 120 bun run --cwd "$pkg" typecheck
+      rc=$?
+      if [ "$rc" -eq 124 ]; then
+        echo "pre-push: typecheck in $pkg timed out after 120s — leaving it to CI"
+      elif [ "$rc" -ne 0 ]; then
+        exit "$rc"
+      fi
+    else
+      bun run --cwd "$pkg" typecheck || exit 1
+    fi
+  done
 fi
