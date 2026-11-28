@@ -20,6 +20,7 @@ import {
   frameHandbackInput,
   frameReportInput,
   type ProductToolsService,
+  type ProductToolsServiceDeps,
   sqliteProductToolCallAdapter,
 } from "../features/product-tools/index.js";
 import { createRunTokenRegistry } from "../features/product-tools/run-token-registry.js";
@@ -76,6 +77,7 @@ export interface ProductToolsWiringDeps {
     opts?: { keepIfIdle?: boolean },
   ) => Promise<void>;
   getAgentRunExecution: () => AgentRunExecutionService | null;
+  getWorkflowTools: () => NonNullable<ProductToolsServiceDeps["workflows"]> | null;
 }
 
 /** Enabled, non-archived roster as capability cards — read by `team_list`. */
@@ -202,6 +204,7 @@ export async function wireProductTools(deps: ProductToolsWiringDeps) {
     onRequestCreated,
     injectSteer,
     getAgentRunExecution,
+    getWorkflowTools,
   } = deps;
 
   const rosterCards = () => buildRosterCards(agentSvc, projectSvc);
@@ -738,6 +741,43 @@ export async function wireProductTools(deps: ProductToolsWiringDeps) {
       }
     },
     listTeam: async () => rosterCards(),
+    workflows: {
+      list: async () => {
+        const w = getWorkflowTools();
+        if (!w) throw new Error("workflow tools not ready");
+        return w.list();
+      },
+      read: async (id) => {
+        const w = getWorkflowTools();
+        if (!w) throw new Error("workflow tools not ready");
+        return w.read(id);
+      },
+      save: async (input) => {
+        const w = getWorkflowTools();
+        if (!w) throw new Error("workflow tools not ready");
+        return w.save(input);
+      },
+      delete: async (input) => {
+        const w = getWorkflowTools();
+        if (!w) throw new Error("workflow tools not ready");
+        return w.delete(input);
+      },
+      run: async (input) => {
+        const w = getWorkflowTools();
+        if (!w) throw new Error("workflow tools not ready");
+        return w.run(input);
+      },
+      status: async (input) => {
+        const w = getWorkflowTools();
+        if (!w) throw new Error("workflow tools not ready");
+        return w.status(input);
+      },
+      cancel: async (input) => {
+        const w = getWorkflowTools();
+        if (!w) throw new Error("workflow tools not ready");
+        return w.cancel(input);
+      },
+    },
   });
 
   // Per-run bearer registry: tokens are minted at dispatch and revoked at settle.

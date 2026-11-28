@@ -20,6 +20,12 @@ export interface WorkflowTriggerSchedulerDeps {
   listExecutions?: (workflowId: string) => Promise<Array<{ status: string }>>;
   /** Scheduler registry (Bun.cron wrapper). */
   schedule(cronExpr: string, fn: () => void): { stop(): void };
+  /** ADR 0084 D6: notify PA / ops room once when 3 consecutive failures trip the circuit breaker. */
+  onCircuitOpen?: (input: {
+    workflowId: string;
+    consecutiveFailures: number;
+    cron?: string;
+  }) => void | Promise<void>;
 }
 
 /** A cron workflow whose last N executions all failed stops firing until an
@@ -32,6 +38,7 @@ export function createWorkflowTriggerScheduler(
 ): WorkflowTriggerScheduler {
   const handles = new Map<string, { stop(): void }[]>();
   const single = new Set<string>(); // per-workflow single-flight
+  const circuitNotified = new Set<string>(); // notify once per open-circuit episode
   // Hot reload: a definition file dropped into the dir used to wait for the
   // next boot (or a PUT) before its cron registered — measured as two backend
   // restarts to register one new workflow. Debounced dir watch instead.
@@ -76,8 +83,19 @@ export function createWorkflowTriggerScheduler(
           console.error(
             `[trigger-scheduler] circuit open for ${workflowId}: ${TRIGGER_CONSECUTIVE_FAILURE_LIMIT} consecutive failures, cron fire skipped (a manual success reopens it)`,
           );
+          if (!circuitNotified.has(workflowId)) {
+            circuitNotified.add(workflowId);
+            void Promise.resolve(
+              deps.onCircuitOpen?.({
+                workflowId,
+                consecutiveFailures: TRIGGER_CONSECUTIVE_FAILURE_LIMIT,
+                ...(cron ? { cron } : {}),
+              }),
+            ).catch(() => {});
+          }
           return;
         }
+        circuitNotified.delete(workflowId);
       }
       const defs = loadDefinitions();
       const def = defs.find((d) => d.id === workflowId);

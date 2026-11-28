@@ -240,3 +240,40 @@ describe("rework edges", () => {
     ).toThrow(/"fail" or "human"/);
   });
 });
+
+describe("ADR 0084: capability routing & concurrencyPolicy", () => {
+  test("accepts agent node with capability only and valid concurrencyPolicy", () => {
+    const def = parseWorkflow({
+      version: 1,
+      id: "bugfix-sop",
+      concurrencyPolicy: "per_requirement",
+      nodes: [
+        { id: "start", type: "start" },
+        { id: "fix", type: "agent", capability: "typescript bugfix", prompt: "Fix the bug" },
+        { id: "done", type: "end", status: "success" },
+      ],
+      edges: [
+        { from: "start", to: "fix" },
+        { from: "fix", to: "done" },
+      ],
+    });
+    expect(def.concurrencyPolicy).toBe("per_requirement");
+    const fix = def.nodes.find((n) => n.id === "fix");
+    expect(fix?.type === "agent" ? fix.capability : null).toBe("typescript bugfix");
+  });
+
+  test("rejects invalid concurrencyPolicy", () => {
+    expect(() =>
+      parseWorkflow({
+        version: 1,
+        id: "bad-policy",
+        concurrencyPolicy: "unlimited",
+        nodes: [
+          { id: "start", type: "start" },
+          { id: "done", type: "end", status: "success" },
+        ],
+        edges: [{ from: "start", to: "done" }],
+      }),
+    ).toThrow(/concurrencyPolicy/);
+  });
+});

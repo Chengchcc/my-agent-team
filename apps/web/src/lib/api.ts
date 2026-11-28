@@ -621,12 +621,30 @@ export const api = {
     unwrap(client.api["workflow-definitions"]({ workflowId }).get()),
   saveWorkflowDefinition: (workflowId: string, definition: Record<string, unknown>) =>
     unwrap(client.api["workflow-definitions"]({ workflowId }).put({ definition })),
+  validateWorkflowDefinition: (body: {
+    workflowId?: string;
+    definition: Record<string, unknown>;
+  }) => unwrap(client.api["workflow-definitions"].validate.post(body)),
+  testWorkflowScript: (body: {
+    code: string;
+    input?: Record<string, unknown>;
+    timeoutMs?: number;
+  }) => unwrap(client.api["workflow-definitions"]["test-script"].post(body)),
+  getWorkflowHistory: (workflowId: string, limit?: number) =>
+    unwrap(
+      client.api["workflow-definitions"]({ workflowId }).history.get(
+        limit !== undefined ? { query: { limit: String(limit) } } : undefined,
+      ),
+    ),
+  revertWorkflowDefinition: (workflowId: string, commit: string) =>
+    unwrap(client.api["workflow-definitions"]({ workflowId }).revert.post({ commit })),
   dryRunWorkflow: (
     workflowId: string,
     body: {
       input?: Record<string, unknown>;
       mockOutputs?: Record<string, Record<string, unknown>>;
       startNodeId?: string;
+      definition?: Record<string, unknown>;
     },
   ) => unwrap(client.api["workflow-definitions"]({ workflowId })["dry-run"].post(body)),
   deleteWorkflowDefinition: (workflowId: string) =>

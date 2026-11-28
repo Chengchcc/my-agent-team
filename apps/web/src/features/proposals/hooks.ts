@@ -24,6 +24,7 @@ export function useAdoptProposal() {
       void qc.invalidateQueries({ queryKey: proposalKeys.pending });
       void qc.invalidateQueries({ queryKey: ["agents"] });
       void qc.invalidateQueries({ queryKey: ["projects"] });
+      void qc.invalidateQueries({ queryKey: ["workflow-definitions"] });
       toast.success(t("Adopted and applied."));
     },
     onError: (err) => {

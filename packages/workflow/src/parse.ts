@@ -120,13 +120,18 @@ function parseNode(raw: unknown, issues: string[]): WorkflowNode | undefined {
     case "agent": {
       const agentId =
         typeof raw.agentId === "string" && raw.agentId.trim() !== "" ? raw.agentId : undefined;
+      const capability =
+        typeof raw.capability === "string" && raw.capability.trim() !== ""
+          ? raw.capability.trim()
+          : undefined;
       const model =
         typeof raw.model === "string" && raw.model.trim() !== "" ? raw.model : undefined;
       const prompt =
         typeof raw.prompt === "string" && raw.prompt.trim() !== "" ? raw.prompt : undefined;
-      if (!agentId && !(model && prompt))
-        issues.push(`node "${id}" agent requires agentId or both model+prompt`);
+      if (!agentId && !capability && !(model && prompt))
+        issues.push(`node "${id}" agent requires agentId, capability, or both model+prompt`);
       if (agentId) node.agentId = agentId;
+      if (capability) node.capability = capability;
       if (model) node.model = model;
       if (prompt) node.prompt = prompt;
       if (typeof raw.repo === "string" && raw.repo.trim() !== "") node.repo = raw.repo;
@@ -447,11 +452,24 @@ export function parseWorkflow(raw: unknown): WorkflowDefinition {
       }
     }
   }
+  let concurrencyPolicy: WorkflowDefinition["concurrencyPolicy"];
+  if (raw.concurrencyPolicy !== undefined) {
+    if (
+      raw.concurrencyPolicy === "forbid" ||
+      raw.concurrencyPolicy === "per_requirement" ||
+      raw.concurrencyPolicy === "allow"
+    ) {
+      concurrencyPolicy = raw.concurrencyPolicy;
+    } else {
+      issues.push('concurrencyPolicy must be one of "forbid", "per_requirement", or "allow"');
+    }
+  }
   if (issues.length > 0) throw new WorkflowParseError(issues);
   const def: WorkflowDefinition = { version: 1, id: id!, nodes, edges };
   if (Object.keys(input).length > 0) def.input = input;
   if (Object.keys(meta).length > 0) def.meta = meta;
   if (triggers.length > 0) def.triggers = triggers;
+  if (concurrencyPolicy !== undefined) def.concurrencyPolicy = concurrencyPolicy;
   topoSort(def); // throws GraphCycleError on cycle
   return def;
 }

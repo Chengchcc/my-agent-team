@@ -25,6 +25,9 @@ export interface ApplyDeps {
   updateProject?: (projectId: string, patch: ProjectPatch) => Promise<void>;
   /** The definition a workflow id holds now, or null when it has none. */
   readWorkflowDefinition?: (workflowId: string) => Promise<unknown>;
+  /** ADR 0084 D2: adopt a workflow_definition proposal by writing, git-committing,
+   *  and resyncing triggers on the backend. */
+  saveWorkflowDefinition?: (workflowId: string, definition: unknown) => Promise<void>;
 }
 
 export class ProposalNotApplicable extends Error {}
@@ -101,15 +104,27 @@ export async function applyProposal(input: {
     await input.deps.updateProject(input.targetId, projectPatchFrom(payload));
     return;
   }
-  // workflow_definition: a graph is written by the workflow editor's own save, through the
-  // route that validates it — never rewritten behind this one. "Adopted" is then a statement
-  // about what is saved, and it holds only when the saved definition IS the proposal. A graph
-  // the person changed before saving is not this proposal; its row is discarded, not adopted.
+  // workflow_definition (ADR 0084 D2): unwrap envelope `{ definition, ... }` or
+  // accept bare WorkflowDefinition. When saveWorkflowDefinition is wired, adopting
+  // persists + git-commits + resyncs triggers directly; otherwise fall back to
+  // verifying the editor already saved the identical JSON.
+  const definition =
+    typeof payload.definition === "object" && payload.definition !== null
+      ? payload.definition
+      : payload;
+  if (input.deps.saveWorkflowDefinition) {
+    try {
+      await input.deps.saveWorkflowDefinition(input.targetId, definition);
+      return;
+    } catch (err) {
+      throw new ProposalNotApplicable(err instanceof Error ? err.message : String(err));
+    }
+  }
   if (!input.deps.readWorkflowDefinition) {
     throw new ProposalNotApplicable("workflow changes cannot be recorded here");
   }
   const saved = await input.deps.readWorkflowDefinition(input.targetId);
-  if (saved === null || !sameJson(saved, payload)) {
+  if (saved === null || !sameJson(saved, definition)) {
     throw new ProposalNotApplicable(
       "the saved definition is not this proposal; save it in the workflow editor first, or discard the proposal",
     );

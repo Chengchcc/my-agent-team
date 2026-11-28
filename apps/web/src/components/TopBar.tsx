@@ -47,7 +47,8 @@ function OnlinePill() {
 export function TopBar({ onSearch }: { onSearch: () => void }) {
   const router = useRouter();
   const { data: attention } = useQuery(attentionQuery());
-  const waitingOnYou = attention?.awaitingYou.length ?? 0;
+  const waitingOnYou =
+    (attention?.awaitingYou.length ?? 0) + (attention?.workflowHumanTasks?.length ?? 0);
 
   return (
     <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-3 border-b border-(--hairline) bg-(--canvas)/80 px-3 backdrop-blur">

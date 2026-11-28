@@ -39,16 +39,25 @@ function agentConfigLines(payload: Record<string, unknown>): string[] {
 }
 
 function workflowLines(payload: Record<string, unknown>): string[] {
-  const meta = objectOf(payload.meta) ?? {};
-  const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
-  const edges = Array.isArray(payload.edges) ? payload.edges : [];
+  const def = objectOf(payload.definition) ?? payload;
+  const meta = objectOf(def.meta) ?? {};
+  const nodes = Array.isArray(def.nodes) ? def.nodes : [];
+  const edges = Array.isArray(def.edges) ? def.edges : [];
   const lines = [`${nodes.length} node(s) · ${edges.length} edge(s)`];
-  const triggers = Array.isArray(payload.triggers) ? payload.triggers : [];
+  const reasons = Array.isArray(payload.requiresApprovalFor)
+    ? payload.requiresApprovalFor.filter((item): item is string => typeof item === "string")
+    : [];
+  if (reasons.length > 0) {
+    lines.push(`requires approval: ${reasons.join(", ")}`);
+  }
+  const triggers = Array.isArray(def.triggers) ? def.triggers : [];
   for (const trigger of triggers) {
     const cron = objectOf(trigger)?.cron;
     if (typeof cron === "string") lines.push(`schedule: ${cron}`);
   }
   if (triggers.length === 0) lines.push("schedule: none (manual)");
+  const summary = textOf(payload.summary);
+  if (summary !== "") lines.push(`summary: ${summary}`);
   const description = textOf(meta.description);
   if (description !== "") lines.push(`description: ${description}`);
   const status = textOf(meta.status);
@@ -102,7 +111,8 @@ export function proposalTitle(kind: ProposalKindName, payload: unknown): string 
   const body = objectOf(payload);
   if (body === null) return null;
   if (kind === "workflow_definition") {
-    const name = textOf(objectOf(body.meta)?.name);
+    const def = objectOf(body.definition) ?? body;
+    const name = textOf(objectOf(def.meta)?.name);
     if (name !== "") return name;
     return null;
   }

@@ -33,13 +33,71 @@ export function sameDefinition(left: unknown, right: unknown): boolean {
   return leftText === stableJson(right);
 }
 
-/** The definition a payload holds, or null when it holds none. The server validates what the
- *  tool proposes; a hand-edited row is still refused here rather than drawn. */
-export function definitionOf(payload: unknown): WorkflowDefinition | null {
-  if (typeof payload !== "object" || payload === null) {
+export interface WorkflowProposalScriptNode {
+  id: string;
+  label?: string;
+  code: string;
+  timeoutMs?: number;
+}
+
+export interface WorkflowProposalEnvelopeMeta {
+  requiresApprovalFor: string[];
+  scriptNodes: WorkflowProposalScriptNode[];
+  cronTriggers: string[];
+  summary?: string;
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
   }
-  const body: Partial<WorkflowDefinition> = { ...payload };
+  return value as Record<string, unknown>;
+}
+
+/** Extracts ADR 0084 approval metadata when a workflow proposal is wrapped in an envelope. */
+export function workflowProposalMeta(payload: unknown): WorkflowProposalEnvelopeMeta | null {
+  const root = asObject(payload);
+  if (root === null || asObject(root.definition) === null) {
+    return null;
+  }
+  const requiresApprovalFor = Array.isArray(root.requiresApprovalFor)
+    ? root.requiresApprovalFor.filter((item): item is string => typeof item === "string")
+    : [];
+  const rawScripts = Array.isArray(root.scriptNodes) ? root.scriptNodes : [];
+  const scriptNodes: WorkflowProposalScriptNode[] = [];
+  for (const item of rawScripts) {
+    const rec = asObject(item);
+    if (rec && typeof rec.id === "string" && typeof rec.code === "string") {
+      scriptNodes.push({
+        id: rec.id,
+        code: rec.code,
+        ...(typeof rec.label === "string" ? { label: rec.label } : {}),
+        ...(typeof rec.timeoutMs === "number" ? { timeoutMs: rec.timeoutMs } : {}),
+      });
+    }
+  }
+  const cronTriggers = Array.isArray(root.cronTriggers)
+    ? root.cronTriggers.filter((item): item is string => typeof item === "string")
+    : [];
+  const summary =
+    typeof root.summary === "string" && root.summary.trim() ? root.summary : undefined;
+  return {
+    requiresApprovalFor,
+    scriptNodes,
+    cronTriggers,
+    ...(summary ? { summary } : {}),
+  };
+}
+
+/** The definition a payload holds, or null when it holds none. Supports both bare
+ *  WorkflowDefinition payloads and ADR 0084 `{ definition, ... }` envelopes. */
+export function definitionOf(payload: unknown): WorkflowDefinition | null {
+  const root = asObject(payload);
+  if (root === null) {
+    return null;
+  }
+  const candidate = asObject(root.definition) ?? root;
+  const body: Partial<WorkflowDefinition> = { ...candidate };
   if (!Array.isArray(body.nodes)) {
     return null;
   }

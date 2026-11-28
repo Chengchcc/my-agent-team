@@ -253,9 +253,11 @@ export const workflowExecution = sqliteTable(
     index("idx_workflow_execution_conversation").on(table.conversationId, table.createdAt),
     index("idx_workflow_execution_project").on(table.projectId, table.createdAt),
     index("idx_workflow_execution_wf_status").on(table.workflowId, table.status),
-    uniqueIndex("idx_workflow_execution_single_flight")
-      .on(table.workflowId)
-      .where(sql`status = 'running'`),
+    index("idx_workflow_execution_wf_req_status").on(
+      table.workflowId,
+      table.requirementId,
+      table.status,
+    ),
   ],
 );
 

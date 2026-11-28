@@ -407,6 +407,28 @@ export interface ProductToolsServiceDeps {
     conversationId: string;
     text: string;
   }) => Promise<{ saved: boolean; reason?: string }>;
+  /** ADR 0084: PA-managed reusable Team SOP workflows. Absent = tools reject explicitly. */
+  workflows?: {
+    list(): Promise<unknown>;
+    read(workflowId: string): Promise<unknown>;
+    save(input: {
+      agentId: string;
+      workflowId: string;
+      definition: Record<string, unknown>;
+      summary?: string;
+    }): Promise<unknown>;
+    delete(input: { agentId: string; workflowId: string; reason?: string }): Promise<unknown>;
+    run(input: {
+      agentId: string;
+      conversationId: string;
+      workflowId: string;
+      input: Record<string, unknown>;
+      requirementId?: string;
+      projectId?: string;
+    }): Promise<unknown>;
+    status(input: { executionId?: string; workflowId?: string }): Promise<unknown>;
+    cancel(input: { agentId: string; executionId: string }): Promise<unknown>;
+  };
   /** ADR 0059 D6: redirect a RUNNING worker in this conversation. The
    *  closure resolves the active run and steers it; "nothing running" is a
    *  rejection, not a silent queue (an idle worker needs a new task). */
@@ -1867,6 +1889,136 @@ export function createProductToolsService(deps: ProductToolsServiceDeps): Produc
           return artifactUpload(run, input);
         case "artifact_download":
           return artifactDownload(run, input);
+        case "workflow_list": {
+          if (!deps.workflows) {
+            throw new ProductToolRejectedError("workflow_list is not enabled in this deployment");
+          }
+          const result = await deps.workflows.list();
+          return { content: JSON.stringify(result) };
+        }
+
+        case "workflow_read": {
+          if (!deps.workflows) {
+            throw new ProductToolRejectedError("workflow_read is not enabled in this deployment");
+          }
+          const workflowId =
+            typeof input.args.workflowId === "string" ? input.args.workflowId.trim() : "";
+          if (!workflowId) throw new ProductToolRejectedError("workflow_read requires workflowId");
+          const result = await deps.workflows.read(workflowId);
+          return { content: JSON.stringify(result) };
+        }
+
+        case "workflow_save": {
+          if (!deps.workflows) {
+            throw new ProductToolRejectedError("workflow_save is not enabled in this deployment");
+          }
+          const workflowId =
+            typeof input.args.workflowId === "string" ? input.args.workflowId.trim() : "";
+          if (!workflowId) throw new ProductToolRejectedError("workflow_save requires workflowId");
+          const definition = input.args.definition;
+          if (!definition || typeof definition !== "object" || Array.isArray(definition)) {
+            throw new ProductToolRejectedError("workflow_save requires definition (object)");
+          }
+          const summary =
+            typeof input.args.summary === "string" && input.args.summary.trim()
+              ? input.args.summary.trim()
+              : undefined;
+          const result = await deps.workflows.save({
+            agentId: run.agentId,
+            workflowId,
+            definition: definition as Record<string, unknown>,
+            ...(summary ? { summary } : {}),
+          });
+          return { content: JSON.stringify(result) };
+        }
+
+        case "workflow_delete": {
+          if (!deps.workflows) {
+            throw new ProductToolRejectedError("workflow_delete is not enabled in this deployment");
+          }
+          const workflowId =
+            typeof input.args.workflowId === "string" ? input.args.workflowId.trim() : "";
+          if (!workflowId) {
+            throw new ProductToolRejectedError("workflow_delete requires workflowId");
+          }
+          const reason =
+            typeof input.args.reason === "string" && input.args.reason.trim()
+              ? input.args.reason.trim()
+              : undefined;
+          const result = await deps.workflows.delete({
+            agentId: run.agentId,
+            workflowId,
+            ...(reason ? { reason } : {}),
+          });
+          return { content: JSON.stringify(result) };
+        }
+
+        case "workflow_run": {
+          if (!deps.workflows) {
+            throw new ProductToolRejectedError("workflow_run is not enabled in this deployment");
+          }
+          const workflowId =
+            typeof input.args.workflowId === "string" ? input.args.workflowId.trim() : "";
+          if (!workflowId) throw new ProductToolRejectedError("workflow_run requires workflowId");
+          const rawInput = input.args.input;
+          const wfInput =
+            rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)
+              ? (rawInput as Record<string, unknown>)
+              : {};
+          const requirementId =
+            typeof input.args.requirementId === "string" && input.args.requirementId.trim()
+              ? input.args.requirementId.trim()
+              : undefined;
+          const projectId =
+            typeof input.args.projectId === "string" && input.args.projectId.trim()
+              ? input.args.projectId.trim()
+              : undefined;
+          const result = await deps.workflows.run({
+            agentId: run.agentId,
+            conversationId: run.conversationId,
+            workflowId,
+            input: wfInput,
+            ...(requirementId ? { requirementId } : {}),
+            ...(projectId ? { projectId } : {}),
+          });
+          return { content: JSON.stringify(result) };
+        }
+
+        case "workflow_status": {
+          if (!deps.workflows) {
+            throw new ProductToolRejectedError("workflow_status is not enabled in this deployment");
+          }
+          const executionId =
+            typeof input.args.executionId === "string" && input.args.executionId.trim()
+              ? input.args.executionId.trim()
+              : undefined;
+          const workflowId =
+            typeof input.args.workflowId === "string" && input.args.workflowId.trim()
+              ? input.args.workflowId.trim()
+              : undefined;
+          const result = await deps.workflows.status({
+            ...(executionId ? { executionId } : {}),
+            ...(workflowId ? { workflowId } : {}),
+          });
+          return { content: JSON.stringify(result) };
+        }
+
+        case "workflow_cancel": {
+          if (!deps.workflows) {
+            throw new ProductToolRejectedError("workflow_cancel is not enabled in this deployment");
+          }
+          const executionId =
+            typeof input.args.executionId === "string" ? input.args.executionId.trim() : "";
+          if (!executionId) {
+            throw new ProductToolRejectedError("workflow_cancel requires executionId");
+          }
+          const result = await deps.workflows.cancel({
+            agentId: run.agentId,
+            executionId,
+          });
+          return { content: JSON.stringify(result) };
+        }
+
         default:
           throw new ProductToolRejectedError(`tool ${input.tool} is not supported`);
       }

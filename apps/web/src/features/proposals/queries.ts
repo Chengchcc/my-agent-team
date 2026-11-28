@@ -29,10 +29,9 @@ export const PROPOSAL_KIND_LABELS: Record<ProposalKindName, string> = {
   project_update: "Project change",
 };
 
-/** The editor that owns a proposal's target, where it is reviewed instead of being adopted from
- *  the inbox. An `agent_config` proposal is written to the agent the moment it is adopted, so it
- *  is reviewed in the agent's editor. A `workflow_definition` proposal cannot be applied from the
- *  inbox at all (the server refuses it): it loads in the workflow editor as an unsaved draft. */
+/** The editor that owns a proposal's target. An `agent_config` proposal is reviewed in the
+ *  agent's editor. A `workflow_definition` proposal can be verified and adopted directly in the
+ *  inbox (ADR 0084) OR opened in the workflow editor as an unsaved draft. */
 export function owningEditorHref(
   proposal: Pick<PendingProposalRow, "kind" | "targetId">,
 ): string | null {
@@ -43,6 +42,7 @@ export function owningEditorHref(
 
 /** Whether adopting the proposal here applies it at once. */
 export function appliesFromInbox(proposal: Pick<PendingProposalRow, "kind" | "targetId">): boolean {
+  if (proposal.kind === "workflow_definition") return true;
   const href = owningEditorHref(proposal);
   return href === null;
 }

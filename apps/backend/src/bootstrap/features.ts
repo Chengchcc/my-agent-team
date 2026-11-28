@@ -24,7 +24,10 @@ import { createConversationFeature } from "../features/conversation/conversation
 import { sqliteConversationAdapter } from "../features/conversation/index.js";
 import { createConfiguredSummarizer } from "../features/conversation/summarize.js";
 import { createMcpRuntimeStatusStore } from "../features/mcp/index.js";
-import type { ProductToolsService } from "../features/product-tools/index.js";
+import type {
+  ProductToolsService,
+  ProductToolsServiceDeps,
+} from "../features/product-tools/index.js";
 import { createWorkspaceLockRegistry } from "../features/project/workspace-lock.js";
 import {
   createProposalService,
@@ -264,9 +267,10 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     ulid,
   });
 
-  // Only genuine mutual cycles remain late-bound: conv ↔ execution ↔ productTools.
+  // Only genuine mutual cycles remain late-bound: conv ↔ execution ↔ productTools ↔ workflows.
   let agentRunExecutionRef: AgentRunExecutionService | null = null;
   let productToolsRef: ProductToolsService | null = null;
+  let workflowToolsRef: NonNullable<ProductToolsServiceDeps["workflows"]> | null = null;
 
   const summarizeFromConfig = createConfiguredSummarizer(config.summaryModel, (id) =>
     providerSvc.credentialFor(id),
@@ -372,6 +376,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
       await agentRunExecutionRef?.injectSteer(branchId, input, opts);
     },
     getAgentRunExecution: () => agentRunExecutionRef,
+    getWorkflowTools: () => workflowToolsRef,
   });
   productToolsRef = productTools;
   mcpUrls.workflow = workflowMcpUrl;
@@ -426,19 +431,30 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     workspaceSvc,
   });
 
-  const { workflowExecutionService, workflowTriggerScheduler, workflowApp } = wireWorkflows({
+  const {
+    workflowExecutionService,
+    workflowTriggerScheduler,
+    workflowProductTools,
+    saveWorkflowDefinition,
+    workflowApp,
+  } = wireWorkflows({
     config,
     db,
     ulid,
     settingsSvc,
     agentSvc,
+    agentRunPort,
     agentRunService,
     agentRunExecution,
     convPort,
     conversationService: conv.convSvc,
     artifactService,
+    requirementSvc,
+    workspaceSvc,
+    proposalSvc,
     entityLabels,
   });
+  workflowToolsRef = workflowProductTools;
 
   const { passwordSvc, prepare, start, dispose } = await wireLifecycle({
     config,
@@ -492,6 +508,7 @@ export async function installFeatures(services: BackendServices): Promise<Instal
     wikiSvc,
     mcpSvc,
     workflowApp,
+    saveWorkflowDefinition,
     artifactService,
     productTools,
     settingsSvc,

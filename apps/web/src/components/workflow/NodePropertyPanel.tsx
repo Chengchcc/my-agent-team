@@ -101,10 +101,11 @@ export function NodePropertyPanel({
           {t(TYPE_LABEL[node.type] ?? node.type)}
         </Badge>
         <button
+          type="button"
           className="shrink-0 rounded-md border border-(--info)/40 bg-(--info)/10 px-2 py-1 text-[10px] text-(--info) hover:bg-(--info)/20"
           onClick={() => setDebugOpen("open")}
         >
-          {t("Debug")}
+          {node.type === "script" ? t("Test script") : t("Debug")}
         </button>
       </div>
       <div className="mb-4 space-y-1">
@@ -143,6 +144,18 @@ export function NodePropertyPanel({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="mt-3 space-y-1">
+            <Label className="text-xs text-(--mute)">
+              {t("Capability (dynamic teammate routing)")}{" "}
+              <span className="ml-1.5 font-mono text-[10px] text-(--faint)">capability</span>
+            </Label>
+            <Input
+              className="border-(--hairline) bg-(--canvas) font-mono text-xs"
+              value={node.capability ?? ""}
+              placeholder={t("e.g. code-review, frontend, devops (used when Agent is blank)")}
+              onChange={(e) => set({ capability: e.target.value || undefined })}
+            />
           </div>
           <div className="mt-3 space-y-1">
             <Label className="text-xs text-(--mute)">
@@ -283,7 +296,9 @@ export function NodePropertyPanel({
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="text-sm font-semibold">
-              {t("Debug node {nodeId}", { nodeId })}
+              {node.type === "script"
+                ? t("Test script node {nodeId}", { nodeId })
+                : t("Debug node {nodeId}", { nodeId })}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
@@ -304,14 +319,34 @@ export function NodePropertyPanel({
                 setDebugResult(null);
                 try {
                   const input = debugInput.trim() ? JSON.parse(debugInput) : {};
-                  const res = await api.dryRunWorkflow(workflowId, { input, startNodeId: nodeId });
-                  const steps = (res?.steps ?? [])
-                    .map(
-                      (st: { nodeId: string; output: unknown }) =>
-                        `${st.nodeId}: ${JSON.stringify(st.output)}`,
-                    )
-                    .join("\n");
-                  setDebugResult(`exit=${res?.exit}\n${steps}`);
+                  if (node.type === "script") {
+                    const res = await api.testWorkflowScript({
+                      code: node.code ?? "",
+                      input,
+                      timeoutMs: node.timeoutMs,
+                    });
+                    const parts = [
+                      `status=${res.ok ? "ok" : "failed"} exitCode=${res.exitCode} duration=${res.durationMs}ms`,
+                    ];
+                    if (res.output !== undefined) {
+                      parts.push(`output:\n${JSON.stringify(res.output, null, 2)}`);
+                    }
+                    if (res.stdout) parts.push(`stdout:\n${res.stdout}`);
+                    if (res.stderr) parts.push(`stderr:\n${res.stderr}`);
+                    setDebugResult(parts.join("\n\n"));
+                  } else {
+                    const res = await api.dryRunWorkflow(workflowId, {
+                      input,
+                      startNodeId: nodeId,
+                    });
+                    const steps = (res?.steps ?? [])
+                      .map(
+                        (st: { nodeId: string; output: unknown }) =>
+                          `${st.nodeId}: ${JSON.stringify(st.output)}`,
+                      )
+                      .join("\n");
+                    setDebugResult(`exit=${res?.exit}\n${steps}`);
+                  }
                 } catch (err) {
                   setDebugResult(
                     t("Error: {message}", {
@@ -323,7 +358,11 @@ export function NodePropertyPanel({
                 }
               }}
             >
-              {debugBusy === "busy" ? t("Running…") : t("Run this node")}
+              {debugBusy === "busy"
+                ? t("Running…")
+                : node.type === "script"
+                  ? t("Run in sandbox")
+                  : t("Run this node")}
             </Button>
             {debugResult && (
               <pre className="max-h-48 overflow-auto rounded bg-(--canvas)/60 p-2 text-[10px] text-(--mute)">

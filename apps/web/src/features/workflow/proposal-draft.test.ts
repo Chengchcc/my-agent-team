@@ -8,6 +8,7 @@ import {
   sameDefinition,
   settlementOf,
   stableJson,
+  workflowProposalMeta,
 } from "./proposal-draft";
 
 const saved: WorkflowDefinition = {
@@ -53,8 +54,23 @@ describe("stableJson and sameDefinition", () => {
 });
 
 describe("definitionOf", () => {
-  test("takes a payload that has nodes and edges, and refuses anything else", () => {
+  test("takes a payload that has nodes and edges, unwraps ADR 0084 envelopes, and refuses anything else", () => {
     expect(definitionOf(saved)?.id).toBe("lint");
+    const wrapped = {
+      definition: saved,
+      requiresApprovalFor: ["script", "cron"],
+      scriptNodes: [{ id: "s1", code: "export default () => ({ ok: true });", timeoutMs: 3000 }],
+      cronTriggers: ["0 3 * * *"],
+      summary: "add check",
+    };
+    expect(definitionOf(wrapped)?.id).toBe("lint");
+    expect(workflowProposalMeta(wrapped)).toEqual({
+      requiresApprovalFor: ["script", "cron"],
+      scriptNodes: [{ id: "s1", code: "export default () => ({ ok: true });", timeoutMs: 3000 }],
+      cronTriggers: ["0 3 * * *"],
+      summary: "add check",
+    });
+    expect(workflowProposalMeta(saved)).toBeNull();
     expect(definitionOf({ id: "lint" })).toBeNull();
     expect(definitionOf("lint")).toBeNull();
     expect(definitionOf(null)).toBeNull();

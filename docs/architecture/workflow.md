@@ -17,10 +17,11 @@ CrewDesk's Agentic Workflow system has two cleanly separated layers: **`packages
 - `packages/workflow/src/schema.ts` — JSON Schema validation subset (`validateBySchema`)
 - `packages/workflow/src/graph.ts` & `engine.ts` — `routeOutgoing()`, `mergeInputs()`, `computeNext()`
 - `packages/workflow/src/rework.ts` — `planRework()`, `deriveRework()`, synthetic `${nodeId}#budget` gates
-- `apps/backend/src/features/workflow/service.ts` — Persistent execution driver, parallel waves, retries, cancel, boot `recover()`
+- `apps/backend/src/features/workflow/store.ts` — Git-backed workflow definition store (`createFsWorkflowStore`), risk classifier (`classifyWorkflowRisk`), and concurrency policy resolver (`resolveConcurrencyPolicy`)
+- `apps/backend/src/features/workflow/service.ts` — Persistent execution driver, parallel waves, shared `Requirement`/Worktree, capability pool routing, concurrency policies, retries, cancel, lifecycle room callbacks, boot `recover()`
 - `apps/backend/src/features/workflow/node-runners.ts` — `agent`, `script`, and `human` node executors
-- `apps/backend/src/features/workflow/trigger-scheduler.ts` — `fs.watch` + `Bun.cron` scheduler with 3-failure circuit breaker
-- `apps/backend/src/features/workflow/http.ts` & `mcp.ts` — REST/webhook endpoints and `workflow_{read,write}` MCP server
+- `apps/backend/src/features/workflow/trigger-scheduler.ts` — `fs.watch` + `Bun.cron` scheduler with 3-failure circuit breaker & room notification callback
+- `apps/backend/src/features/workflow/http.ts` & `mcp.ts` — REST/webhook endpoints (`/validate`, `/test-script`, `/history`, `/revert`) and legacy `workflow_{read,write}` MCP server (PA primary management now lives in `product-tools` per ADR 0084)
 - `apps/backend/src/features/artifact/domain.ts` & `adapter-fs.ts` & `adapter-sqlite-index.ts` & `http.ts` — `artifacts://` disk storage, SHA-256 verification, and SQLite provenance index
 
 ## Pure DSL & Parse-Time Invariants (`packages/workflow`)
@@ -32,7 +33,7 @@ Workflow definitions live on disk as `<dataDir>/workflows/<id>.workflow.json` (`
 |---|---|---|
 | `start` | `id` | Exactly 1 per workflow; entry point. |
 | `end` | `id`, `status` (non-empty string) | Terminal exit label (`success`, `failure`, or custom). |
-| `agent` | `agentId?`, `model?`, `prompt?`, `repo?` | Must supply `agentId` OR both `model` + `prompt`. |
+| `agent` | `agentId?`, `capability?`, `model?`, `prompt?`, `repo?` | Must supply `agentId`, `capability` (dynamic worker pool routing via `recall`), OR both `model` + `prompt`. |
 | `script` | `code`, `runtime?: "bun"`, `timeoutMs?` | Non-empty JS/TS code; executed inside `@chengchenccc/sandbox`. |
 | `human` | `question?`, `form?: Record<string, FormField>`, `timeoutMs?` | Form field types: `string \| textarea \| number \| enum \| date \| boolean`. |
 
@@ -59,16 +60,19 @@ Common node fields: `id` (`/^[a-zA-Z0-9_-]+$/`), `input?`, `output?`, `inputSche
 
 ## Backend Execution & Node Runners (`features/workflow/`)
 
-- **Single-flight:** `startExecution()` rejects (`409`) if any `status === "running"` execution exists for the same `workflowId`. Definitions are snapshotted into `workflow_execution.definition` at start time.
+- **Git-backed definition store (`store.ts`, ADR 0084):** `<dataDir>/workflows/` is an initialized local git repository. Every write/delete/revert records an attributable commit (`user`, `agent:<id>`, `user (adopted proposal)`), exposed via `GET /api/workflow-definitions/:id/history` and `POST /api/workflow-definitions/:id/revert`.
+- **Verification & sandboxed script testing (`http.ts`, ADR 0084):** `POST /api/workflow-definitions/validate` checks DSL schema, agent/project semantics, and script/cron risk; `POST /api/workflow-definitions/test-script` executes a single script snippet inside `@chengchenccc/sandbox` (`403` when `WORKFLOW_SCRIPTS_ENABLED` is off) so humans can verify before saving or adopting a PA proposal.
+- **Concurrency policy (`concurrencyPolicy`, ADR 0084):** `startExecution()` enforces `"forbid"` (default for enabled-cron workflows), `"per_requirement"` (default for SOPs — rejects duplicate active execution on the same `requirementId` while allowing parallel requirements), or `"allow"` inside a SQLite `BEGIN IMMEDIATE` transaction (`idx_workflow_execution_wf_req_status`). Definitions are snapshotted into `workflow_execution.definition` at start time.
+- **Shared Requirement & Worktree (ADR 0084):** Repo-aware executions without an explicit `requirementId` auto-create one shared `Requirement`; every agent node conversation (`workflow:<executionId>:<nodeId>`) and `agent_run` attaches to that `requirementId` so multi-node pipelines share one git worktree. `RequirementView.workflowExecutions` projects execution state into `deriveRequirementStatus()`.
 - **Retries (`runNodeWithRetry`):** backoff delay `intervalMs * backoff ** attempt`. For `agent` nodes, `outputSchema` validation failures trigger retries with a cleared `runId` and the error appended to the prompt.
 - **`agent` runner (`runAgentNode`):**
-  - Creates a hidden conversation `workflow:<executionId>:<nodeId>` (`origin: "workflow"`). Repo-aware nodes (`node.repo`) verify the agent is attached to that project.
-  - Posts with `permissionMode: "yolo"` and `authorization: "system"`. Reuses persisted `nodeRun.runId` on crash recovery.
+  - Resolves `node.agentId` or routes `node.capability` dynamically via the worker capability pool (`node_agent_routed`). Repo-aware nodes (`node.repo`) verify the agent is attached to that project.
+  - Creates a hidden conversation `workflow:<executionId>:<nodeId>` (`origin: "workflow"`). Inherits the target agent's configured `permission_mode` (no forced `yolo`, ADR 0084) with `authorization: "system"`. Reuses persisted `nodeRun.runId` on crash recovery.
   - Polls every `1s` up to `agentNodeTimeoutMs` (default `10 min`); clock pauses while `agent_run.status === "waiting"`. Parses first `{...}` JSON object from assistant text (stripping fences).
 - **`script` runner (`node-runners.ts`):**
   - **Disabled by default.** Requires `WORKFLOW_SCRIPTS_ENABLED=1` (or `true`). When disabled, script nodes throw and `GET /api/workflow-definitions` marks `scriptNodesBlocked: true`.
   - Executes via `@chengchenccc/sandbox` (`timeoutMs` default `60_000`, `isolation: { noNetwork: true, denyReadDirs }` defaulting to `[dataDir, resolve(cwd, ".env"), ...WORKFLOW_SANDBOX_DENY_READ]`). Host `store` is not exposed inside the sandbox.
-- **`human` runner & expiry:** persists `workflow_pending_human` (replacing prior row on rework). A 30s background timer (`expireHumanTimeouts`) atomically fails expired non-`#budget` human tasks.
+- **`human` runner, attention & lifecycle notices (ADR 0084):** persists `workflow_pending_human` (surfaced in `GET /api/attention` as `workflowHumanTasks` and counted in the global topbar bell). `onExecutionStateChange` posts waiting/terminal notices to the initiating room (waking PA on PA-triggered completion/failure), and `onCircuitOpen` posts a room alert when a cron workflow trips the 3-failure circuit breaker. A 30s timer (`expireHumanTimeouts`) atomically fails expired non-`#budget` human tasks.
 - **Boot recovery (`recover()`):** runs **after** `agentRunExecution.recover()` and resumes all DB `status === "running"` executions.
 
 ## Triggers (Cron & Webhooks)

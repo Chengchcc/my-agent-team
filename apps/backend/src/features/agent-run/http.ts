@@ -379,6 +379,28 @@ export function agentRunRoutes(input: {
           terminal_at: number;
           conversation_title: string | null;
         }>;
+        const workflowHumanTasks = db
+          .query(
+            `SELECT wph.execution_id, wph.node_id, wph.question, wph.form, wph.created_at,
+                    we.workflow_id, we.conversation_id, we.requirement_id, we.project_id
+               FROM workflow_pending_human wph
+               JOIN workflow_execution we ON we.execution_id = wph.execution_id
+              WHERE wph.status = 'pending'
+                AND we.status = 'waiting_human'
+              ORDER BY wph.created_at DESC
+              LIMIT 100`,
+          )
+          .all() as Array<{
+          execution_id: string;
+          node_id: string;
+          question: string | null;
+          form: string | null;
+          created_at: number;
+          workflow_id: string;
+          conversation_id: string | null;
+          requirement_id: string | null;
+          project_id: string | null;
+        }>;
         return {
           awaitingYou: awaitingYou.map((r) => ({
             actionId: r.action_id,
@@ -417,6 +439,19 @@ export function agentRunRoutes(input: {
             // ("Finished: Coder"). The room's title says which work it was
             // (audit 2026-11-24).
             title: r.conversation_title,
+          })),
+          // ADR 0084 D6: parked workflow human gates & #budget doors surface in
+          // the same unified attention endpoint as agent asks/approvals.
+          workflowHumanTasks: workflowHumanTasks.map((w) => ({
+            executionId: w.execution_id,
+            workflowId: w.workflow_id,
+            nodeId: w.node_id,
+            question: w.question,
+            form: w.form ? (JSON.parse(w.form) as Record<string, unknown>) : null,
+            createdAt: w.created_at,
+            conversationId: w.conversation_id,
+            requirementId: w.requirement_id,
+            projectId: w.project_id,
           })),
         };
       })

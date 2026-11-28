@@ -1,3 +1,4 @@
+import type { WorkflowConcurrencyPolicy } from "@chengchenccc/workflow";
 import type {
   AppendNodeRunInput,
   CreateWorkflowExecutionInput,
@@ -9,6 +10,13 @@ import type {
 
 export interface WorkflowExecutionPort {
   createExecution(input: CreateWorkflowExecutionInput): Promise<WorkflowExecutionRow>;
+  /** ADR 0084 D7: atomic concurrency-checked insert inside a SQLite IMMEDIATE
+   *  transaction. Returns `{ ok: false, conflictExecutionId }` when the policy
+   *  forbids another concurrent running execution. */
+  createExecutionWithPolicy?(
+    input: CreateWorkflowExecutionInput,
+    policy: WorkflowConcurrencyPolicy,
+  ): Promise<{ ok: true; row: WorkflowExecutionRow } | { ok: false; conflictExecutionId: string }>;
   getExecution(executionId: string): Promise<WorkflowExecutionRow | null>;
   updateExecution(
     executionId: string,

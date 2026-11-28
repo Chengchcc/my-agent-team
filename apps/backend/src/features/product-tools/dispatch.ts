@@ -48,19 +48,48 @@ export interface ProductToolsCallResult {
  *  authorized, keyed and normalized. Business logic stays in
  *  ProductToolsService. */
 export interface ProductToolsDispatch {
-  listTools(): { readonly tools: readonly ProductToolDescriptor[] };
+  listTools(caller?: ProductToolsCaller): { readonly tools: readonly ProductToolDescriptor[] };
   call(req: ProductToolsCallRequest): Promise<ProductToolsCallResult>;
 }
 
-const IDENTITY_SCHEMA = {
-  type: "object",
-  properties: {
-    runId: { type: "string" },
-    conversationId: { type: "string" },
-    agentId: { type: "string" },
-    branchId: { type: "string" },
-  },
-};
+/** Front-desk-only tools excluded from worker tool tables (saves ~2.5k tokens/turn
+ *  and prevents workers from invoking PA-only orchestration/config mutations). */
+export const FRONT_ONLY_PRODUCT_TOOLS: ReadonlySet<string> = new Set([
+  "dispatch",
+  "steer_worker",
+  "cancel_worker",
+  "answer_worker_request",
+  "remember",
+  "project_propose",
+  "project_attach",
+  "requirement_track",
+  "team_list",
+  "workflow_save",
+  "workflow_delete",
+  "workflow_run",
+  "workflow_cancel",
+]);
+
+/** Worker-only tools excluded from front-desk tool tables (front desk is never
+ *  dispatched and holds no project checkout). */
+export const WORKER_ONLY_PRODUCT_TOOLS: ReadonlySet<string> = new Set([
+  "handback",
+  "report",
+  "project_push",
+]);
+
+/** Return the product tool subset applicable to the given agent role. */
+export function toolsForRole(
+  role: "front" | "worker" | null | undefined,
+): readonly ProductToolDescriptor[] {
+  if (role === "worker") {
+    return PRODUCT_TOOLS.filter((tool) => !FRONT_ONLY_PRODUCT_TOOLS.has(tool.name));
+  }
+  if (role === "front") {
+    return PRODUCT_TOOLS.filter((tool) => !WORKER_ONLY_PRODUCT_TOOLS.has(tool.name));
+  }
+  return PRODUCT_TOOLS;
+}
 
 /** ADR 0052 handback framing. The reason is the evidence, the optional
  *  suggestion is routing advice — the dispatcher decides what happens next. */
@@ -71,7 +100,7 @@ export function frameHandbackInput(
 ): string {
   const lines = [`（${fromAgentId} 把派给它的活退回来了）`, reason];
   if (suggestion) lines.push("", `建议：${suggestion}`);
-  lines.push("", "这件活仍然由你负责：换人或自己做，不要当作已完成。");
+  lines.push("", "这件活仍然由你负责：换人重新派发，或向人说明阻塞原因，不要当作已完成。");
   return lines.join("\n");
 }
 
@@ -90,11 +119,13 @@ export function frameResultInput(
   /** The dispatcher's own plan (todo items), verbatim. A wake-up is a FRESH
    *  model call: "what is left to do" lives in this string or nowhere. */
   plan: string = "",
+  /** Optional verification verdict recorded by the worker (ADR 0060). */
+  verdict?: VerificationVerdict,
 ): string {
-  const head =
-    status === "completed"
-      ? `（${workerAgentId} 完成了你派给它的活）`
-      : `（${workerAgentId} 的活没有做成：${status}）`;
+  const completed = status === "completed";
+  const head = completed
+    ? `（${workerAgentId} 完成了你派给它的活）`
+    : `（${workerAgentId} 的活没有做成：${status}）`;
   // A notification, not a forward: the dispatcher writes its own sentence, so
   // a runaway transcript must not ride along. 2000 chars is far beyond "one
   // paragraph" and far below "the whole answer".
@@ -103,18 +134,8 @@ export function frameResultInput(
     raw === "" ? "（没有产出文字结果）" : raw.length > 2000 ? `${raw.slice(0, 2000)}…` : raw;
   return [
     head,
-    verificationLine(undefined),
+    verificationLine(verdict),
     body,
-    ...(plan.trim() === ""
-      ? []
-      : [
-          "",
-          "<plan>",
-          plan.trim(),
-          "</plan>",
-          "计划里还有未完成的步骤：带着上面的 <artifacts> 直接派下一步，不要回来问人要不要继续。",
-          "计划已全部完成（或这次结果就是最后一步）：向人交代，并说明验收证据。",
-        ]),
     ...(artifacts.length > 0
       ? [
           "",
@@ -124,8 +145,24 @@ export function frameResultInput(
           "下一步如果要用这份产物，把上面这些 URL 原样放进派单的 references，不要复述内容。",
         ]
       : []),
+    ...(plan.trim() === ""
+      ? []
+      : [
+          "",
+          "<plan>",
+          plan.trim(),
+          "</plan>",
+          ...(completed
+            ? [
+                "计划里还有未完成的步骤：带着上面的 <artifacts> 直接派下一步，不要回来问人要不要继续。",
+                "计划已全部完成（或这次结果就是最后一步）：向人交代，并说明验收证据。",
+              ]
+            : ["这一步未成功：检查失败原因，决定重试、换人还是向人说明，不要当作已完成。"]),
+        ]),
     "",
-    "这是你派出去的工作的结果：向人交代，或继续处理。没有验收证据时不得说『已完成』。",
+    verdict === "passed"
+      ? "这是你派出去的工作的结果：向人交代，或继续处理。"
+      : "这是你派出去的工作的结果：向人交代，或继续处理。没有验收证据时不得说『已完成』。",
   ].join("\n");
 }
 
@@ -164,7 +201,15 @@ export function frameReportInput(
       : purpose === "answer"
         ? `（${workerAgentId} 给你一个回答）`
         : `（${workerAgentId} 的进度）`;
-  const lines = [head, verificationLine(verdict), text.trim()];
+  const trimmed = text.trim();
+  const body = trimmed.length > 2000 ? `${trimmed.slice(0, 2000)}…` : trimmed;
+  // Mid-run attention/blocker questions are not terminal deliveries: only stamp
+  // verification lines when a verdict was explicitly reported or when handing
+  // back a final answer/progress check.
+  if (purpose === "attention" && verdict === undefined) {
+    return [head, body].join("\n");
+  }
+  const lines = [head, verificationLine(verdict), body];
   if (verdict !== "passed") {
     // The rule travels with the data, not only in a prompt: the dispatcher
     // reads this line, so it cannot drift into "已完成" by accident.
@@ -173,39 +218,42 @@ export function frameReportInput(
   return lines.join("\n");
 }
 
+/** Single source of truth for all product tool definitions (consumed by both
+ *  MCP ListTools and the run manifest). Identity is always supplied by the
+ *  authenticated transport/token — never requested in model tool arguments. */
 export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
   {
     name: "history_recent",
     description:
-      "Read the most recent messages visible to this agent member in the conversation. Pass the identity from the system prompt.",
+      "Read the most recent messages visible to this agent member in the conversation. Returns the last N messages with their ledger seq and role.",
     inputSchema: {
       type: "object",
-      properties: { limit: { type: "number" }, identity: IDENTITY_SCHEMA },
+      properties: { limit: { type: "number" } },
     },
   },
   {
     name: "history_search",
-    description: "Search the conversation ledger for messages matching a keyword.",
+    description:
+      "Search the conversation ledger for messages matching a keyword. Scoped to this run's conversation only.",
     inputSchema: {
       type: "object",
       properties: {
         keyword: { type: "string" },
         limit: { type: "number" },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["keyword"],
     },
   },
   {
     name: "history_around",
-    description: "Read messages around a ledger seq in this conversation.",
+    description:
+      "Read messages around a ledger seq in this conversation (context window before and after).",
     inputSchema: {
       type: "object",
       properties: {
         seq: { type: "number" },
         before: { type: "number" },
         after: { type: "number" },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["seq"],
     },
@@ -213,13 +261,12 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
   {
     name: "history_retain",
     description:
-      "Pin a conversation message into this agent's context branch. Semantic mutation; replay-safe.",
+      "Pin a conversation message into this agent's context branch so later runs keep it. Semantic mutation; replay-safe.",
     inputSchema: {
       type: "object",
       properties: {
         seq: { type: "number" },
         reason: { type: "string" },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["seq"],
     },
@@ -243,7 +290,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
             required: ["id", "text", "status"],
           },
         },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["items"],
     },
@@ -264,6 +310,11 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
           description:
             "With agent omitted: what the work needs (e.g. react, backend). Matched against worker capability cards.",
         },
+        requirement: {
+          type: "string",
+          description:
+            "Optional tracked requirement id to bind or switch this dispatch to (defaults to the room's current requirement).",
+        },
         verb: {
           type: "string",
           enum: ["fix", "build", "review", "investigate", "write", "operate", "answer"],
@@ -279,7 +330,8 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
         references: {
           type: "array",
           items: { type: "string" },
-          description: "Ledger/memory references you resolved for this task (e.g. seq:412, #123).",
+          description:
+            "Ledger/memory/artifact references you resolved for this task (e.g. seq:412, artifacts://...).",
         },
         reversibility: {
           type: "string",
@@ -289,11 +341,10 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
         slots: {
           type: "object",
           description:
-            "Executable details by verb (fix: repro/expected/scope/acceptance; review: target/criteria; operate: environment/action/rollback; ...). Missing slots are rejected — ask the human for all at once.",
+            "Executable details by verb (fix: repro/expected/scope/acceptance; build: goal/scope/acceptance/constraints; review: target/criteria; operate: environment/action/rollback). Missing required slots are rejected — ask the human for all at once.",
         },
         instruction: { type: "string", description: "The task, in the requester's words" },
         note: { type: "string", description: "Optional routing background, at most ~30 words" },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["instruction", "verb", "deliverable"],
     },
@@ -307,7 +358,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
       properties: {
         reason: { type: "string", description: "Why this is not yours to do" },
         suggestion: { type: "string", description: "Optional: who could take it instead" },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["reason"],
     },
@@ -315,7 +365,7 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
   {
     name: "remember",
     description:
-      "Write ONE durable lesson into your own long-term memory (ADR 0065). Use it only when the human explicitly asks you to remember something ('记住…', 'remember that…') — never to accumulate notes on your own. The line is appended to .oma/memory/product.md in the format the memory pipeline reads; duplicates are ignored. Only a run the human started may call this.",
+      "Write ONE durable lesson into your personal long-term memory in the Wiki (personal/<agentId>/memories.md, ADR 0065). Use it only when the human explicitly asks you to remember something ('记住…', 'remember that…') — never to accumulate notes on your own. Duplicates are ignored. Only a run the human started may call this.",
     inputSchema: {
       type: "object",
       properties: {
@@ -323,7 +373,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
           type: "string",
           description: "The fact to remember, self-contained and in one or two sentences",
         },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["text"],
     },
@@ -340,7 +389,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
           type: "string",
           description: "What changed, in the human's words — the worker keeps its context",
         },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["agent", "message"],
     },
@@ -354,7 +402,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
       properties: {
         agent: { type: "string", description: "The running worker's agent id" },
         reason: { type: "string", description: "Why this work must stop — recorded for audit" },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["agent", "reason"],
     },
@@ -377,9 +424,8 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
           type: "string",
           enum: ["not_configured", "not_run", "passed", "failed"],
           description:
-            "验收证据（ADR 0060）：not_configured=没有配置检查；not_run=配了没跑；passed/failed=执行结果。不传=没有证据，不得暗示通过。",
+            "Verification evidence (ADR 0060): not_configured=no check exists, not_run=check exists but was skipped, passed/failed=actual run verdict. Omit if unverified; never imply passed without evidence.",
         },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["purpose", "text"],
     },
@@ -390,7 +436,7 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
       "Read one wiki page (frontmatter + body + revision). Paths are root-relative: projects/<p>/x.md, decisions/x.md, concepts/x.md, lessons/x.md, personal/<your agentId>/x.md.",
     inputSchema: {
       type: "object",
-      properties: { path: { type: "string" }, identity: IDENTITY_SCHEMA },
+      properties: { path: { type: "string" } },
       required: ["path"],
     },
   },
@@ -403,7 +449,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
       properties: {
         text: { type: "string" },
         limit: { type: "number" },
-        identity: IDENTITY_SCHEMA,
       },
     },
   },
@@ -420,7 +465,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
         status: { type: "string", enum: ["draft", "confirmed", "superseded"] },
         sources: { type: "array", items: { type: "string" } },
         supersedes: { type: "array", items: { type: "string" } },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["path", "title", "content"],
     },
@@ -439,7 +483,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
         status: { type: "string", enum: ["draft", "confirmed", "superseded"] },
         sources: { type: "array", items: { type: "string" } },
         supersedes: { type: "array", items: { type: "string" } },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["path", "expected_revision"],
     },
@@ -448,7 +491,7 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
     name: "wiki_lint",
     description:
       "Health-check the wiki: unsourced pages, orphan pages (nothing links to them), supersedes targets that do not exist. Report findings; do not silently rewrite pages to fix them.",
-    inputSchema: { type: "object", properties: { identity: IDENTITY_SCHEMA } },
+    inputSchema: { type: "object", properties: {} },
   },
   {
     name: "wiki_source_add",
@@ -463,7 +506,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
         to_seq: { type: "number" },
         title: { type: "string" },
         content: { type: "string" },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["kind"],
     },
@@ -484,7 +526,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
           items: { type: "string" },
           description: "wiki:<path> | requirement:<id> | project:<id> | brief:<ref>",
         },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["run_id", "call_id", "evidence"],
     },
@@ -499,7 +540,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
         project: { type: "string", description: "Project id or name you are working in" },
         message: { type: "string", description: "Commit subject" },
         note: { type: "string", description: "Optional commit body" },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["project", "message"],
     },
@@ -524,7 +564,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
           items: { type: "string" },
           description: "Agent ids that should get this project attached",
         },
-        identity: IDENTITY_SCHEMA,
       },
     },
   },
@@ -532,7 +571,7 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
     name: "project_list",
     description:
       "List the registered projects (id, name, repo). Use it to decide WHICH project a request is about before filing a requirement or dispatching; if two projects fit, ask.",
-    inputSchema: { type: "object", properties: { identity: IDENTITY_SCHEMA } },
+    inputSchema: { type: "object", properties: {} },
   },
   {
     name: "project_detail",
@@ -542,7 +581,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
       type: "object",
       properties: {
         project: { type: "string", description: "Project id or name" },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["project"],
     },
@@ -557,7 +595,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
         project: { type: "string", description: "Project id or name" },
         agent_id: { type: "string", description: "Member to bind or unbind" },
         attached: { type: "boolean", description: "true attaches (default), false detaches" },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["project", "agent_id"],
     },
@@ -571,15 +608,13 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
       properties: {
         requirement_id: { type: "string", description: "Omit to create" },
         project: { type: "string", description: "Project id or name this goal belongs to" },
-        title: { type: "string" },
-        goal: { type: "string", description: "What done looks like" },
+        title: { type: "string", description: "Required when creating" },
+        goal: { type: "string", description: "What done looks like (required when creating)" },
         background: { type: "string" },
         constraints: { type: "string" },
         expected_deliverables: { type: "string" },
         acceptance_criteria: { type: "string" },
-        identity: IDENTITY_SCHEMA,
       },
-      required: ["title", "goal"],
     },
   },
   {
@@ -591,7 +626,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
       properties: {
         requirement_id: { type: "string" },
         include_closed: { type: "boolean" },
-        identity: IDENTITY_SCHEMA,
       },
     },
   },
@@ -640,7 +674,6 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
             required: ["id", "question"],
           },
         },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["questions"],
     },
@@ -652,11 +685,10 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
     inputSchema: {
       type: "object",
       properties: {
-        folder: { type: "string" },
-        filename: { type: "string" },
-        content: { type: "string" },
+        folder: { type: "string", description: "Logical folder (e.g. report/2026)" },
+        filename: { type: "string", description: "File name (e.g. quality.md)" },
+        content: { type: "string", description: "UTF-8 text, or base64 when encoding=base64" },
         encoding: { type: "string", enum: ["utf8", "base64"] },
-        identity: IDENTITY_SCHEMA,
       },
       required: ["folder", "filename", "content"],
     },
@@ -667,8 +699,7 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
     inputSchema: {
       type: "object",
       properties: {
-        url: { type: "string" },
-        identity: IDENTITY_SCHEMA,
+        url: { type: "string", description: "artifacts://<folder>/<filename>" },
       },
       required: ["url"],
     },
@@ -676,7 +707,7 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
   {
     name: "remind_me",
     description:
-      'Schedule a one-shot reminder in this conversation. At fireAt (epoch ms, must be future) the product posts the text here and a run voices it. Use for "remind me in 30 minutes / tomorrow 9am" style requests and for your own periodic maintenance nudges.',
+      'Schedule a one-shot or recurring reminder in this conversation. At fireAt (epoch ms, must be future) the product posts the text here and a run voices it. Use for "remind me in 30 minutes / tomorrow 9am" style requests and for your own periodic maintenance nudges.',
     inputSchema: {
       type: "object",
       properties: {
@@ -685,7 +716,7 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
         recurrence: {
           type: "string",
           description:
-            "Optional 5-field cron expression for recurring wake-ups (e.g. '0 9 * * *' = daily 9am); omit for one-shot",
+            "Optional 5-field UTC cron expression for recurring wake-ups (e.g. '0 1 * * *' = daily 09:00 UTC+8); omit for one-shot",
         },
       },
       required: ["text", "fireAt"],
@@ -706,14 +737,102 @@ export const PRODUCT_TOOLS: readonly ProductToolDescriptor[] = [
       required: ["id"],
     },
   },
+  // ADR 0084: PA-managed reusable Team SOP workflows.
+  {
+    name: "workflow_list",
+    description:
+      "List all Team SOP workflows with id, name, description, triggers, concurrencyPolicy, validity, and running execution count.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "workflow_read",
+    description:
+      "Read one workflow's full JSON definition plus its recent executions and git revision history.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workflowId: { type: "string", description: "Workflow id (filename stem)" },
+      },
+      required: ["workflowId"],
+    },
+  },
+  {
+    name: "workflow_save",
+    description:
+      "Create or update a workflow SOP definition (ADR 0084, PA-only). Pure declarative SOPs save directly with a git commit; script/cron changes create a proposal for human verification & approval.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workflowId: { type: "string", description: "Workflow id ([A-Za-z0-9._-]+)" },
+        definition: { type: "object", description: "Full WorkflowDefinition v1 JSON object" },
+        summary: { type: "string", description: "Short commit summary describing what changed" },
+      },
+      required: ["workflowId", "definition"],
+    },
+  },
+  {
+    name: "workflow_delete",
+    description:
+      "Delete a workflow SOP definition (ADR 0084, PA-only). Refuses while any execution is running.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workflowId: { type: "string", description: "Workflow id to delete" },
+        reason: { type: "string", description: "Why this workflow is being removed" },
+      },
+      required: ["workflowId"],
+    },
+  },
+  {
+    name: "workflow_run",
+    description:
+      "Start a workflow SOP execution (ADR 0084, PA-only), automatically inheriting the current room's conversationId, requirementId, and projectId.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workflowId: { type: "string", description: "Workflow id to execute" },
+        input: { type: "object", description: "Trigger input variables" },
+        requirementId: { type: "string", description: "Optional explicit requirement id" },
+        projectId: { type: "string", description: "Optional explicit project id" },
+      },
+      required: ["workflowId"],
+    },
+  },
+  {
+    name: "workflow_status",
+    description: "Inspect workflow execution status, node runs, outputs, and pending human gates.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        executionId: { type: "string", description: "Specific execution id" },
+        workflowId: { type: "string", description: "Workflow id to list recent executions" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "workflow_cancel",
+    description: "Cancel a running or waiting_human workflow execution (ADR 0084, PA-only).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        executionId: { type: "string", description: "Execution id to cancel" },
+      },
+      required: ["executionId"],
+    },
+  },
 ];
 
 export function createProductToolsDispatch(deps: {
   readonly service: ProductToolsService;
+  /** Optional role lookup to scope ListTools to front-desk vs worker tools. */
+  readonly roleOf?: (agentId: string) => "front" | "worker" | null;
 }): ProductToolsDispatch {
-  const { service } = deps;
+  const { service, roleOf } = deps;
   return {
-    listTools: () => ({ tools: PRODUCT_TOOLS }),
+    listTools: (caller) => ({
+      tools: caller && roleOf ? toolsForRole(roleOf(caller.agentId)) : PRODUCT_TOOLS,
+    }),
     call: async (req) => {
       const { caller, name } = req;
       const args = req.args;
@@ -724,31 +843,12 @@ export function createProductToolsDispatch(deps: {
       const agentId = caller.agentId;
       // THE RUN COMES FROM THE RAIL'S AUTHENTICATED CALLER, NEVER FROM THE
       // ARGUMENTS.
-      //
-      // Every production MCP client here calls `callTool(name, args)` with no
-      // `_meta` (only a fixture ever described that shape), so the `identity`
-      // argument is text the model copied out of its prompt — and it does not
-      // always copy it right. The old rule ("the args must match the
-      // authenticated run") turned one stale echo into a hard rejection of a
-      // legitimate call: observed live as "弹窗工具连续两次报 identity 不匹配",
-      // after which the model gave up and asked in plain text, i.e. product
-      // features failed for a reason the user could not see or fix. The run
-      // token registry already names the run (mint-at-dispatch,
-      // revoke-at-settle); that is the authority, and arguments cannot forge
-      // it.
-      //
-      // `_meta` is the child's own wire identity, so a mismatch THERE means a
-      // crossed/mis-wired process and still rejects.
       if (meta?.identity && str(meta.identity.runId) && str(meta.identity.runId) !== runId) {
         return {
           content: "identity does not match the session's authenticated run",
           isError: true,
         };
       }
-      // callId stays the caller's when present (it is the model's tool-use id,
-      // which is what makes retries replay); the idempotency key is BUILT HERE
-      // from the authoritative run so a stale echo cannot break the service's
-      // `${runId}:${callId}` invariant.
       const callId = str(meta?.identity?.callId) || str(argIdentity.callId) || randomUUID();
       const idempotencyKey = pendingActionId(runId, callId);
       try {
@@ -756,9 +856,6 @@ export function createProductToolsDispatch(deps: {
           identity: {
             runId,
             agentId,
-            // Only the child's wire identity can carry scope; the model's echo
-            // is not an authorization input (the service derives the scope from
-            // the run row and treats an absent field as "unstated").
             conversationId: str(meta?.identity?.conversationId),
             branchId: str(meta?.identity?.branchId),
           },

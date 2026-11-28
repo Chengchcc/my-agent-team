@@ -84,11 +84,18 @@ export function createRequirementService(deps: {
       if (!requirement) throw new RequirementNotFoundError(id);
       const runs = deps.port.runsOf(id);
       const requests = deps.port.requestsOf(id);
+      const workflowExecutions = deps.port.workflowExecutionsOf?.(id) ?? [];
       return {
         requirement,
-        derivedStatus: deriveRequirementStatus(requirement.status, runs, requests),
+        derivedStatus: deriveRequirementStatus(
+          requirement.status,
+          runs,
+          requests,
+          workflowExecutions,
+        ),
         runs,
         requests,
+        workflowExecutions,
       };
     },
     list(includeClosed) {

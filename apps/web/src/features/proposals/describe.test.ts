@@ -16,12 +16,12 @@ describe("proposal routing", () => {
     );
   });
 
-  test("project proposals are the ones the inbox applies itself", () => {
+  test("project and workflow proposals can be applied from the inbox", () => {
     expect(owningEditorHref({ kind: "project_creation", targetId: "new" })).toBeNull();
     expect(owningEditorHref({ kind: "project_update", targetId: "p1" })).toBeNull();
     expect(appliesFromInbox({ kind: "project_update", targetId: "p1" })).toBeTruthy();
     expect(appliesFromInbox({ kind: "agent_config", targetId: "a1" })).toBeFalsy();
-    expect(appliesFromInbox({ kind: "workflow_definition", targetId: "w1" })).toBeFalsy();
+    expect(appliesFromInbox({ kind: "workflow_definition", targetId: "w1" })).toBeTruthy();
   });
 
   test("the project page is where both project kinds can be looked at", () => {
@@ -77,6 +77,28 @@ describe("describeProposal", () => {
       "0 node(s) · 0 edge(s)",
       "schedule: none (manual)",
     ]);
+  });
+
+  test("an ADR 0084 wrapped workflow proposal shows approval reasons and title", () => {
+    const wrapped = {
+      definition: {
+        meta: { name: "Nightly Audit", description: "Checks repo", status: "active" },
+        nodes: [{ id: "start" }, { id: "s1", type: "script", code: "return { ok: true }" }],
+        edges: [{ from: "start", to: "s1" }],
+        triggers: [{ type: "cron", cron: "0 3 * * *", enabled: true }],
+      },
+      requiresApprovalFor: ["script", "cron"],
+      summary: "add nightly check",
+    };
+    expect(describeProposal("workflow_definition", wrapped, names)).toEqual([
+      "2 node(s) · 1 edge(s)",
+      "requires approval: script, cron",
+      "schedule: 0 3 * * *",
+      "summary: add nightly check",
+      "description: Checks repo",
+      "status: active",
+    ]);
+    expect(proposalTitle("workflow_definition", wrapped)).toBe("Nightly Audit");
   });
 
   test("a project proposal names its repository, branch and holders", () => {

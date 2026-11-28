@@ -1,12 +1,14 @@
 "use client";
 
-import { Inbox } from "lucide-react";
+import { CheckCircle2, Code2, Inbox, Play, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useAgentList } from "@/features/agents/hooks";
 import { useProjectList } from "@/features/projects/hooks";
 import { describeProposal, proposalTitle } from "@/features/proposals/describe";
@@ -23,9 +25,11 @@ import {
   PROPOSAL_KINDS,
   resourcePageHref,
 } from "@/features/proposals/queries";
+import { definitionOf, workflowProposalMeta } from "@/features/workflow/proposal-draft";
+import { api } from "@/lib/api";
 import { t } from "@/lib/i18n";
 
-/** Why a kind has no Adopt button here. */
+/** Why a kind has no Adopt button here, or what Adopt does. */
 function reviewNote(kind: PendingProposal["kind"]): string {
   if (kind === "agent_config") {
     return t(
@@ -34,10 +38,213 @@ function reviewNote(kind: PendingProposal["kind"]): string {
   }
   if (kind === "workflow_definition") {
     return t(
-      "The inbox cannot apply a workflow proposal. It loads in the workflow editor as an unsaved draft; save there to apply it.",
+      "Validate and test any proposed scripts here, then click Adopt to apply and record a git commit, or open in the workflow editor.",
     );
   }
   return t("Adopting applies the proposal now.");
+}
+
+function WorkflowProposalVerifier({ proposal }: { proposal: PendingProposal }) {
+  const def = definitionOf(proposal.payload);
+  const meta = workflowProposalMeta(proposal.payload);
+  const [validating, setValidating] = useState(false);
+  const [validation, setValidation] = useState<{
+    valid: boolean;
+    issues: string[];
+    scriptNodesBlocked: boolean;
+  } | null>(null);
+  const [expandedScriptId, setExpandedScriptId] = useState<string | null>(null);
+  const [scriptInputs, setScriptInputs] = useState<Record<string, string>>({});
+  const [scriptResults, setScriptResults] = useState<Record<string, string>>({});
+  const [testingScriptId, setTestingScriptId] = useState<string | null>(null);
+
+  if (def === null) return null;
+
+  const scriptNodes =
+    meta && meta.scriptNodes.length > 0
+      ? meta.scriptNodes
+      : def.nodes
+          .filter(
+            (n): n is Extract<(typeof def.nodes)[number], { type: "script" }> =>
+              n.type === "script",
+          )
+          .map((n) => {
+            const label = (n as { label?: string }).label;
+            return {
+              id: n.id,
+              code: n.code,
+              ...(label ? { label } : {}),
+              ...(n.timeoutMs ? { timeoutMs: n.timeoutMs } : {}),
+            };
+          });
+  const reasons = meta?.requiresApprovalFor ?? [];
+
+  async function runValidate(): Promise<void> {
+    if (def === null) return;
+    setValidating(true);
+    try {
+      const res = await api.validateWorkflowDefinition({
+        workflowId: proposal.targetId,
+        definition: { ...def } as Record<string, unknown>,
+      });
+      setValidation({
+        valid: res.valid,
+        issues: res.issues ?? [],
+        scriptNodesBlocked: Boolean(res.scriptNodesBlocked),
+      });
+    } catch (err) {
+      setValidation({
+        valid: false,
+        issues: [err instanceof Error ? err.message : String(err)],
+        scriptNodesBlocked: false,
+      });
+    } finally {
+      setValidating(false);
+    }
+  }
+
+  async function runScriptTest(node: {
+    id: string;
+    code: string;
+    timeoutMs?: number;
+  }): Promise<void> {
+    setTestingScriptId(node.id);
+    try {
+      const raw = (scriptInputs[node.id] ?? "").trim();
+      const input = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      const res = await api.testWorkflowScript({
+        code: node.code,
+        input,
+        timeoutMs: node.timeoutMs,
+      });
+      const lines = [
+        `status=${res.ok ? "ok" : "failed"} exitCode=${res.exitCode} duration=${res.durationMs}ms`,
+      ];
+      if (res.output !== undefined) lines.push(`output: ${JSON.stringify(res.output, null, 2)}`);
+      if (res.stdout) lines.push(`stdout:\n${res.stdout}`);
+      if (res.stderr) lines.push(`stderr:\n${res.stderr}`);
+      setScriptResults((prev) => ({ ...prev, [node.id]: lines.join("\n") }));
+    } catch (err) {
+      setScriptResults((prev) => ({
+        ...prev,
+        [node.id]: t("Error: {message}", {
+          message: err instanceof Error ? err.message : String(err),
+        }),
+      }));
+    } finally {
+      setTestingScriptId(null);
+    }
+  }
+
+  return (
+    <div className="mt-3 space-y-2.5 rounded-lg border border-(--hairline) bg-(--canvas)/60 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {reasons.includes("script") && (
+            <Badge variant="wait" className="gap-1 text-[10px]">
+              <Code2 className="size-3" />
+              {t("Script approval")}
+            </Badge>
+          )}
+          {reasons.includes("cron") && (
+            <Badge variant="wait" className="gap-1 text-[10px]">
+              <ShieldAlert className="size-3" />
+              {t("Cron approval")}
+            </Badge>
+          )}
+        </div>
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={validating}
+          onClick={() => void runValidate()}
+        >
+          <CheckCircle2 className="size-3" />
+          {validating ? t("Validating…") : t("Validate")}
+        </Button>
+      </div>
+
+      {validation && (
+        <div
+          className={`rounded border px-2.5 py-1.5 font-mono text-[10px] ${
+            validation.valid
+              ? "border-(--primary)/30 bg-(--primary)/10 text-(--primary)"
+              : "border-(--err)/30 bg-(--err)/10 text-(--err)"
+          }`}
+        >
+          <p>{validation.valid ? t("Validation passed") : t("Validation failed")}</p>
+          {validation.issues.length > 0 && (
+            <p className="mt-1 whitespace-pre-wrap">{validation.issues.join("\n")}</p>
+          )}
+          {validation.scriptNodesBlocked && (
+            <p className="mt-1 text-(--warn)">
+              {t("Script nodes are currently disabled by WORKFLOW_SCRIPTS_ENABLED.")}
+            </p>
+          )}
+        </div>
+      )}
+
+      {scriptNodes.length > 0 && (
+        <div className="space-y-2">
+          {scriptNodes.map((node) => {
+            const expanded = expandedScriptId === node.id;
+            const result = scriptResults[node.id];
+            return (
+              <div
+                key={node.id}
+                className="rounded border border-(--hairline) bg-(--panel) p-2.5 text-[11px]"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-(--ink)">
+                    {node.label ? `${node.label} (${node.id})` : node.id}
+                  </span>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => setExpandedScriptId(expanded ? null : node.id)}
+                  >
+                    {expanded ? t("Hide script") : t("Inspect & test")}
+                  </Button>
+                </div>
+                {expanded && (
+                  <div className="mt-2 space-y-2">
+                    <pre className="max-h-44 overflow-auto rounded bg-(--canvas) p-2 font-mono text-[10px] text-(--body)">
+                      {node.code}
+                    </pre>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-(--mute)">{t("Test input (JSON)")}</Label>
+                      <Textarea
+                        className="min-h-14 border-(--hairline) bg-(--canvas) font-mono text-[10px]"
+                        placeholder="{}"
+                        value={scriptInputs[node.id] ?? ""}
+                        onChange={(e) =>
+                          setScriptInputs((prev) => ({ ...prev, [node.id]: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={testingScriptId === node.id}
+                      onClick={() => void runScriptTest(node)}
+                    >
+                      <Play className="size-3" />
+                      {testingScriptId === node.id ? t("Running…") : t("Test script in sandbox")}
+                    </Button>
+                    {result && (
+                      <pre className="max-h-40 overflow-auto rounded bg-(--canvas) p-2 font-mono text-[10px] text-(--mute)">
+                        {result}
+                      </pre>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** The inbox of decisions waiting for a person (ADR 0040). Project proposals are adopted here
@@ -167,6 +374,9 @@ export function ProposalsView() {
                     </li>
                   ))}
                 </ul>
+              )}
+              {proposal.kind === "workflow_definition" && (
+                <WorkflowProposalVerifier proposal={proposal} />
               )}
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 {editorHref !== null && (

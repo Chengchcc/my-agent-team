@@ -89,6 +89,57 @@ export function sqliteWorkflowExecutionAdapter(db: Database): WorkflowExecutionP
         .returning();
       return toExec(row!);
     },
+    async createExecutionWithPolicy(input, policy) {
+      const txn = db.transaction(
+        ():
+          | { ok: true; row: WorkflowExecutionRow }
+          | { ok: false; conflictExecutionId: string } => {
+          if (policy === "forbid") {
+            const active = db
+              .query(
+                "SELECT execution_id FROM workflow_execution WHERE workflow_id = ? AND status = 'running' LIMIT 1",
+              )
+              .get(input.workflowId) as { execution_id: string } | null;
+            if (active) return { ok: false, conflictExecutionId: active.execution_id };
+          } else if (policy === "per_requirement") {
+            const reqId = input.requirementId ?? null;
+            const active = (
+              reqId !== null
+                ? db
+                    .query(
+                      "SELECT execution_id FROM workflow_execution WHERE workflow_id = ? AND requirement_id = ? AND status = 'running' LIMIT 1",
+                    )
+                    .get(input.workflowId, reqId)
+                : db
+                    .query(
+                      "SELECT execution_id FROM workflow_execution WHERE workflow_id = ? AND requirement_id IS NULL AND status = 'running' LIMIT 1",
+                    )
+                    .get(input.workflowId)
+            ) as { execution_id: string } | null;
+            if (active) return { ok: false, conflictExecutionId: active.execution_id };
+          }
+          const [inserted] = d
+            .insert(workflowExecution)
+            .values({
+              executionId: input.executionId,
+              workflowId: input.workflowId,
+              triggeredBy: input.triggeredBy ?? null,
+              definition: JSON.stringify(input.definition),
+              input: JSON.stringify(input.input),
+              store: JSON.stringify(input.store),
+              status: input.status ?? "running",
+              requirementId: input.requirementId ?? null,
+              conversationId: input.conversationId ?? null,
+              projectId: input.projectId ?? null,
+              createdAt: input.createdAt ?? Date.now(),
+            })
+            .returning()
+            .all();
+          return { ok: true, row: toExec(inserted!) };
+        },
+      );
+      return txn.immediate();
+    },
     async getExecution(executionId) {
       const rows = await d
         .select()

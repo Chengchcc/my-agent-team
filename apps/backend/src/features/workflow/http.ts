@@ -1,15 +1,7 @@
 import { randomBytes } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { parseWorkflow } from "@chengchenccc/workflow";
+import { parseWorkflow, type WorkflowDefinition } from "@chengchenccc/workflow";
 import { Elysia, t } from "elysia";
 import { safeTokenEqual } from "../../infra/auth.js";
 import type { EntityLabelResolver } from "../../infra/entity-labels.js";
@@ -19,6 +11,12 @@ import { createTokenBucketLimiter, type TokenBucketLimiter } from "../../infra/r
 import type { WorkflowExecutionRow } from "./domain.js";
 import { dryRunWorkflow } from "./dry-run.js";
 import type { WorkflowExecutionService } from "./service.js";
+import {
+  classifyWorkflowRisk,
+  createFsWorkflowStore,
+  WORKFLOW_ID_RE,
+  type WorkflowDefinitionStore,
+} from "./store.js";
 
 export interface WorkflowRef {
   /** Historically required and ignored — definitions load from the local
@@ -68,12 +66,30 @@ export function workflowRoutes(deps: {
   deleteTriggerToken?: (workflowId: string) => Promise<void>;
   /** ADR 0082 D5: optional batch label resolver for execution DTOs. */
   labelResolver?: EntityLabelResolver;
+  /** ADR 0084 D1: Git-backed workflow definition store. Defaults to `createFsWorkflowStore(workflowDir)`. */
+  store?: WorkflowDefinitionStore;
+  /** ADR 0084 D3: optional semantic validation (agent existence, repo attachment). */
+  validateSemantics?: (def: WorkflowDefinition) => Promise<string[]>;
+  /** ADR 0084 D3: sandboxed single-script test runner for frontend verification before approval/save. */
+  testScript?: (input: {
+    code: string;
+    input: Record<string, unknown>;
+    timeoutMs?: number;
+  }) => Promise<{
+    ok: boolean;
+    exitCode: number;
+    output: unknown;
+    stdout: string;
+    stderr: string;
+    durationMs: number;
+  }>;
   /** Optional injectable rate limiter for the public webhook trigger endpoint. */
   triggerLimiter?: TokenBucketLimiter;
   /** Emits a "changed" event on workflow writes (SSE live refresh). */
 }) {
   const svc = deps.workflowExecutionService;
   const dir = deps.workflowDir;
+  const store = deps.store ?? createFsWorkflowStore(dir);
   const triggerLimiter =
     deps.triggerLimiter ?? createTokenBucketLimiter({ capacity: 30, refillPerSec: 1 });
 
@@ -103,10 +119,6 @@ export function workflowRoutes(deps: {
     return enrichExecutions([row])[0] ?? row;
   }
 
-  // The id is a bare filename stem (same contract as mcp.ts safePath).
-  // Elysia decodes %2F inside path params, so "../" survives routing —
-  // validate the id, never join raw params.
-  const WORKFLOW_ID_RE = /^[A-Za-z0-9._-]+$/;
   /** A definition that is not on disk is a client error that names it, not an
    *  ENOENT from the read surfacing as "Internal server error". The id check
    *  above is what keeps the path inside `dir`; callers pass the file they
@@ -178,6 +190,96 @@ export function workflowRoutes(deps: {
       });
       return { definitions };
     })
+    .post(
+      "/api/workflow-definitions/validate",
+      async ({ body }) => {
+        const issues: string[] = [];
+        let parsed: WorkflowDefinition | null = null;
+        try {
+          parsed = parseWorkflow(body.definition);
+        } catch (err) {
+          issues.push(err instanceof Error ? err.message : String(err));
+        }
+        if (parsed && deps.validateSemantics) {
+          issues.push(...(await deps.validateSemantics(parsed)));
+        }
+        const prev =
+          body.workflowId && WORKFLOW_ID_RE.test(body.workflowId)
+            ? store.readParsed(body.workflowId)
+            : null;
+        const risk = parsed ? classifyWorkflowRisk(prev, parsed) : null;
+        const scriptNodesBlocked =
+          Boolean(parsed?.nodes.some((n) => n.type === "script")) && deps.scriptsEnabled !== true;
+        return {
+          valid: issues.length === 0,
+          issues,
+          risk,
+          scriptNodesBlocked,
+        };
+      },
+      {
+        body: t.Object({
+          workflowId: t.Optional(t.String({ minLength: 1 })),
+          definition: t.Record(t.String(), t.Unknown()),
+        }),
+      },
+    )
+    .post(
+      "/api/workflow-definitions/test-script",
+      async ({ body }) => {
+        if (!deps.testScript) {
+          throw new HttpError("script verification runner is not configured on this backend", 501);
+        }
+        if (deps.scriptsEnabled !== true) {
+          throw new HttpError(
+            "workflow script nodes are disabled: set WORKFLOW_SCRIPTS_ENABLED=1 to verify scripts",
+            403,
+          );
+        }
+        const timeoutMs = Math.min(Math.max(body.timeoutMs ?? 10_000, 500), 30_000);
+        return await deps.testScript({
+          code: body.code,
+          input: body.input ?? {},
+          timeoutMs,
+        });
+      },
+      {
+        body: t.Object({
+          code: t.String({ minLength: 1 }),
+          input: t.Optional(t.Record(t.String(), t.Unknown())),
+          timeoutMs: t.Optional(t.Number()),
+        }),
+      },
+    )
+    .get("/api/workflow-definitions/:workflowId/history", ({ params, query }) => {
+      workflowFile(params.workflowId);
+      const limit = parseBoundedLimit(query.limit, 20, 100);
+      return {
+        gitReady: store.gitReady,
+        history: store.history(params.workflowId, limit),
+      };
+    })
+    .post(
+      "/api/workflow-definitions/:workflowId/revert",
+      async ({ params, body }) => {
+        workflowFile(params.workflowId);
+        try {
+          const reverted = store.revert(params.workflowId, body.commit, {
+            author: "user",
+            summary: `revert ${params.workflowId} to ${body.commit.slice(0, 8)}`,
+          });
+          void deps.resyncTriggers?.();
+          return { ok: true, definition: reverted.definition, commit: reverted.commit };
+        } catch (err) {
+          throw new HttpError(err instanceof Error ? err.message : String(err), 400);
+        }
+      },
+      {
+        body: t.Object({
+          commit: t.String({ minLength: 7 }),
+        }),
+      },
+    )
     .get("/api/workflow-definitions/:workflowId", async ({ params }) => {
       const file = workflowFile(params.workflowId);
       requireDefinition(file, params.workflowId);
@@ -188,10 +290,9 @@ export function workflowRoutes(deps: {
       "/api/workflow-definitions/:workflowId",
       async ({ params, body }) => {
         mkdirSync(dir, { recursive: true });
-        const file = workflowFile(params.workflowId);
+        workflowFile(params.workflowId);
         // Validate BEFORE persisting: parseWorkflow is the trust boundary the
-        // trigger scheduler (and every execution) relies on. An unvalidated
-        // definition used to brick trigger sync / backend boot.
+        // trigger scheduler (and every execution) relies on.
         try {
           parseWorkflow(body.definition);
         } catch (err) {
@@ -200,9 +301,12 @@ export function workflowRoutes(deps: {
             400,
           );
         }
-        writeFileSync(file, JSON.stringify(body.definition, null, 2));
+        const commit = store.write(params.workflowId, body.definition, {
+          author: "user",
+          summary: `save ${params.workflowId}`,
+        });
         void deps.resyncTriggers?.();
-        return { ok: true, definition: body.definition };
+        return { ok: true, definition: body.definition, commit };
       },
       {
         body: t.Object({
@@ -214,10 +318,15 @@ export function workflowRoutes(deps: {
     .post(
       "/api/workflow-definitions/:workflowId/dry-run",
       async ({ params, body }) => {
-        const file = workflowFile(params.workflowId);
-        requireDefinition(file, params.workflowId);
-        const raw = await Bun.file(file).text();
-        const definition = JSON.parse(raw);
+        let definition: unknown;
+        if (body.definition !== undefined) {
+          definition = body.definition;
+        } else {
+          const file = workflowFile(params.workflowId);
+          requireDefinition(file, params.workflowId);
+          const raw = await Bun.file(file).text();
+          definition = JSON.parse(raw);
+        }
         return dryRunWorkflow(
           definition,
           body.input ?? {},
@@ -227,6 +336,7 @@ export function workflowRoutes(deps: {
       },
       {
         body: t.Object({
+          definition: t.Optional(t.Record(t.String(), t.Unknown())),
           input: t.Optional(t.Record(t.String(), t.Unknown())),
           mockOutputs: t.Optional(t.Record(t.String(), t.Record(t.String(), t.Unknown()))),
           startNodeId: t.Optional(t.String()),
@@ -288,8 +398,11 @@ export function workflowRoutes(deps: {
       { body: t.Record(t.String(), t.Unknown()) },
     )
     .delete("/api/workflow-definitions/:workflowId", async ({ params }) => {
-      const file = workflowFile(params.workflowId);
-      rmSync(file, { force: true });
+      workflowFile(params.workflowId);
+      store.remove(params.workflowId, {
+        author: "user",
+        summary: `delete ${params.workflowId}`,
+      });
       await deps.deleteTriggerToken?.(params.workflowId);
       void deps.resyncTriggers?.();
       return { ok: true };

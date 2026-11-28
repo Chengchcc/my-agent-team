@@ -98,6 +98,7 @@ export interface FeatureRoutesWiringDeps {
   wikiSvc: WikiService;
   mcpSvc: McpService;
   workflowApp: FeatureSet["workflowExecutions"];
+  saveWorkflowDefinition: (workflowId: string, definition: unknown) => Promise<void>;
   artifactService: ArtifactService;
   productTools: ProductToolsService;
   settingsSvc: SettingsService;
@@ -144,6 +145,7 @@ export function wireFeatureSet(deps: FeatureRoutesWiringDeps): FeatureSet {
     wikiSvc,
     mcpSvc,
     workflowApp,
+    saveWorkflowDefinition,
     artifactService,
     productTools,
     settingsSvc,
@@ -315,6 +317,7 @@ export function wireFeatureSet(deps: FeatureRoutesWiringDeps): FeatureSet {
         if (!existsSync(file)) return null;
         return JSON.parse(await Bun.file(file).text());
       },
+      saveWorkflowDefinition,
       updateProject: async (projectId, patch) => {
         try {
           await projectSvc.update(projectId, patch);

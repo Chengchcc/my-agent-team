@@ -9,7 +9,7 @@ import {
   WorkflowParseError,
 } from "@chengchenccc/workflow";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Redo2, Undo2, Wand2 } from "lucide-react";
+import { ArrowLeft, History, Redo2, RotateCcw, Undo2, Wand2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -28,6 +28,7 @@ import { type ComposerDraft, PaSession } from "@/components/PaSession";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { describeProposal } from "@/features/proposals/describe";
 import { proposalKeys } from "@/features/proposals/queries";
 import { workflowRequest } from "@/features/workflow/draft";
@@ -223,7 +224,17 @@ export function AgenticWorkflowEditor({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeEdgeIndex, setActiveEdgeIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState<"idle" | "busy">("idle");
-  const [validation, setValidation] = useState<{ ok: boolean; errors?: string[] } | null>(null);
+  const [validation, setValidation] = useState<{
+    ok: boolean;
+    errors?: string[];
+    notes?: string[];
+  } | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyItems, setHistoryItems] = useState<
+    Array<{ commit: string; author: string; timestamp: number; summary: string }>
+  >([]);
+  const [revertingCommit, setRevertingCommit] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ sourceId: string; x: number; y: number } | null>(null);
   const [zoom, setZoom] = useState<CanvasZoom | null>(null);
   const [draft, setDraft] = useState<ComposerDraft | null>(null);
@@ -556,17 +567,86 @@ export function AgenticWorkflowEditor({
     selectNode(id);
   }
 
-  function validate(): void {
+  async function validate(): Promise<void> {
     if (definition === null) {
       return;
     }
     try {
-      parseWorkflow(definition);
-      setValidation({ ok: true });
+      const res = await api.validateWorkflowDefinition({
+        workflowId,
+        definition: { ...definition } as Record<string, unknown>,
+      });
+      const notes: string[] = [];
+      if (res.scriptNodesBlocked) {
+        notes.push(t("Script nodes are disabled by WORKFLOW_SCRIPTS_ENABLED"));
+      }
+      if (res.risk && res.risk.reasons.length > 0) {
+        notes.push(
+          t("PA changes require approval for: {reasons}", {
+            reasons: res.risk.reasons.join(", "),
+          }),
+        );
+      }
+      setValidation({
+        ok: res.valid,
+        ...(res.issues.length > 0 ? { errors: res.issues } : {}),
+        ...(notes.length > 0 ? { notes } : {}),
+      });
+    } catch {
+      try {
+        parseWorkflow(definition);
+        setValidation({ ok: true });
+      } catch (err) {
+        const fallback = err instanceof Error ? err.message : String(err);
+        const issues = err instanceof WorkflowParseError ? err.issues : [fallback];
+        setValidation({ ok: false, errors: issues });
+      }
+    }
+  }
+
+  async function openHistory(): Promise<void> {
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      const res = await api.getWorkflowHistory(workflowId, 20);
+      setHistoryItems(res.history ?? []);
     } catch (err) {
-      const fallback = err instanceof Error ? err.message : String(err);
-      const issues = err instanceof WorkflowParseError ? err.issues : [fallback];
-      setValidation({ ok: false, errors: issues });
+      toast.error(t("Failed to load history"), {
+        description: err instanceof Error ? err.message : String(err),
+      });
+      setHistoryItems([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function revertToCommit(commit: string): Promise<void> {
+    const ok = await confirm({
+      title: t("Revert workflow to {commit}?", { commit: commit.slice(0, 8) }),
+      description: t(
+        "This writes the selected revision as a new git commit and updates the active workflow.",
+      ),
+      confirmText: t("Revert"),
+      destructive: true,
+    });
+    if (!ok) return;
+    setRevertingCommit(commit);
+    try {
+      const res = await api.revertWorkflowDefinition(workflowId, commit);
+      const next = res.definition as WorkflowDefinition;
+      setSaved(next);
+      setDefinition(next);
+      definitionRef.current = next;
+      clearWorkflowDraft(workflowId);
+      setRestoredDraftAt(null);
+      setHistoryOpen(false);
+      toast.success(t("Workflow reverted"));
+    } catch (err) {
+      toast.error(t("Revert failed"), {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setRevertingCommit(null);
     }
   }
 
@@ -811,7 +891,11 @@ export function AgenticWorkflowEditor({
           />
           <Segment label={t("DSL")} pressed={mode === "dsl"} onClick={() => setMode("dsl")} />
         </div>
-        <Button size="sm" variant="outline" onClick={validate}>
+        <Button size="sm" variant="ghost" onClick={() => void openHistory()}>
+          <History className="size-3.5" />
+          {t("History")}
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => void validate()}>
           {t("Validate")}
         </Button>
         <Button size="sm" disabled={!canSave} onClick={() => void save()}>
@@ -848,6 +932,9 @@ export function AgenticWorkflowEditor({
           <span>{validation.ok ? t("Valid definition") : t("Invalid definition")}</span>
           {!validation.ok && (
             <span className="font-mono">{(validation.errors ?? []).join("; ")}</span>
+          )}
+          {validation.notes && validation.notes.length > 0 && (
+            <span className="font-mono text-(--warn)">{validation.notes.join(" · ")}</span>
           )}
         </div>
       )}
@@ -958,6 +1045,46 @@ export function AgenticWorkflowEditor({
           </aside>
         )}
       </div>
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-semibold">
+              {t("Version history: {workflowId}", { workflowId })}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-96 space-y-2 overflow-y-auto">
+            {historyLoading ? (
+              <p className="text-xs text-(--mute)">{t("Loading…")}</p>
+            ) : historyItems.length === 0 ? (
+              <p className="text-xs text-(--mute)">{t("No recorded commits yet.")}</p>
+            ) : (
+              historyItems.map((entry) => (
+                <div
+                  key={entry.commit}
+                  className="flex items-start justify-between gap-3 rounded-lg border border-(--hairline) bg-(--canvas)/60 p-2.5 text-xs"
+                >
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="wrap-break-word font-medium text-(--ink)">{entry.summary}</p>
+                    <p className="font-mono text-[10px] text-(--faint)">
+                      {entry.commit.slice(0, 8)} · {entry.author} ·{" "}
+                      {new Date(entry.timestamp).toLocaleString()}
+                    </p>
+                  </div>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={revertingCommit === entry.commit}
+                    onClick={() => void revertToCommit(entry.commit)}
+                  >
+                    <RotateCcw className="size-3" />
+                    {t("Revert")}
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
       {confirmDialog}
     </div>
   );

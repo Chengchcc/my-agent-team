@@ -1,6 +1,6 @@
 ---
 title: Team Coordination
-description: PA + Worker hard boundaries, Product Tools MCP (32+3+2 tools) & run tokens, intent-faceted room dispatch, capability pool recall, duplex loop, risk/request ownership, delivery gate, and proposals
+description: PA + Worker hard boundaries, Product Tools MCP (39+3+2 tools) & run tokens, intent-faceted room dispatch, capability pool recall, duplex loop, risk/request ownership, delivery gate, and proposals
 tags: [backend, coordination, product-tools, proposals]
 ---
 
@@ -12,7 +12,7 @@ CrewDesk structures multi-agent work around a **hard code-enforced split** betwe
 
 - `apps/backend/src/features/agent/front-desk-tools.ts` — `FRONT_DESK_DISABLED_TOOLS` (14 stripped tools)
 - `apps/backend/src/features/agent/prompt-front-desk.ts` — `FRONT_DESK_DISCIPLINE` (3 exits, routing & attention rules)
-- `apps/backend/src/features/product-tools/manifest.ts` — 32 tool schemas & frozen Run manifest
+- `apps/backend/src/features/product-tools/manifest.ts` — 39 tool schemas & frozen Run manifest
 - `apps/backend/src/features/product-tools/dispatch.ts` — MCP-over-ACP & SSE dispatcher
 - `apps/backend/src/features/product-tools/mcp.ts` — Loopback SSE MCP server
 - `apps/backend/src/features/product-tools/service.ts` — Product tool implementations & idempotency
@@ -44,7 +44,7 @@ Three loopback MCP servers expose product capabilities to child harnesses:
 
 | Server | Transport & Auth | Tools |
 |---|---|---|
-| `product-tools` | Loopback SSE (`127.0.0.1`) + in-process MCP-over-ACP (`AcpMcpProvider`). **Mandatory** `Bearer` token from `RunTokenRegistry`. | **32 tools:** `history_{recent,search,around,retain}` (4), `artifact_{upload,download}` (2), `todo_write` (1), `remind_me` / `reminder_{list,cancel}` (3), `wiki_{read,query,create,patch,lint,source_add}` (6), `project_{list,detail,attach,push,propose}` (5), `requirement_{track,query}` (2), `team_list`, `dispatch`, `steer_worker`, `cancel_worker`, `report`, `handback`, `answer_worker_request`, `ask_question`, `remember` (9). |
+| `product-tools` | Loopback SSE (`127.0.0.1`) + in-process MCP-over-ACP (`AcpMcpProvider`). **Mandatory** `Bearer` token from `RunTokenRegistry`. | **39 tools:** `history_{recent,search,around,retain}` (4), `artifact_{upload,download}` (2), `todo_write` (1), `remind_me` / `reminder_{list,cancel}` (3), `wiki_{read,query,create,patch,lint,source_add}` (6), `project_{list,detail,attach,push,propose}` (5), `requirement_{track,query}` (2), `team_list`, `dispatch`, `steer_worker`, `cancel_worker`, `report`, `handback`, `answer_worker_request`, `ask_question`, `remember` (9), `workflow_{list,read,save,delete,run,status,cancel}` (7, ADR 0084). |
 | `agent-config` | Loopback SSE (`127.0.0.1`, Host check `403` off-loopback, optional `RunTokenRegistry` auth). | **3 tools:** `agent_read`, `agent_write`, `agent_create` (rate-limited `5 / 10 min`). Never writes `agent.yml` directly; emits `agent_config` proposals. Forbids `permissionMode: "yolo"` and write/command policy fields. |
 | `workflow` | Loopback SSE (`127.0.0.1`, Host check, optional bearer auth). | **2 tools:** `workflow_read`, `workflow_write` (validates via `parseWorkflow()`, emits `workflow_definition` proposals; never writes disk). |
 
@@ -105,7 +105,7 @@ Calling `dispatch` runs five strict checks before opening/reusing a child conver
 - **Kinds:** `agent_config`, `workflow_definition`, `project_creation`, `project_update`.
 - **Statuses:** `pending → adopted | discarded`.
 - **Routes (`proposal/http.ts`):** `GET /api/proposals/pending`, `GET /api/proposals/:kind/:targetId`, `POST /api/proposal-decisions/:id`.
-- **"Adopted means applied" (`proposal/apply.ts`):** `POST /api/proposal-decisions/:id` with `{ decision: "adopted", payload? }` applies `agent_config` / `project_creation` / `project_update` atomically (allowing human form overrides on project fields). For `workflow_definition`, it **never** writes the file — it asserts the saved file on disk matches `payload` byte-for-JSON (`ProposalNotApplicable` 400 otherwise). Apply failures return 500 and leave the proposal `pending`.
+- **"Adopted means applied" (`proposal/apply.ts`):** `POST /api/proposal-decisions/:id` with `{ decision: "adopted", payload? }` applies `agent_config`, `project_creation`, `project_update`, and (per ADR 0084) `workflow_definition` atomically (writing to the git-backed workflow store + resyncing triggers; supporting both wrapped `{ definition, requiresApprovalFor, scriptNodes, cronTriggers }` envelopes and bare definitions). Pure declarative PA `workflow_save` changes commit directly without a proposal; any new/modified `script` node code or enabled `cron` trigger files a `workflow_definition` proposal for human verification & adoption. Apply failures return 500 and leave the proposal `pending`.
 
 ## See also
 

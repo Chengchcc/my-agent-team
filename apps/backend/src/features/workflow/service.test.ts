@@ -423,11 +423,10 @@ describe("createWorkflowExecutionService", () => {
       input: {},
     });
 
-    // A node conversation never shows up in the conversation list, so nothing
-    // can answer an approval prompt raised there: the dispatch pins yolo
-    // instead of inheriting the agent's ask/auto (measured: a nightly node sat
-    // waiting on "classifier unavailable" until the workflow was cancelled).
-    expect(posted[0]?.permissionMode).toBe("yolo");
+    // ADR 0084: do not force permissionMode="yolo". The node inherits the
+    // target agent's configured permission_mode and surfaces approvals via
+    // /api/attention instead of bypassing safety boundaries.
+    expect(posted[0]?.permissionMode).toBeUndefined();
     expect(result.status).toBe("success");
     expect(nodeRuns.find((r) => r.nodeId === "a")!.output).toEqual({ val: 1 });
   });

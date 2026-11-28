@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   createProductToolsDispatch,
+  frameHandbackInput,
   frameReportInput,
   frameResultInput,
+  PRODUCT_TOOLS,
+  toolsForRole,
   verificationLine,
 } from "./dispatch.js";
 import type { ProductToolsService } from "./service.js";
@@ -59,6 +62,13 @@ describe("product-tools dispatch (the rail-neutral half)", () => {
       "remind_me",
       "reminder_list",
       "reminder_cancel",
+      "workflow_list",
+      "workflow_read",
+      "workflow_save",
+      "workflow_delete",
+      "workflow_run",
+      "workflow_status",
+      "workflow_cancel",
     ]);
     for (const tool of tools) {
       expect(typeof tool.description).toBe("string");
@@ -166,5 +176,76 @@ describe("ADR 0060 verification verdicts", () => {
 
   test("a terminal notice without a report says so", () => {
     expect(frameResultInput("fe", "completed", "改了三个文件")).toContain("未提供验收证据");
+  });
+});
+
+describe("Batch 2: single-source schemas, role scoping, and envelope fixes", () => {
+  test("no product tool exposes the dead identity schema argument", () => {
+    for (const tool of PRODUCT_TOOLS) {
+      const props = (tool.inputSchema.properties as Record<string, unknown> | undefined) ?? {};
+      expect(props.identity).toBeUndefined();
+    }
+    const reqTrack = PRODUCT_TOOLS.find((t) => t.name === "requirement_track");
+    expect(reqTrack?.inputSchema.required).toBeUndefined();
+    const dispatchTool = PRODUCT_TOOLS.find((t) => t.name === "dispatch");
+    expect(
+      (dispatchTool?.inputSchema.properties as Record<string, unknown> | undefined)?.requirement,
+    ).toBeDefined();
+    const rememberTool = PRODUCT_TOOLS.find((t) => t.name === "remember");
+    expect(rememberTool?.description).toContain("personal/<agentId>/memories.md");
+    expect(rememberTool?.description).not.toContain(".oma/memory/product.md");
+  });
+
+  test("role scoping strips front-only tools from workers and worker-only tools from front desk", () => {
+    const workerNames = new Set(toolsForRole("worker").map((t) => t.name));
+    expect(workerNames.has("dispatch")).toBe(false);
+    expect(workerNames.has("remember")).toBe(false);
+    expect(workerNames.has("workflow_run")).toBe(false);
+    expect(workerNames.has("handback")).toBe(true);
+    expect(workerNames.has("project_push")).toBe(true);
+
+    const frontNames = new Set(toolsForRole("front").map((t) => t.name));
+    expect(frontNames.has("dispatch")).toBe(true);
+    expect(frontNames.has("handback")).toBe(false);
+    expect(frontNames.has("report")).toBe(false);
+    expect(frontNames.has("project_push")).toBe(false);
+
+    const { service } = stubService();
+    const scoped = createProductToolsDispatch({
+      service,
+      roleOf: (id) => (id === "coder" ? "worker" : "front"),
+    });
+    expect(
+      scoped.listTools({ runId: "r1", agentId: "coder" }).tools.some((t) => t.name === "dispatch"),
+    ).toBe(false);
+    expect(
+      scoped
+        .listTools({ runId: "r2", agentId: "default" })
+        .tools.some((t) => t.name === "handback"),
+    ).toBe(false);
+  });
+
+  test("frameHandbackInput does not contradict front-desk invariant; frameResultInput orders artifacts before plan and handles failures", () => {
+    const handback = frameHandbackInput("coder", "missing db creds");
+    expect(handback).not.toContain("自己做");
+
+    const ok = frameResultInput(
+      "coder",
+      "completed",
+      "done",
+      ["artifacts://r/out.md"],
+      "- [pending] next",
+      "passed",
+    );
+    expect(ok.indexOf("<artifacts>")).toBeLessThan(ok.indexOf("<plan>"));
+    expect(ok).toContain("验收：指定检查已通过");
+    expect(ok).not.toContain("没有验收证据时不得说");
+
+    const failed = frameResultInput("coder", "failed", "boom", [], "- [pending] next");
+    expect(failed).not.toContain("直接派下一步");
+    expect(failed).toContain("这一步未成功");
+
+    const attention = frameReportInput("coder", "attention", "need env choice");
+    expect(attention).not.toContain("未提供验收证据");
   });
 });

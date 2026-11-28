@@ -84,7 +84,15 @@ export type WorkflowNode = NodeCommon &
   (
     | { type: "start" }
     | { type: "end"; status: string }
-    | { type: "agent"; agentId?: string; model?: string; prompt?: string; repo?: string }
+    | {
+        type: "agent";
+        agentId?: string;
+        /** ADR 0084: dynamic team capability routing via recallWorkers when agentId is omitted. */
+        capability?: string;
+        model?: string;
+        prompt?: string;
+        repo?: string;
+      }
     | { type: "script"; code: string; runtime?: "bun"; timeoutMs?: number }
     | { type: "human"; question?: string; form?: Record<string, FormField>; timeoutMs?: number }
   );
@@ -132,6 +140,12 @@ export interface CronTrigger {
 }
 export type WorkflowTrigger = CronTrigger;
 
+/** ADR 0084: concurrent execution policy for a workflow definition.
+ *  - `forbid`: at most one running execution globally per workflowId (default for cron workflows).
+ *  - `per_requirement`: concurrent executions allowed across distinct requirementIds (default for non-cron workflows).
+ *  - `allow`: unrestricted concurrent executions. */
+export type WorkflowConcurrencyPolicy = "forbid" | "per_requirement" | "allow";
+
 export interface WorkflowDefinition {
   version: 1;
   id: string;
@@ -139,6 +153,8 @@ export interface WorkflowDefinition {
   input?: InputHint;
   /** Trigger declarations. API trigger is implicit. */
   triggers?: WorkflowTrigger[];
+  /** ADR 0084: execution concurrency policy (defaults to "forbid" when cron triggers exist, else "per_requirement"). */
+  concurrencyPolicy?: WorkflowConcurrencyPolicy;
   nodes: WorkflowNode[];
   edges: EdgeDef[];
 }

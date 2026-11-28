@@ -67,28 +67,42 @@ export interface RequirementRequestFact {
   owner?: string | null;
 }
 
+export interface RequirementWorkflowFact {
+  executionId: string;
+  workflowId: string;
+  status: string;
+  createdAt: number;
+  terminalAt: number | null;
+}
+
 export interface RequirementView {
   requirement: RequirementRow;
   derivedStatus: RequirementViewStatus;
   runs: readonly RequirementRunFact[];
   requests: readonly RequirementRequestFact[];
+  workflowExecutions?: readonly RequirementWorkflowFact[];
 }
 
 /** Derive the view status. Ordered questions, first hit wins:
- *  a stored terminal beats everything; a live run means work; an unresolved
- *  human request means waiting; a passed verification means acceptance is the
- *  only thing left. */
+ *  a stored terminal beats everything; an unresolved human request or parked
+ *  workflow human gate means waiting; a live run or running workflow means
+ *  in_progress; a passed verification means acceptance is the only thing left. */
 export function deriveRequirementStatus(
   stored: RequirementStoredStatus,
   runs: readonly RequirementRunFact[],
   requests: readonly RequirementRequestFact[],
+  workflowExecutions: readonly RequirementWorkflowFact[] = [],
 ): RequirementViewStatus {
   if (stored === "done" || stored === "cancelled") return stored;
   // The attention headline outranks "work in flight": a run parked on a human
-  // answer is WAITING FOR THE USER even while it is the live run.
-  const blocking = requests.some((r) => r.status === "pending" && (r.owner ?? "user") === "user");
+  // answer (or a workflow parked at a human gate) is WAITING FOR THE USER.
+  const blocking =
+    requests.some((r) => r.status === "pending" && (r.owner ?? "user") === "user") ||
+    workflowExecutions.some((w) => w.status === "waiting_human");
   if (blocking) return "waiting_user";
-  const live = runs.some((r) => r.status === "running" || r.status === "waiting");
+  const live =
+    runs.some((r) => r.status === "running" || r.status === "waiting") ||
+    workflowExecutions.some((w) => w.status === "running");
   if (live) return "in_progress";
   const executed = runs.length > 0 && runs.every((r) => isTerminal(r.status));
   if (executed) {

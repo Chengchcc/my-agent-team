@@ -23,6 +23,20 @@ import type {
   WorkflowNodeRunRow,
 } from "./domain.js";
 import type { WorkflowExecutionPort } from "./ports.js";
+import { resolveConcurrencyPolicy } from "./store.js";
+
+export interface WorkflowLifecycleNotification {
+  readonly kind: "waiting_human" | "completed" | "failed" | "cancelled";
+  readonly executionId: string;
+  readonly workflowId: string;
+  readonly conversationId: string | null;
+  readonly requirementId: string | null;
+  readonly triggeredBy: string | null;
+  readonly nodeId?: string;
+  readonly question?: string;
+  readonly exit?: string;
+  readonly error?: string;
+}
 
 export interface AgentRunnerDeps {
   agentRunService?: {
@@ -68,6 +82,25 @@ export interface AgentRunnerDeps {
   /** The agent's attached project ids (runtime_config.projects) — the
    *  repo-aware agent node validates node.repo against this. */
   agentProjects?: (agentId: string) => Promise<string[]>;
+  /** ADR 0084 D5: open one shared Requirement for a repo-aware execution when
+   *  the caller did not supply a requirementId, so all nodes share one worktree. */
+  ensureRequirementForExecution?: (input: {
+    workflowId: string;
+    workflowName?: string;
+    projectId: string;
+    conversationId?: string | null;
+  }) => string;
+  /** ADR 0084 D5: attach a workflow node conversation to the execution's Requirement. */
+  attachConversationRequirement?: (input: {
+    conversationId: string;
+    requirementId: string;
+  }) => void;
+  /** ADR 0084 D5: stamp requirement_id onto each triggered agent_run. */
+  setRunRequirement?: (runId: string, requirementId: string) => void;
+  /** ADR 0084 D7: dynamic worker selection via capability pool when node.capability is set. */
+  resolveCapabilityAgent?: (input: { capability: string; repo?: string }) => Promise<string | null>;
+  /** ADR 0084 D6: notify initiating room / PA on waiting_human or terminal state. */
+  onExecutionStateChange?: (event: WorkflowLifecycleNotification) => void | Promise<void>;
 }
 
 export interface WorkflowExecutionServiceDeps extends AgentRunnerDeps {
@@ -280,6 +313,43 @@ export function createWorkflowExecutionService(
     deps.port.appendExecutionEvent({ executionId, event, data, ts: Date.now() }).catch(() => {});
   }
 
+  /** ADR 0084 D6: best-effort lifecycle notification to initiating room / PA. */
+  function notifyLifecycle(event: WorkflowLifecycleNotification): void {
+    if (!deps.onExecutionStateChange) return;
+    void Promise.resolve(deps.onExecutionStateChange(event)).catch((err: unknown) => {
+      console.error(
+        `[workflow] lifecycle notification failed for ${event.executionId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    });
+  }
+
+  /** Resolve shared projectId + requirementId once per execution (ADR 0084 D5). */
+  function resolveExecutionOwnership(input: {
+    workflowId: string;
+    definition: WorkflowDefinition;
+    requirementId?: string | null;
+    conversationId?: string | null;
+    projectId?: string | null;
+  }): { projectId: string | null; requirementId: string | null } {
+    const firstNodeRepo =
+      input.definition.nodes.find((n) => n.type === "agent" && n.repo)?.type === "agent"
+        ? ((input.definition.nodes.find((n) => n.type === "agent" && n.repo) as { repo?: string })
+            .repo ?? null)
+        : null;
+    const projectId = input.projectId ?? firstNodeRepo;
+    let requirementId = input.requirementId ?? null;
+    if (projectId !== null && requirementId === null && deps.ensureRequirementForExecution) {
+      requirementId = deps.ensureRequirementForExecution({
+        workflowId: input.workflowId,
+        ...(input.definition.meta?.name ? { workflowName: input.definition.meta.name } : {}),
+        projectId,
+        conversationId: input.conversationId ?? null,
+      });
+    }
+    return { projectId, requirementId };
+  }
+
   async function storeApiOf(
     executionId: string,
     getStore: () => Record<string, unknown>,
@@ -399,19 +469,39 @@ export function createWorkflowExecutionService(
         "agent runner requires agentRunService/agentRunExecution/convPort/conversationService/resolveDefaultModel",
       );
     }
-    const inline = (node.agentId ?? "").trim() === "";
-    // Inline agents (model+prompt, no system agentId) still need a real agent
-    // member for the conversation identity (postMessage triggers through the
-    // agent registry). Use the default agent as the member; the actual model
-    // comes from node.model via modelOverride.
-    const agentId = inline ? "default" : node.agentId!;
-    if (!agentId) throw new Error("agent node requires agentId");
-    // Repo-aware agent node (V1): repo must be an ATTACHED projectId with an
-    // explicit agentId — never a URL, never a bare-mirror path. Binding the
-    // conversation's projectId is what makes dispatch resolve the agent's
-    // real worktree (resolveWorkspace); no workspace is pinned here.
+    const explicitAgentId = (node.agentId ?? "").trim();
+    const capability = (node.capability ?? "").trim();
+    let agentId = explicitAgentId;
+    let inline = false;
+    if (!agentId && capability !== "") {
+      if (!deps.resolveCapabilityAgent) {
+        throw new Error(
+          `agent node "${node.id}" declares capability "${capability}" but capability routing is not configured`,
+        );
+      }
+      const picked = await deps.resolveCapabilityAgent({
+        capability,
+        repo: node.repo ?? execution.projectId ?? undefined,
+      });
+      if (!picked) {
+        throw new Error(
+          `no enabled worker matches capability "${capability}"${node.repo ? ` for project ${node.repo}` : ""}`,
+        );
+      }
+      agentId = picked;
+      emit(execution.executionId, "node_agent_routed", { nodeId: node.id, capability, agentId });
+    } else if (!agentId) {
+      // Inline agents (model+prompt, no system agentId) still need a real agent
+      // member for the conversation identity.
+      inline = true;
+      agentId = "default";
+    }
+    if (!agentId) throw new Error("agent node requires agentId or capability");
+    // Repo-aware agent node: repo must be an ATTACHED projectId with an
+    // explicit or capability-routed agentId — never a URL or bare-mirror path.
     if (node.repo !== undefined) {
-      if (inline) throw new Error("agent node with repo requires an explicit agentId");
+      if (inline)
+        throw new Error("agent node with repo requires an explicit agentId or capability");
       const attached = await deps.agentProjects?.(agentId);
       if (!attached?.includes(node.repo)) {
         throw new Error(
@@ -439,6 +529,14 @@ export function createWorkflowExecutionService(
       } catch {
         /* concurrent */
       }
+    }
+    // ADR 0084 D5: attach every workflow node conversation to the execution's
+    // shared Requirement so multi-node pipelines share ONE git worktree.
+    if (execution.requirementId) {
+      deps.attachConversationRequirement?.({
+        conversationId,
+        requirementId: execution.requirementId,
+      });
     }
 
     const defaultModel = inline
@@ -470,16 +568,16 @@ export function createWorkflowExecutionService(
         conversationId,
         content: prompt,
         modelOverride: defaultModel,
-        // A node conversation (workflow:<executionId>:<nodeId>) never appears
-        // in the conversation list, so nothing can answer an approval prompt
-        // raised here: asking would park the node forever. yolo is ungated and
-        // still runs bash inside the OS sandbox.
-        permissionMode: "yolo",
-        // ADR 0047: the engine, not a human, authored this run.
+        // ADR 0084 D5: inherit the target agent's configured permission_mode
+        // instead of hardcoding "yolo". Approvals surface in unified
+        // /api/attention while the poll loop pauses on run.status === "waiting".
         authorization: "system",
       });
       runId = posted.triggeredRuns[0]?.runId;
       if (!runId) throw new Error("agent run not triggered");
+      if (execution.requirementId) {
+        deps.setRunRequirement?.(runId, execution.requirementId);
+      }
       await deps.port.updateNodeRun(execution.executionId, node.id, { runId });
       emit(execution.executionId, "node_agent_started", { nodeId: node.id, runId });
       await deps.agentRunExecution.dispatch(runId);
@@ -586,6 +684,16 @@ export function createWorkflowExecutionService(
           nodeId: node.id,
           question,
           questions,
+        });
+        notifyLifecycle({
+          kind: "waiting_human",
+          executionId: execution.executionId,
+          workflowId: execution.workflowId,
+          conversationId: execution.conversationId ?? null,
+          requirementId: execution.requirementId ?? null,
+          triggeredBy: execution.triggeredBy ?? null,
+          nodeId: node.id,
+          ...(question ? { question } : {}),
         });
         return null;
       } else {
@@ -722,6 +830,16 @@ export function createWorkflowExecutionService(
       question: `grant another attempt to "${to}"?`,
       budgetGate: gate,
     });
+    notifyLifecycle({
+      kind: "waiting_human",
+      executionId: execution.executionId,
+      workflowId: execution.workflowId,
+      conversationId: execution.conversationId ?? null,
+      requirementId: execution.requirementId ?? null,
+      triggeredBy: execution.triggeredBy ?? null,
+      nodeId: gateNodeId,
+      question: `Node "${to}" used up its rework budget (${budget.maxAttempts} attempt(s)). Grant one more attempt?`,
+    });
   }
 
   function grantContext(grant: ReworkGrant): Record<string, unknown> {
@@ -774,12 +892,22 @@ export function createWorkflowExecutionService(
       };
       const step = computeNext(execution.definition, state);
       if (step.kind === "terminal") {
+        const finalStatus = exitStatus(step.exit);
         await deps.port.updateExecution(execution.executionId, {
-          status: exitStatus(step.exit),
+          status: finalStatus,
           exit: step.exit,
           terminalAt: Date.now(),
         });
         emit(execution.executionId, "execution_terminal", { exit: step.exit });
+        notifyLifecycle({
+          kind: finalStatus === "failure" ? "failed" : "completed",
+          executionId: execution.executionId,
+          workflowId: execution.workflowId,
+          conversationId: execution.conversationId ?? null,
+          requirementId: execution.requirementId ?? null,
+          triggeredBy: execution.triggeredBy ?? null,
+          exit: step.exit,
+        });
         return;
       }
       if (step.kind === "idle") throw new Error("stuck: no ready nodes and no terminal");
@@ -841,18 +969,36 @@ export function createWorkflowExecutionService(
 
   const startingWorkflows = new Set<string>();
 
-  async function runWithCatch(executionId: string, execute: () => Promise<void>): Promise<void> {
+  async function runWithCatch(
+    execution: WorkflowExecutionRow,
+    execute: () => Promise<void>,
+  ): Promise<void> {
+    const executionId = execution.executionId;
     try {
       await execute();
     } catch (err) {
-      if (err instanceof WorkflowCancelledError) cancelled.delete(executionId);
+      const wasCancelled = err instanceof WorkflowCancelledError;
+      if (wasCancelled) cancelled.delete(executionId);
+      const message = (err as Error).message;
       await deps.port.updateExecution(executionId, {
         status: "failure",
-        error: (err as Error).message,
-        exit: "failure",
+        error: message,
+        exit: wasCancelled ? "aborted" : "failure",
         terminalAt: Date.now(),
       });
-      emit(executionId, "execution_terminal", { exit: "failure", error: (err as Error).message });
+      emit(executionId, "execution_terminal", {
+        exit: wasCancelled ? "aborted" : "failure",
+        error: message,
+      });
+      notifyLifecycle({
+        kind: wasCancelled ? "cancelled" : "failed",
+        executionId,
+        workflowId: execution.workflowId,
+        conversationId: execution.conversationId ?? null,
+        requirementId: execution.requirementId ?? null,
+        triggeredBy: execution.triggeredBy ?? null,
+        error: message,
+      });
     } finally {
       // Release per-execution memory once the execution is no longer driving
       // (terminal or parked waiting_human; resume rebuilds completions from DB).
@@ -863,6 +1009,7 @@ export function createWorkflowExecutionService(
 
   return {
     async runToCompletion(executionId, input) {
+      const { projectId, requirementId } = resolveExecutionOwnership(input);
       const row = await deps.port.createExecution({
         executionId,
         workflowId: input.workflowId,
@@ -871,53 +1018,75 @@ export function createWorkflowExecutionService(
         store: {},
         status: "running",
         triggeredBy: input.triggeredBy ?? "manual",
-        requirementId: input.requirementId ?? null,
+        requirementId,
         conversationId: input.conversationId ?? null,
-        projectId: input.projectId ?? null,
+        projectId,
       });
       emit(executionId, "execution_started", {});
-      await runWithCatch(executionId, () => drive(row));
+      await runWithCatch(row, () => drive(row));
       return (await deps.port.getExecution(executionId))!;
     },
     async startExecution(input) {
-      // Single-flight guard across async DB check + insert so concurrent triggers
-      // cannot slip past the read-then-insert gap.
-      if (startingWorkflows.has(input.workflowId)) {
+      const { projectId, requirementId } = resolveExecutionOwnership(input);
+      const policy = resolveConcurrencyPolicy(input.definition);
+      const lockKey =
+        policy === "forbid"
+          ? input.workflowId
+          : policy === "per_requirement"
+            ? `${input.workflowId}::${requirementId ?? "__none__"}`
+            : null;
+      if (lockKey !== null && startingWorkflows.has(lockKey)) {
         throw new HttpError(
           `workflow ${input.workflowId} is already starting an execution; wait, or cancel it first`,
           409,
         );
       }
-      startingWorkflows.add(input.workflowId);
+      if (lockKey !== null) startingWorkflows.add(lockKey);
       let row: WorkflowExecutionRow;
       try {
-        const active = (await deps.port.listExecutions(input.workflowId)).find(
-          (e) => e.status === "running",
-        );
-        if (active) {
-          throw new HttpError(
-            `workflow ${input.workflowId} already has a running execution (${active.executionId}); wait, or cancel it first`,
-            409,
-          );
-        }
         const executionId = deps.idGen();
-        row = await deps.port.createExecution({
+        const createInput = {
           executionId,
           workflowId: input.workflowId,
           definition: input.definition,
           input: input.input,
           store: {},
-          status: "running",
+          status: "running" as const,
           triggeredBy: input.triggeredBy ?? "manual",
-          requirementId: input.requirementId ?? null,
+          requirementId,
           conversationId: input.conversationId ?? null,
-          projectId: input.projectId ?? null,
-        });
+          projectId,
+        };
+        if (deps.port.createExecutionWithPolicy) {
+          const result = await deps.port.createExecutionWithPolicy(createInput, policy);
+          if (!result.ok) {
+            throw new HttpError(
+              `workflow ${input.workflowId} already has a running execution (${result.conflictExecutionId}); wait, or cancel it first`,
+              409,
+            );
+          }
+          row = result.row;
+        } else {
+          if (policy !== "allow") {
+            const active = (await deps.port.listExecutions(input.workflowId)).find(
+              (e) =>
+                e.status === "running" &&
+                (policy === "forbid" || (e.requirementId ?? null) === requirementId),
+            );
+            if (active) {
+              throw new HttpError(
+                `workflow ${input.workflowId} already has a running execution (${active.executionId}); wait, or cancel it first`,
+                409,
+              );
+            }
+          }
+          row = await deps.port.createExecution(createInput);
+        }
       } finally {
-        startingWorkflows.delete(input.workflowId);
+        if (lockKey !== null) startingWorkflows.delete(lockKey);
       }
       emit(row.executionId, "execution_started", {});
-      void runWithCatch(row.executionId, () => drive(row));
+      void runWithCatch(row, () => drive(row));
       return row;
     },
     async resolveHumanTasks(
@@ -977,10 +1146,19 @@ export function createWorkflowExecutionService(
             terminalAt: Date.now(),
           });
           emit(executionId, "execution_terminal", { exit: "failure", error });
+          notifyLifecycle({
+            kind: "failed",
+            executionId,
+            workflowId: row.workflowId,
+            conversationId: row.conversationId ?? null,
+            requirementId: row.requirementId ?? null,
+            triggeredBy: row.triggeredBy ?? null,
+            error,
+          });
           return (await deps.port.getExecution(executionId))!;
         }
         await deps.port.updateExecution(executionId, { status: "running" });
-        void runWithCatch(executionId, () => drive(row));
+        void runWithCatch(row, () => drive(row));
         return row;
       }
 
@@ -1023,7 +1201,7 @@ export function createWorkflowExecutionService(
       const fresh = await deps.port.getExecution(executionId);
       if (fresh) row.store = fresh.store;
       await deps.port.updateExecution(executionId, { status: "running" });
-      void runWithCatch(executionId, () => drive(row));
+      void runWithCatch(row, () => drive(row));
       return row;
     },
     async getExecution(id) {
@@ -1054,6 +1232,15 @@ export function createWorkflowExecutionService(
         });
         cancelled.delete(executionId);
         emit(executionId, "execution_terminal", { exit: "aborted", error: "cancelled by user" });
+        notifyLifecycle({
+          kind: "cancelled",
+          executionId,
+          workflowId: row.workflowId,
+          conversationId: row.conversationId ?? null,
+          requirementId: row.requirementId ?? null,
+          triggeredBy: row.triggeredBy ?? null,
+          error: "cancelled by user",
+        });
         return await deps.port.getExecution(executionId);
       }
       // running: the drive/poll loops observe the flag and unwind; mark now
@@ -1107,6 +1294,16 @@ export function createWorkflowExecutionService(
           });
           emit(execution.executionId, "node_failed", { nodeId: waiting.nodeId, error });
           emit(execution.executionId, "execution_terminal", { exit: "failure", error });
+          notifyLifecycle({
+            kind: "failed",
+            executionId: execution.executionId,
+            workflowId: execution.workflowId,
+            conversationId: execution.conversationId ?? null,
+            requirementId: execution.requirementId ?? null,
+            triggeredBy: execution.triggeredBy ?? null,
+            nodeId: waiting.nodeId,
+            error,
+          });
           expired.push(execution.executionId);
           break;
         }
@@ -1115,7 +1312,7 @@ export function createWorkflowExecutionService(
     },
     async recover() {
       for (const e of await deps.port.listRunningExecutions()) {
-        void runWithCatch(e.executionId, () => drive(e));
+        void runWithCatch(e, () => drive(e));
       }
     },
   };

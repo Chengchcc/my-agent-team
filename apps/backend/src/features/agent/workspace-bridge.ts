@@ -97,6 +97,15 @@ export const PRODUCT_CONSENTED_MCP_TOOLS: readonly string[] = [
   "mcp__product-tools__wiki_source_add",
   "mcp__product-tools__reminder_list",
   "mcp__product-tools__reminder_cancel",
+  // ADR 0084: PA-managed SOP workflows. workflow_save enforces its own
+  // server-side proposal gate for script/cron changes; workflow_delete stays
+  // permission-gated intentionally.
+  "mcp__product-tools__workflow_list",
+  "mcp__product-tools__workflow_read",
+  "mcp__product-tools__workflow_save",
+  "mcp__product-tools__workflow_run",
+  "mcp__product-tools__workflow_status",
+  "mcp__product-tools__workflow_cancel",
 ];
 
 /** Reconcile the `<kind>/skills/` symlinks: create missing links to the

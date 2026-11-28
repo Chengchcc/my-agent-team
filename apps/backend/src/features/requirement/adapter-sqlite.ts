@@ -7,6 +7,7 @@ import type {
   RequirementRequestFact,
   RequirementRow,
   RequirementRunFact,
+  RequirementWorkflowFact,
 } from "./domain.js";
 
 export interface RequirementPort {
@@ -18,6 +19,7 @@ export interface RequirementPort {
   listOpenByConversation(conversationId: string, limit: number): RequirementRow[];
   runsOf(id: string): RequirementRunFact[];
   requestsOf(id: string): RequirementRequestFact[];
+  workflowExecutionsOf?(id: string): RequirementWorkflowFact[];
 }
 
 /** Verification verdict sits inside agent_run.terminal_result (JSON); reads
@@ -176,6 +178,27 @@ export function sqliteRequirementAdapter(db: Database): RequirementPort {
           status: row.status,
           head: headOf(row.payload),
           owner: row.owner,
+        }));
+    },
+    workflowExecutionsOf(id: string): RequirementWorkflowFact[] {
+      return d
+        .select({
+          executionId: schema.workflowExecution.executionId,
+          workflowId: schema.workflowExecution.workflowId,
+          status: schema.workflowExecution.status,
+          createdAt: schema.workflowExecution.createdAt,
+          terminalAt: schema.workflowExecution.terminalAt,
+        })
+        .from(schema.workflowExecution)
+        .where(eq(schema.workflowExecution.requirementId, id))
+        .orderBy(desc(schema.workflowExecution.createdAt))
+        .all()
+        .map((row) => ({
+          executionId: row.executionId,
+          workflowId: row.workflowId,
+          status: row.status,
+          createdAt: row.createdAt,
+          terminalAt: row.terminalAt ?? null,
         }));
     },
   };

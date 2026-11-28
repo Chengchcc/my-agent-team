@@ -9,6 +9,7 @@ export {
   type RequirementStoredStatus,
   type RequirementView,
   type RequirementViewStatus,
+  type RequirementWorkflowFact,
 } from "./domain.js";
 export { requirementRoutes } from "./http.js";
 export {

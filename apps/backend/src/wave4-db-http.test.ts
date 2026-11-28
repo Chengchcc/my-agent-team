@@ -22,7 +22,7 @@ afterAll(() => {
 });
 
 describe("Wave 4: DB indexes, constraints, chunking & retention", () => {
-  test("migration 0074 creates hot-path indexes and enforces workflow single-flight", () => {
+  test("migration 0074/0075 creates hot-path indexes and enforces workflow concurrency policies", async () => {
     const db = makeTmpDb();
     try {
       const indexes = (
@@ -34,36 +34,113 @@ describe("Wave 4: DB indexes, constraints, chunking & retention", () => {
       expect(indexes).toContain("idx_agent_run_status_created");
       expect(indexes).toContain("idx_agent_run_conv_created");
       expect(indexes).toContain("idx_conversation_parent");
-      expect(indexes).toContain("idx_workflow_execution_single_flight");
+      expect(indexes).toContain("idx_workflow_execution_wf_req_status");
       expect(indexes).toContain("idx_pending_action_status_run");
       expect(indexes).toContain("idx_queue_status_branch_seq");
       expect(indexes).toContain("idx_context_entry_tree_seq");
 
       const now = Date.now();
-      db.query(
-        `INSERT INTO workflow_execution (execution_id, workflow_id, definition, input, status, created_at)
-         VALUES (?, ?, '{}', '{}', ?, ?)`,
-      ).run("exec-1", "wf-one", "running", now);
+      // ADR 0084 (migration 0075): concurrency is enforced per workflow policy in
+      // sqliteWorkflowExecutionAdapter.createExecutionWithPolicy (forbid / per_requirement / allow),
+      // backed by idx_workflow_execution_wf_req_status.
+      const { sqliteWorkflowExecutionAdapter } = await import(
+        "./features/workflow/adapter-sqlite.js"
+      );
+      const { sqliteRequirementAdapter } = await import("./features/requirement/adapter-sqlite.js");
+      const reqPort = sqliteRequirementAdapter(db);
+      for (const reqId of ["req-a", "req-b"]) {
+        reqPort.create({
+          requirementId: reqId,
+          title: reqId,
+          goal: reqId,
+          background: null,
+          constraints: null,
+          expectedDeliverables: null,
+          acceptanceCriteria: null,
+          acceptedEvidence: null,
+          acceptedAt: null,
+          status: "open",
+          projectId: null,
+          originConversationId: null,
+          originSeq: null,
+          createdByAgentId: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      const wfPort = sqliteWorkflowExecutionAdapter(db);
+      const minDef = {
+        version: 1 as const,
+        id: "wf-one",
+        nodes: [
+          { id: "start", type: "start" as const },
+          { id: "done", type: "end" as const, status: "success" },
+        ],
+        edges: [{ from: "start", to: "done" }],
+      };
+      const r1 = await wfPort.createExecutionWithPolicy!(
+        {
+          executionId: "exec-1",
+          workflowId: "wf-one",
+          requirementId: "req-a",
+          definition: minDef,
+          input: {},
+          store: {},
+        },
+        "forbid",
+      );
+      expect(r1.ok).toBe(true);
+      const r2 = await wfPort.createExecutionWithPolicy!(
+        {
+          executionId: "exec-2",
+          workflowId: "wf-one",
+          requirementId: "req-b",
+          definition: minDef,
+          input: {},
+          store: {},
+        },
+        "forbid",
+      );
+      expect(r2).toEqual({ ok: false, conflictExecutionId: "exec-1" });
 
-      // Second running execution for the same workflow must fail at the DB constraint.
-      expect(() =>
-        db
-          .query(
-            `INSERT INTO workflow_execution (execution_id, workflow_id, definition, input, status, created_at)
-             VALUES (?, ?, '{}', '{}', ?, ?)`,
-          )
-          .run("exec-2", "wf-one", "running", now),
-      ).toThrow();
+      // per_requirement blocks same requirementId, allows another requirementId.
+      const r3 = await wfPort.createExecutionWithPolicy!(
+        {
+          executionId: "exec-3",
+          workflowId: "wf-one",
+          requirementId: "req-a",
+          definition: minDef,
+          input: {},
+          store: {},
+        },
+        "per_requirement",
+      );
+      expect(r3).toEqual({ ok: false, conflictExecutionId: "exec-1" });
+      const r4 = await wfPort.createExecutionWithPolicy!(
+        {
+          executionId: "exec-4",
+          workflowId: "wf-one",
+          requirementId: "req-b",
+          definition: minDef,
+          input: {},
+          store: {},
+        },
+        "per_requirement",
+      );
+      expect(r4.ok).toBe(true);
 
-      // A waiting_human execution or a different workflow is allowed.
-      db.query(
-        `INSERT INTO workflow_execution (execution_id, workflow_id, definition, input, status, created_at)
-         VALUES (?, ?, '{}', '{}', ?, ?)`,
-      ).run("exec-3", "wf-one", "waiting_human", now);
-      db.query(
-        `INSERT INTO workflow_execution (execution_id, workflow_id, definition, input, status, created_at)
-         VALUES (?, ?, '{}', '{}', ?, ?)`,
-      ).run("exec-4", "wf-two", "running", now);
+      // A different workflow is allowed.
+      const r5 = await wfPort.createExecutionWithPolicy!(
+        {
+          executionId: "exec-5",
+          workflowId: "wf-two",
+          definition: { ...minDef, id: "wf-two" },
+          input: {},
+          store: {},
+        },
+        "forbid",
+      );
+      expect(r5.ok).toBe(true);
     } finally {
       db.close();
     }
