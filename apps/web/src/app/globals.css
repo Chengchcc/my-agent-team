@@ -285,6 +285,26 @@
   padding: 0;
 }
 
+/* React Flow controls default to white light-mode tiles; align with dark canvas tokens. */
+.react-flow .react-flow__controls {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.react-flow .react-flow__controls .react-flow__controls-button {
+  background: var(--wf-node-bg);
+  color: var(--mute);
+  border-bottom: 1px solid var(--wf-node-border);
+}
+.react-flow .react-flow__controls .react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+.react-flow .react-flow__controls .react-flow__controls-button:hover {
+  background: var(--panel2);
+  color: var(--ink);
+}
+.react-flow .react-flow__controls .react-flow__controls-button svg {
+  fill: currentColor;
+}
+
 @keyframes wf-dash {
   to {
     stroke-dashoffset: -14;

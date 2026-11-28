@@ -236,7 +236,10 @@ export function CodingRail({
               const isSelected =
                 selected?.workspaceId === ws.workspaceId ||
                 (selected?.worktreePath !== undefined && selected.worktreePath === ws.path);
-              const title = ws.requirementTitle ?? ws.branch;
+              const rawFallbackTitle = ws.requirementTitle ?? ws.conversationTitle;
+              const compactBranch = ws.branch.replace(/^(req\/[0-9a-f]{8})[0-9a-f]{8,}$/i, "$1…");
+              const title = rawFallbackTitle ?? compactBranch;
+              const showBranchInSubtitle = rawFallbackTitle !== null;
 
               return (
                 <div
@@ -265,7 +268,12 @@ export function CodingRail({
                       <span className="mt-0.5 flex items-center gap-1 truncate text-[10px] text-(--mute)">
                         <GitBranchIcon className="size-2.5 shrink-0" />
                         <span className="truncate">
-                          {ws.projectName} · {ws.worktreeReady ? ws.branch : t("not ready")}
+                          {ws.projectName}
+                          {showBranchInSubtitle
+                            ? ` · ${ws.worktreeReady ? compactBranch : t("not ready")}`
+                            : ws.worktreeReady
+                              ? ""
+                              : ` · ${t("not ready")}`}
                         </span>
                         {ws.ahead > 0 ? (
                           <span className="shrink-0 font-mono text-(--primary)">↑{ws.ahead}</span>

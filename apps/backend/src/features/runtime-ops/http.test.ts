@@ -93,9 +93,19 @@ describe("runtime-ops routes", () => {
     expect(s.runs).toBe(0);
     expect(typeof s.since).toBe("number");
 
+    const filtered = await api(
+      harness,
+      "GET",
+      "/api/telemetry/summary?since=1000&agentId=a1&modelId=m1&status=completed&skill=s1&scope=all",
+    );
+    expect(filtered.status).toBe(200);
+
     const events = await api(harness, "GET", "/api/agent-runs/no-such-run/telemetry");
     expect(events.status).toBe(200);
     expect(await events.json()).toEqual({ events: [] });
+
+    const missingTrace = await api(harness, "GET", "/api/agent-runs/no-such-run/trace");
+    expect(missingTrace.status).toBe(404);
   });
 
   test("structured payload fields ride through (lark bound chats)", async () => {

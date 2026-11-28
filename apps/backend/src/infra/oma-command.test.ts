@@ -24,12 +24,15 @@ const baseConfig: BackendConfig = {
 };
 
 describe("resolveOmaCommand", () => {
-  test("the product's spawn switches the child's own title generator off", () => {
+  test("the product's spawn switches the child's own title generator and update banner off", () => {
     // Titles are a product fact (conversation/title.ts). The child's generator
     // only ever wrote to its own session file, so a product run would pay a
     // model call per completed turn for something nothing can read.
+    // Likewise, product-managed oma runs from the repo checkout / bundle, so
+    // npm update banners cannot update it.
     const result = resolveOmaCommand(baseConfig);
     expect(result.env?.OMA_TITLE_ENABLED).toBe("0");
+    expect(result.env?.OMA_NO_UPDATE_CHECK).toBe("1");
   });
 
   test("uses Bun + monorepo source CLI when OMA_BIN is absent", () => {

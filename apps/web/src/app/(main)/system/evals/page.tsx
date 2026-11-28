@@ -1,23 +1,14 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  FlaskConical,
-  GitCompare,
-  History,
-  Play,
-  Plus,
-  RotateCcw,
-  Trash2,
-} from "lucide-react";
+import { FlaskConical, GitCompare, History, Play, Plus, RotateCcw, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { PanelCell, PanelRow, PanelTable, StatusBadge } from "@/components/ops/kit";
 import { Page, PageBody, PageHeader } from "@/components/page";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
@@ -285,16 +276,10 @@ export default function EvalsPage() {
           "Git-versioned regression suites for skills, workflows, and agents. Every trial runs through the real execution pipeline with isolation and budget guards.",
         )}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Link href="/system" className={buttonVariants({ variant: "outline", size: "sm" })}>
-              <ArrowLeft />
-              {t("Observability")}
-            </Link>
-            <Button size="sm" onClick={openNewSuite}>
-              <Plus />
-              {t("New suite")}
-            </Button>
-          </div>
+          <Button size="sm" onClick={openNewSuite}>
+            <Plus />
+            {t("New suite")}
+          </Button>
         }
       />
       <PageBody className="space-y-5">

@@ -281,7 +281,17 @@ export default function SystemPage() {
             {summary !== undefined ? fmtTokens(summary.inputTokens + summary.outputTokens) : "—"}
           </StripItem>
           <StripItem name={t("cost in window")} tone="mute">
-            {summary !== undefined ? `$${summary.costUsd.toFixed(4)}` : "—"}
+            {summary !== undefined ? (
+              summary.costUsd === 0 && summary.inputTokens + summary.outputTokens > 0 ? (
+                <span className="text-(--faint)" title={t("Model pricing not configured")}>
+                  —
+                </span>
+              ) : (
+                `$${summary.costUsd.toFixed(4)}`
+              )
+            ) : (
+              "—"
+            )}
           </StripItem>
           <StripItem name={t("surfaces live")} tone="mute">
             {liveSurfaces}/{surfaces.length}

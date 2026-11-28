@@ -8,7 +8,6 @@ import { Composer, type RecommendedSkill } from "@/components/Composer";
 import { ConversationPanel } from "@/components/ConversationPanel";
 import { ConversationDensityContext } from "@/components/conversation-density";
 import type { ChatModelOverride } from "@/components/ModelPicker";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RoleAvatar } from "@/components/ui/role-avatar";
 import { useAgentList } from "@/features/agents/hooks";
@@ -198,13 +197,17 @@ export function PaSession({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-(--canvas)">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-(--hairline) px-4 py-2">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-(--hairline) px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <RoleAvatar kind="pa" name={defaultPa.name} size="sm" />
-          <span className="truncate text-xs font-medium text-(--ink)">{defaultPa.name}</span>
-          <Badge variant="secondary" className="shrink-0 text-[10px]">
-            {t("Dedicated session")}
-          </Badge>
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate text-xs font-medium leading-tight text-(--ink)">
+              {defaultPa.name}
+            </span>
+            <span className="truncate text-[10px] leading-tight text-(--faint)">
+              {t("Dedicated session")}
+            </span>
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {headerAction}

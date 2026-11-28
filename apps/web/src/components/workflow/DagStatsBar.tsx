@@ -83,15 +83,15 @@ export function DagStatsBar({
       </div>
 
       {/* DAG stats */}
-      <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-kicker text-(--mute)">
-        <span>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10px] uppercase tracking-kicker text-(--mute)">
+        <span className="whitespace-nowrap">
           {t("DAG Nodes")}: <span className="text-(--ink-strong)">{nodeCount}</span>
         </span>
-        <span>
+        <span className="whitespace-nowrap">
           {t("Acyclic Depth")}: <span className="text-(--ink-strong)">{depth}</span>
         </span>
-        <span className="flex items-center gap-1">
-          {t("Deterministic")}{" "}
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <span>{t("Deterministic")}:</span>
           <span className={validated ? "text-(--ok)" : "text-(--err)"}>
             {validated ? t("Validated") : t("Not validated")}
           </span>

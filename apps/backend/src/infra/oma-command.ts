@@ -89,6 +89,9 @@ export function resolveOmaCommand(
     // - Titles are a product fact (conversation/title.ts); standalone oma is
     //   untouched since this env is only set on the product's spawn.
     OMA_TITLE_ENABLED: "0",
+    // - Product-managed oma runs from the repo checkout / deployment bundle;
+    //   suppress npm update banners that cannot update this checkout.
+    OMA_NO_UPDATE_CHECK: "1",
   };
 
   const modeArgs = opts.mode === "acp" ? ["--mode", "acp"] : [];

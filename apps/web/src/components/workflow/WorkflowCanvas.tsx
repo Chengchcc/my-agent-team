@@ -444,57 +444,63 @@ export function WorkflowCanvas({
           {minimapOpen === "open" ? t("Hide minimap") : t("Minimap")}
         </button>
       )}
-      {interactive && hintDismissed === "shown" && (
-        <div className="absolute left-4 top-4 z-10 flex items-start gap-2 rounded-md border border-(--hairline) bg-(--panel)/90 px-3 py-2 text-[11px] text-(--mute) backdrop-blur">
-          <span className="inline-block size-1.5 translate-y-1 rounded-full bg-(--primary)" />
-          <span>
-            {t(
-              "Drag a line from the bottom of a node onto empty canvas to pick a downstream node type; click a node to edit, press Delete to remove",
-            )}
-          </span>
+      {interactive && (
+        <div className="pointer-events-none absolute inset-x-4 top-4 z-10 flex items-start justify-between gap-3">
+          {hintDismissed === "shown" ? (
+            <div className="pointer-events-auto flex max-w-xl items-start gap-2 rounded-md border border-(--hairline) bg-(--panel)/90 px-3 py-2 text-[11px] text-(--mute) backdrop-blur">
+              <span className="inline-block size-1.5 shrink-0 translate-y-1 rounded-full bg-(--primary)" />
+              <span className="min-w-0 leading-relaxed">
+                {t(
+                  "Drag a line from the bottom of a node onto empty canvas to pick a downstream node type; click a node to edit, press Delete to remove",
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setHintDismissed("dismissed");
+                  localStorage.setItem("wf-hint-dismissed", "1");
+                }}
+                className="shrink-0 rounded p-0.5 text-(--mute) hover:text-(--ink)"
+                title={t("Close hint")}
+              >
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ) : (
+            <span />
+          )}
           <button
-            onClick={() => {
-              setHintDismissed("dismissed");
-              localStorage.setItem("wf-hint-dismissed", "1");
-            }}
-            className="shrink-0 rounded p-0.5 text-(--mute) hover:text-(--ink)"
-            title={t("Close hint")}
+            type="button"
+            onClick={autoLayout}
+            title={t("Auto layout")}
+            className="pointer-events-auto flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-(--hairline) bg-(--panel)/90 px-2.5 text-[11px] text-(--mute) backdrop-blur hover:border-(--info)/50 hover:text-(--info)"
           >
             <svg
-              width="10"
-              height="10"
+              width="14"
+              height="14"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
               strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              <path d="M18 6 6 18M6 6l12 12" />
+              <path d="M21 3 3 21" />
+              <path d="M21 7v4h-4" />
+              <path d="M3 17v-4h4" />
             </svg>
+            <span>{t("Auto layout")}</span>
           </button>
         </div>
-      )}
-      {interactive && (
-        <button
-          onClick={autoLayout}
-          title={t("Auto layout")}
-          className="absolute right-4 top-4 z-10 flex h-7 items-center gap-1.5 rounded-md border border-(--hairline) bg-(--panel)/90 px-2.5 text-[11px] text-(--mute) hover:border-(--info)/50 hover:text-(--info)"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M21 3 3 21" />
-            <path d="M21 7v4h-4" />
-            <path d="M3 17v-4h4" />
-          </svg>
-          <span>{t("Auto layout")}</span>
-        </button>
       )}
     </div>
   );
