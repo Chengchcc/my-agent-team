@@ -7,6 +7,11 @@ import type { Message } from "@chengchenccc/message";
 /** Per-message framing overhead (role tag, separators — matches Anthropic's
  *  documented ~4 tokens/message). */
 const MESSAGE_FRAMING_TOKENS = 4;
+/** Fixed per-image token estimate (~1200 tokens for a typical screenshot).
+ *  Providers bill images by pixel dimensions rather than base64 byte length,
+ *  so a fixed constant avoids both base64/4 over-counting and 0-token blindness
+ *  when a session accumulates many screenshots. */
+export const IMAGE_ESTIMATE_TOKENS = 1_200;
 
 /** CJK code points (BMP): unified + ext-A + compat ideographs, kana, hangul,
  *  CJK punctuation and fullwidth forms. Astral-plane ideographs (ext B+) are
@@ -64,9 +69,12 @@ export function estimateMessageTokens(message: Message): number {
     } else if (b.type === "thinking") {
       tokens += estimateTextTokens(b.text + (b.signature ?? ""));
     } else if (b.type === "tool_use") {
-      tokens += estimateTextTokens(JSON.stringify(b.input));
+      tokens += estimateTextTokens(JSON.stringify(b.input ?? {}) ?? "");
     } else if (b.type === "tool_result") {
       tokens += estimateTextTokens(b.content);
+      if (b.images?.length) tokens += b.images.length * IMAGE_ESTIMATE_TOKENS;
+    } else if (b.type === "image") {
+      tokens += IMAGE_ESTIMATE_TOKENS;
     }
   }
   if (message.role !== "tool" && !carriesText && message.text) {

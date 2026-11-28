@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import {
   type EmbeddingProvider,
   openVectorMemoryStore,
@@ -9,6 +9,7 @@ import {
 import { createFastembedProvider } from "@chengchenccc/embedding/fastembed";
 import { agentDir } from "../session/session-file.js";
 import { loadProjectSettings } from "../settings/project-settings.js";
+import { redactMemorySecrets } from "./learn.js";
 
 /** Where this product keeps model files: its own policy (env override, then the
  *  oma agent dir). The engine takes the path and never guesses a home —
@@ -58,30 +59,50 @@ export function memoryDbPath(workspaceRoot: string): string {
   return join(workspaceRoot, ".oma", "memory", "memory.db");
 }
 
-/** Open (or reuse) the workspace's vector memory. Resolves null when the
- *  provider cannot start (no model) — callers keep the store's FTS voice. */
-export function getVectorMemory(workspaceRoot: string): VectorMemory | null {
-  if (instances.has(workspaceRoot)) return instances.get(workspaceRoot) ?? null;
-  let instance: VectorMemory | null;
+function canonicalWorkspaceKey(workspaceRoot: string): string {
   try {
-    const dbPath = memoryDbPath(workspaceRoot);
+    return realpathSync(workspaceRoot);
+  } catch {
+    return resolve(workspaceRoot);
+  }
+}
+
+/** Open (or reuse) the workspace's vector memory. If the embedding provider
+ *  fails to initialize, degrades gracefully to `{ store, provider: null }` so
+ *  FTS5 keyword search still works without leaking the SQLite handle. Transient
+ *  SQLite open failures are NOT permanently cached. */
+export function getVectorMemory(workspaceRoot: string): VectorMemory | null {
+  const key = canonicalWorkspaceKey(workspaceRoot);
+  const cached = instances.get(key);
+  if (cached) return cached;
+
+  let store: VectorMemoryStore;
+  try {
+    const dbPath = memoryDbPath(key);
     // A fresh workspace has no .oma/memory yet — create it, or the open
     // fails and the whole vector layer silently never mounts.
     mkdirSync(dirname(dbPath), { recursive: true });
-    const store = openVectorMemoryStore(dbPath);
+    store = openVectorMemoryStore(dbPath);
+  } catch {
+    return null;
+  }
+
+  let provider: EmbeddingProvider | null;
+  try {
     // The workspace setting pins the model; absent = the default. (This is
     // the standalone layer only — never the product RPC path.)
-    const model = loadProjectSettings(workspaceRoot).memoryVector?.model;
-    const provider = createFastembedProvider({
+    const model = loadProjectSettings(key).memoryVector?.model;
+    provider = createFastembedProvider({
       cacheDir: embeddingCacheDir(),
       ...(model ? { model } : {}),
     });
-    instance = { store, provider };
-    ensureExitHook();
   } catch {
-    instance = null;
+    provider = null;
   }
-  instances.set(workspaceRoot, instance);
+
+  const instance: VectorMemory = { store, provider };
+  ensureExitHook();
+  instances.set(key, instance);
   return instance;
 }
 
@@ -135,7 +156,8 @@ async function runBackfill(memory: VectorMemory, workspaceRoot: string): Promise
     // Format: - [date] **context** content  |  - [date] content
     const m = /^-\s*\[\d{4}-\d{2}-\d{2}\]\s+(?:\*\*(.+?)\*\*\s+)?(.+)$/.exec(line);
     if (!m) continue;
-    const content = m[2]!;
+    const content = redactMemorySecrets(m[2]!);
+    const context = m[1] ? redactMemorySecrets(m[1]) : undefined;
     // Already indexed: skip. This is what keeps a steady-state pass free (no
     // embedding) and keeps `added` honest — retainMemory returns the EXISTING
     // id for a duplicate, so it cannot be used to tell "wrote" from "already
@@ -143,7 +165,7 @@ async function runBackfill(memory: VectorMemory, workspaceRoot: string): Promise
     if (memory.store.byContent(content)) continue;
     const id = await retainMemory(memory.store, memory.provider, {
       content,
-      ...(m[1] ? { context: m[1] } : {}),
+      ...(context ? { context } : {}),
       source: "backfill",
     });
     if (id) added++;

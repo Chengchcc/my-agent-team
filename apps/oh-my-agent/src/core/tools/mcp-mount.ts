@@ -4,7 +4,9 @@ import { sanitizeServerName } from "@chengchenccc/adapter-mcp";
 import { decodeEnvList, MCP_EXPANDABLE_VARS_ENV } from "@chengchenccc/message";
 import type { PluginTool } from "../index.js";
 import type { PluginMcpConfig } from "../plugins/plugin-resolve.js";
+import { isFileTrusted, readTrustedPlugins } from "../plugins/plugin-trust.js";
 import { killProcessTree } from "../runtime/process-tree.js";
+import { isMetadataHost, parseHttpUrl, resolveHostAddresses } from "./url-guard.js";
 
 /** Generic .mcp.json mounting (ADR 0022): the workspace bridge writes one
  *  .mcp.json (user servers + spawner-bridged servers); the child mounts
@@ -25,9 +27,58 @@ interface McpJsonServer {
   timeoutMs?: number;
 }
 
+interface McpContentItem {
+  type: string;
+  text?: string;
+  data?: string;
+  mimeType?: string;
+  resource?: { text?: string; uri?: string };
+}
+
 interface McpCallResult {
-  content?: Array<{ type: string; text?: string }>;
+  content?: McpContentItem[];
   isError?: boolean;
+}
+
+/** Model-facing cap on text returned from a single MCP tool call. */
+const MAX_MCP_RESULT_CHARS = 64_000;
+/** Max base64 chars accepted per MCP image block (~5MB raw image). */
+const MAX_MCP_IMAGE_BASE64 = 7 * 1024 * 1024;
+const ALLOWED_IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+/** Validate a URL-based MCP server: requires http(s) and refuses cloud metadata
+ *  endpoints (including DNS answers), while allowing loopback/LAN servers. */
+export async function assertSafeMcpUrl(rawUrl: string): Promise<URL> {
+  const parsed = parseHttpUrl(rawUrl);
+  if (isMetadataHost(parsed.hostname)) {
+    throw new Error(`refused MCP URL ${rawUrl}: cloud metadata endpoints are blocked`);
+  }
+  const isLiteralIp =
+    parsed.hostname.includes(":") || /^\d{1,3}(\.\d{1,3}){3}$/.test(parsed.hostname);
+  if (!isLiteralIp) {
+    const addrs = await resolveHostAddresses(parsed.hostname);
+    if (addrs.some((a) => isMetadataHost(a))) {
+      throw new Error(`refused MCP URL ${rawUrl}: resolves to a cloud metadata address`);
+    }
+  }
+  return parsed;
+}
+
+function buildStdioEnv(
+  serverEnv: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!serverEnv) return undefined;
+  // Preserve essential runtime lookup vars (PATH/HOME/LANG/TMPDIR) so a server
+  // config that sets one custom env var does not break `npx`/`node`/`bun`.
+  const base: Record<string, string> = {};
+  for (const key of ["PATH", "HOME", "USER", "SHELL", "LANG", "LC_ALL", "TZ", "TMPDIR"]) {
+    const val = process.env[key];
+    if (val !== undefined) base[key] = val;
+  }
+  for (const [k, v] of Object.entries(serverEnv)) {
+    base[k] = expandEnvVars(v);
+  }
+  return base;
 }
 
 type ToolArguments = Record<string, unknown>;
@@ -133,12 +184,13 @@ async function connectServer(
     // per Run (and the SDK's close alone does not cover a half-open
     // connect, so the pid gets killProcessTree'd too).
     if (server.url) {
+      const safeUrl = await assertSafeMcpUrl(server.url);
       const { SSEClientTransport } = await import("@modelcontextprotocol/sdk/client/sse.js");
       const headers = server.headers
         ? Object.fromEntries(Object.entries(server.headers).map(([k, v]) => [k, expandEnvVars(v)]))
         : undefined;
       const transport = new SSEClientTransport(
-        new URL(server.url),
+        safeUrl,
         headers ? { requestInit: { headers } } : undefined,
       );
       const client = new Client({ name: "oma", version: "0.1.0" }, { capabilities: {} });
@@ -148,8 +200,7 @@ async function connectServer(
       // so there is no run AbortSignal here — the deadline is the bound).
       await withCallTimeout(client.connect(transport), `mcp connect ${name}`, connectTimeoutMs);
       callTool = (params) =>
-        // MCP wire boundary: the SDK returns a wide content union; our
-        // consumer only reads text blocks and isError.
+        // MCP wire boundary: the SDK returns a wide content union.
         client.callTool(params, undefined, callOptions) as Promise<McpCallResult>;
       listTools = () => client.listTools();
       closeSdk = () => client.close();
@@ -157,12 +208,16 @@ async function connectServer(
       const invalid = validateMcpCommand(server.command, workspaceRoot);
       if (invalid) throw new Error(invalid);
       const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
-      const env = server.env
-        ? Object.fromEntries(Object.entries(server.env).map(([k, v]) => [k, expandEnvVars(v)]))
-        : undefined;
+      const env = buildStdioEnv(server.env);
+      const resolvedCmd =
+        !isAbsolute(server.command) &&
+        (server.command.includes("/") || server.command.includes("\\"))
+          ? join(workspaceRoot, server.command)
+          : server.command;
       const transport = new StdioClientTransport({
-        command: server.command,
+        command: resolvedCmd,
         args: server.args ?? [],
+        cwd: workspaceRoot,
         env,
       });
       const client = new Client({ name: "oma", version: "0.1.0" }, { capabilities: {} });
@@ -231,53 +286,52 @@ export function listMcpServers(workspaceRoot: string): McpServerInfo[] {
 const MCP_TEST_TIMEOUT_MS = 10_000;
 
 /** Live-connect one configured server and list its tools (pi's /mcp test).
- *  Reports failure reasons; never throws.
- *  ponytail: a connect that hangs past the timeout leaves the stdio child
- *  running (connectServer exposes no pid) — rare in practice, pkill by
- *  command if it bites. */
+ *  Refuses untrusted workspace `.mcp.json` files so testing never executes
+ *  untrusted stdio commands before explicit `/mcp trust`. Reports failure
+ *  reasons; never throws. */
 export async function testMcpServer(
   workspaceRoot: string,
   name: string,
+  opts?: { skipTrustCheck?: boolean },
 ): Promise<{ ok: boolean; tools: string[]; error?: string }> {
+  const mcpPath = join(workspaceRoot, ".mcp.json");
+  if (
+    !opts?.skipTrustCheck &&
+    existsSync(mcpPath) &&
+    !isFileTrusted(mcpPath, readTrustedPlugins())
+  ) {
+    return {
+      ok: false,
+      tools: [],
+      error: "workspace .mcp.json is untrusted — run /mcp trust before testing",
+    };
+  }
   const servers = loadMcpConfig(workspaceRoot);
   const server = servers[name];
   if (!server) {
     return { ok: false, tools: [], error: `no server named "${name}" in .mcp.json` };
   }
-  let timer: Timer | undefined;
-  const timeout = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), MCP_TEST_TIMEOUT_MS);
-  });
-  let client: McpClientLike | null = null;
-  let connectError: string | undefined;
-  try {
-    const raced = await Promise.race([
-      connectServer(
-        name,
-        server,
-        workspaceRoot,
-        MCP_TEST_TIMEOUT_MS,
-        server.timeoutMs ?? MCP_TEST_TIMEOUT_MS,
-      ),
-      timeout,
-    ]);
-    if (raced === null) connectError = "timeout";
-    else if ("client" in raced) client = raced.client;
-    else connectError = raced.error;
-  } finally {
-    clearTimeout(timer);
-  }
-  if (!client) {
+  const connected = await connectServer(
+    name,
+    server,
+    workspaceRoot,
+    MCP_TEST_TIMEOUT_MS,
+    server.timeoutMs ?? MCP_TEST_TIMEOUT_MS,
+  );
+  if (!("client" in connected)) {
     return {
       ok: false,
       tools: [],
-      error: connectError
-        ? `connect failed (${connectError})`
-        : `connect failed or timed out (${MCP_TEST_TIMEOUT_MS / 1000}s)`,
+      error: `connect failed (${connected.error})`,
     };
   }
+  const { client } = connected;
   try {
-    const { tools } = await client.listTools();
+    const { tools } = await withCallTimeout(
+      client.listTools(),
+      `mcp listTools ${name}`,
+      MCP_TEST_TIMEOUT_MS,
+    );
     return { ok: true, tools: tools.map((t) => t.name) };
   } catch (err) {
     return {
@@ -397,95 +451,155 @@ export async function mountWorkspaceMcpServers(
   const servers = includeWorkspace
     ? mergeMcpConfigs(workspaceRoot, pluginServers)
     : mergePluginMcpConfigs(pluginServers, workspaceRoot);
+  const entries = Object.entries(servers);
+  const mountedEntries = await Promise.all(
+    entries.map(async ([name, server]) => {
+      const safeServer = sanitizeServerName(name);
+      if (excludeServerNames?.has(safeServer)) return null;
+      // P1: a broken command fails ITS server with the reason, never a
+      // half-mounted run.
+      if (server.command && !server.url) {
+        const invalid = validateMcpCommand(server.command, workspaceRoot);
+        if (invalid) {
+          return {
+            report: { server: name, ok: false, toolsCount: 0, error: invalid } as McpMountReport,
+            tools: [] as PluginTool[],
+            client: null as McpClientLike | null,
+          };
+        }
+      }
+      // A server may declare how long its tools take (the product-tools ask
+      // waits for a human). That value must drive BOTH timers: the SDK request
+      // option and the wrapper below. Fixing only the SDK left the wrapper's
+      // 120s default killing the ask first (observed 2026-09-25).
+      const serverCallTimeoutMs = server.timeoutMs ?? callTimeoutMs;
+      const connected = await connectServer(
+        name,
+        server,
+        workspaceRoot,
+        mountTimeoutMs,
+        serverCallTimeoutMs,
+      );
+      if (!("client" in connected)) {
+        return {
+          report: {
+            server: name,
+            ok: false,
+            toolsCount: 0,
+            error: connected.error,
+          } as McpMountReport,
+          tools: [] as PluginTool[],
+          client: null as McpClientLike | null,
+        };
+      }
+      const client = connected.client;
+      let listed: Array<{ name: string; description?: string; inputSchema?: unknown }>;
+      try {
+        // Same bound as connect: a server that connected but never answers
+        // tools/list must fail ITS entry, not hang the assembly.
+        listed = (
+          await withCallTimeout(client.listTools(), `mcp listTools ${name}`, mountTimeoutMs)
+        ).tools;
+      } catch (err) {
+        console.error(
+          `[mcp-mount] listTools ${name} failed:`,
+          err instanceof Error ? err.message : err,
+        );
+        await client.close().catch(() => {});
+        return {
+          report: {
+            server: name,
+            ok: false,
+            toolsCount: 0,
+            error: err instanceof Error ? err.message : String(err),
+          } as McpMountReport,
+          tools: [] as PluginTool[],
+          client: null as McpClientLike | null,
+        };
+      }
+      const serverTools: PluginTool[] = [];
+      for (const t of listed) {
+        // Register under the canonical mcp__<sanitizedServer>__<tool> name so
+        // permission gates match "mcp__" AND provider tool-name schemas accept it.
+        const qualified = `mcp__${safeServer}__${t.name}`;
+        if (nativeNames.has(qualified) || nativeNames.has(t.name)) continue;
+        serverTools.push({
+          name: qualified,
+          description: t.description ?? `MCP tool ${t.name} (server ${name})`,
+          inputSchema: (t.inputSchema ?? { type: "object" }) as PluginTool["inputSchema"],
+          timeoutMs: serverCallTimeoutMs,
+          async execute(args, signal, options?: { callId?: string }) {
+            // The model's tool-use id rides the same metadata the ACP rail
+            // carries: a write-type product tool must replay under one
+            // identity, or a retry executes as a NEW call (#26 review P1-4).
+            const res = await withCallTimeout(
+              client.callTool({
+                name: t.name,
+                arguments: args,
+                ...(options?.callId ? { _meta: { identity: { callId: options.callId } } } : {}),
+              }),
+              `mcp tool ${t.name}`,
+              serverCallTimeoutMs,
+              signal,
+            );
+            const textParts: string[] = [];
+            const images: Array<{
+              type: "image";
+              mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+              base64: string;
+            }> = [];
+            for (const c of res.content ?? []) {
+              if (c.type === "text" && c.text) {
+                textParts.push(c.text);
+              } else if (c.type === "resource" && c.resource?.text) {
+                textParts.push(c.resource.text);
+              } else if (
+                c.type === "image" &&
+                typeof c.data === "string" &&
+                c.data.length > 0 &&
+                c.data.length <= MAX_MCP_IMAGE_BASE64 &&
+                typeof c.mimeType === "string" &&
+                ALLOWED_IMAGE_MIMES.has(c.mimeType)
+              ) {
+                images.push({
+                  type: "image",
+                  mediaType: c.mimeType as "image/png" | "image/jpeg" | "image/gif" | "image/webp",
+                  base64: c.data,
+                });
+              }
+            }
+            const rawText = textParts.join("\n");
+            const text =
+              rawText.length > MAX_MCP_RESULT_CHARS
+                ? `${rawText.slice(0, MAX_MCP_RESULT_CHARS)}\n... [truncated at ${MAX_MCP_RESULT_CHARS} chars of ${rawText.length}]`
+                : rawText;
+            if (res.isError) throw new Error(text || `mcp tool ${t.name} failed`);
+            if (images.length > 0) {
+              return {
+                content: text || `[${images.length} image(s) returned by ${t.name}]`,
+                images,
+              };
+            }
+            return { content: text };
+          },
+        } as PluginTool);
+      }
+      return {
+        report: { server: name, ok: true, toolsCount: listed.length } as McpMountReport,
+        tools: serverTools,
+        client,
+      };
+    }),
+  );
+
   const tools: PluginTool[] = [];
   const reports: McpMountReport[] = [];
   const clients: McpClientLike[] = [];
-  for (const [name, server] of Object.entries(servers)) {
-    if (excludeServerNames?.has(sanitizeServerName(name))) continue;
-    // P1: a broken command fails ITS server with the reason, never a
-    // half-mounted run.
-    if (server.command && !server.url) {
-      const invalid = validateMcpCommand(server.command, workspaceRoot);
-      if (invalid) {
-        reports.push({ server: name, ok: false, toolsCount: 0, error: invalid });
-        continue;
-      }
-    }
-    // A server may declare how long its tools take (the product-tools ask
-    // waits for a human). That value must drive BOTH timers: the SDK request
-    // option and the wrapper below. Fixing only the SDK left the wrapper's
-    // 120s default killing the ask first (observed 2026-09-25).
-    const serverCallTimeoutMs = server.timeoutMs ?? callTimeoutMs;
-    const connected = await connectServer(
-      name,
-      server,
-      workspaceRoot,
-      mountTimeoutMs,
-      serverCallTimeoutMs,
-    );
-    if (!("client" in connected)) {
-      reports.push({ server: name, ok: false, toolsCount: 0, error: connected.error });
-      continue;
-    }
-    const client = connected.client;
-    clients.push(client);
-    let listed: Array<{ name: string; description?: string; inputSchema?: unknown }>;
-    try {
-      // Same bound as connect: a server that connected but never answers
-      // tools/list must fail ITS entry, not hang the assembly.
-      listed = (await withCallTimeout(client.listTools(), `mcp listTools ${name}`, mountTimeoutMs))
-        .tools;
-    } catch (err) {
-      console.error(
-        `[mcp-mount] listTools ${name} failed:`,
-        err instanceof Error ? err.message : err,
-      );
-      await client.close().catch(() => {});
-      clients.pop();
-      reports.push({
-        server: name,
-        ok: false,
-        toolsCount: 0,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      continue;
-    }
-    reports.push({ server: name, ok: true, toolsCount: listed.length });
-    for (const t of listed) {
-      // Register under the canonical mcp__<server>__<tool> name: the
-      // permission gates key on the "mcp__" prefix. Bare names would leave
-      // every mounted MCP tool call ungated in ALL permission modes
-      // (proven gap, 2026-09-07). Native table still wins on collision.
-      const qualified = `mcp__${name}__${t.name}`;
-      if (nativeNames.has(qualified) || nativeNames.has(t.name)) continue;
-      tools.push({
-        name: qualified,
-        description: t.description ?? `MCP tool ${t.name} (server ${name})`,
-        inputSchema: (t.inputSchema ?? { type: "object" }) as PluginTool["inputSchema"],
-        timeoutMs: serverCallTimeoutMs,
-        async execute(args, signal, options?: { callId?: string }) {
-          // The model's tool-use id rides the same metadata the ACP rail
-          // carries: a write-type product tool must replay under one
-          // identity, or a retry executes as a NEW call (#26 review P1-4).
-          const res = await withCallTimeout(
-            client.callTool({
-              name: t.name,
-              arguments: args,
-              ...(options?.callId ? { _meta: { identity: { callId: options.callId } } } : {}),
-            }),
-            `mcp tool ${t.name}`,
-            serverCallTimeoutMs,
-            signal,
-          );
-          const text = (res.content ?? [])
-            .filter((c) => c.type === "text" && c.text)
-            .map((c) => c.text!)
-            .join("\n");
-          if (res.isError) throw new Error(text || `mcp tool ${t.name} failed`);
-          return { content: text };
-        },
-      } as PluginTool);
-    }
+  for (const entry of mountedEntries) {
+    if (!entry) continue;
+    reports.push(entry.report);
+    tools.push(...entry.tools);
+    if (entry.client) clients.push(entry.client);
   }
   return {
     tools,

@@ -141,14 +141,19 @@ describe("estimateMessageTokens (wire-accurate)", () => {
     expect(estimateMessageTokens(msg)).toBe(Math.ceil(30 / 4) + 4);
   });
 
-  test("image payloads do not inflate the estimate", () => {
-    // base64 is ~1.33 chars/byte while an image costs ~1 token per 750 bytes;
-    // char/4 would over-count by ~1000x and compact far too early.
-    const msg: Message = {
+  test("image payloads use a fixed constant estimate independent of base64 size", () => {
+    // base64 is ~1.33 chars/byte while an image costs ~1200 tokens by pixel
+    // dimensions; char/4 would over-count by ~10x+, while 0 would hide screenshots.
+    const small: Message = {
       role: "user",
-      blocks: [{ type: "image", mediaType: "image/png", base64: "A".repeat(40_000) }],
+      blocks: [{ type: "image", mediaType: "image/png", base64: "A".repeat(4_000) }],
     };
-    expect(estimateMessageTokens(msg)).toBe(4);
+    const large: Message = {
+      role: "user",
+      blocks: [{ type: "image", mediaType: "image/png", base64: "A".repeat(400_000) }],
+    };
+    expect(estimateMessageTokens(small)).toBe(1204);
+    expect(estimateMessageTokens(large)).toBe(1204);
   });
 
   test("CJK weighs ~1.5 chars/token — chars/4 under-counts 2-4x and wedges overflow recovery", () => {

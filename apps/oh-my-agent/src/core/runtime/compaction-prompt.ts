@@ -80,11 +80,32 @@ const UPDATE_TASK = [
   "Write it as a single standalone summary — never mention that it updates an earlier one.",
 ].join("\n");
 
+const DEFAULT_MAX_TOOL_RESULT_CHARS = 4_000;
+const DEFAULT_MAX_TOOL_USE_CHARS = 2_000;
+
+function boundBlockText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const head = Math.floor(maxChars * 0.5);
+  const tail = maxChars - head;
+  const omitted = text.length - maxChars;
+  return `${text.slice(0, head)}\n... [omitted ${omitted} chars] ...\n${text.slice(-tail)}`;
+}
+
 /** Render the transcript the summarizer reads. Role-tagged and line-oriented:
  *  the summarizer needs to see WHO said what and which tool produced which
  *  result, but nothing here is replayed to a provider, so it does not have to
- *  be the wire shape. */
-export function serializeConversation(messages: readonly Message[]): string {
+ *  be the wire shape. Per-block and optional total character caps keep
+ *  overflow-recovery summarization from overflowing the model window itself. */
+export function serializeConversation(
+  messages: readonly Message[],
+  opts?: {
+    maxToolResultChars?: number;
+    maxToolUseChars?: number;
+    maxTotalChars?: number;
+  },
+): string {
+  const maxToolResult = opts?.maxToolResultChars ?? DEFAULT_MAX_TOOL_RESULT_CHARS;
+  const maxToolUse = opts?.maxToolUseChars ?? DEFAULT_MAX_TOOL_USE_CHARS;
   const lines: string[] = [];
   for (const message of messages) {
     lines.push(`[${message.role}]`);
@@ -95,11 +116,15 @@ export function serializeConversation(messages: readonly Message[]): string {
         const blockText = block.text.trim();
         if (blockText) lines.push(blockText);
       } else if (block.type === "tool_use") {
-        lines.push(`  [tool_use ${block.name}] ${safeJson(block.input)}`);
+        lines.push(
+          `  [tool_use ${block.name}] ${boundBlockText(safeJson(block.input), maxToolUse)}`,
+        );
       } else if (block.type === "tool_result") {
         const error = block.is_error ? " (error)" : "";
         const images = block.images?.length ? ` (+${block.images.length} image)` : "";
-        lines.push(`  [tool_result${error}]${images} ${block.content.trim()}`);
+        lines.push(
+          `  [tool_result${error}]${images} ${boundBlockText(block.content.trim(), maxToolResult)}`,
+        );
       } else if (block.type === "image") {
         lines.push(`  [image ${block.mediaType}]`);
       }
@@ -108,16 +133,26 @@ export function serializeConversation(messages: readonly Message[]): string {
       // thinking is only meaningful to the provider that produced it.
     }
   }
-  return lines.join("\n");
+  const full = lines.join("\n");
+  const maxTotal = opts?.maxTotalChars;
+  if (maxTotal !== undefined && maxTotal > 200 && full.length > maxTotal) {
+    const head = Math.floor(maxTotal * 0.25);
+    const tail = maxTotal - head;
+    const omitted = full.length - maxTotal;
+    return `${full.slice(0, head)}\n\n... [middle ${omitted} chars elided to fit summarizer context window] ...\n\n${full.slice(-tail)}`;
+  }
+  return full;
 }
 
 /** The messages handed to the summarizer model. */
 export function buildSummarizationRequest(
   messages: readonly Message[],
-  opts?: { previousSummary?: string },
+  opts?: { previousSummary?: string; maxTotalChars?: number },
 ): Message[] {
   const previous = opts?.previousSummary?.trim();
-  const transcript = `<conversation>\n${serializeConversation(messages)}\n</conversation>`;
+  const transcript = `<conversation>\n${serializeConversation(messages, {
+    ...(opts?.maxTotalChars !== undefined ? { maxTotalChars: opts.maxTotalChars } : {}),
+  })}\n</conversation>`;
   const task = `${previous ? UPDATE_TASK : FIRST_TASK}\n${SPLIT_TURN_HINT}`;
   const body = previous
     ? `${task}\n\n<previous-summary>\n${previous}\n</previous-summary>\n\n${transcript}`

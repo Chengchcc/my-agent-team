@@ -31,18 +31,18 @@ CrewDesk has **two distinct compaction mechanisms** that must not be confused:
 ## Cut-Point Algorithm & Invariants (`compaction.ts`)
 
 1. **Minimum length guard:** returns a no-op if the branch has `< 4` message entries.
-2. **CJK-aware token estimation (`context-estimate.ts`):** weights CJK characters at `2/3` tokens/char (`1.5 chars/token`) and non-CJK at `1/4` tokens/char + `4` framing tokens; excludes base64 image payloads; avoids double-counting tool message text.
+2. **CJK-aware token estimation (`context-estimate.ts`):** weights CJK characters at `2/3` tokens/char (`1.5 chars/token`) and non-CJK at `1/4` tokens/char + `4` framing tokens; estimates every `image` block and `tool_result.images` entry at a fixed `IMAGE_ESTIMATE_TOKENS = 1_200` (independent of base64 byte length); avoids double-counting tool message text.
 3. **`findCut(messages, budget)`:**
    - **Budgeted:** adds `overheadTokens` (system prompt + serialized tool schemas + prior summary). If `tokensBefore <= limit`, `cutIdx = 0` (no-op). Otherwise advances `cutIdx` from oldest until `remaining <= limit`, clamped to `messages.length - 1` (never covers the newest message).
    - **Unbudgeted** (or `forceOnOverflow` fallback when budgeted cut yields `0`): cuts at `Math.floor(messages.length * 0.6)`.
-4. **Tool-pair preservation (`adjustCutForToolPairs`):** if `messages[cutIdx]` is a `tool` message carrying a `tool_result`, walks backward to its matching `assistant` `tool_use` and pulls `cutIdx` back so no `tool_use`/`tool_result` pair is ever split across the boundary.
+4. **Tool-pair preservation (`adjustCutForToolPairs`):** if `messages[cutIdx]` is a `tool` message carrying one or more `tool_result` blocks, inspects every `tool_use_id` in that message and pulls `cutIdx` back to the earliest matching `assistant` `tool_use` (looping if that lands on another `tool` message) so no `tool_use`/`tool_result` pair is ever split across the boundary.
 5. **No-progress guard:** if every ID in `coveredIds` is already covered by `latestCompaction(branch).coveredIds`, returns a no-op (prevents infinite compaction loops).
 6. **Abort safety:** if `signal?.aborted` after the summarizer finishes, no `CompactionEntry` is appended.
 
 ## 6-Section Summary & Deterministic State Preservation (ADR 0053)
 
 `compactSession()` calls the Run's own model with `maxTokens = Math.min(4_096, modelMaxOutputTokens)` and `SUMMARIZATION_SYSTEM_PROMPT`, mandating 6 exact sections in order:
-`## Goal` → `## Constraints & Preferences` → `## Progress` (`### Done` / `### In Progress` / `### Blocked`) → `## Key Decisions` → `## Next Steps` → `## Critical Context` (plus `## Turn Context (split turn)` if cut mid-turn). Empty model output becomes an explicit diagnostic string.
+`## Goal` → `## Constraints & Preferences` → `## Progress` (`### Done` / `### In Progress` / `### Blocked`) → `## Key Decisions` → `## Next Steps` → `## Critical Context` (plus `## Turn Context (split turn)` if cut mid-turn). Summarizer input is bounded (`serializeConversation` clips individual `tool_result` blocks to `4_000` chars and `tool_use` inputs to `2_000` chars, plus window-proportional `maxTotalChars` middle-elision in `run-runtime.ts`) so overflow-recovery compaction cannot itself overflow the provider window; empty model output throws an error instead of writing a placeholder summary over conversation history.
 
 - **Incremental cross-compaction inheritance:** only **newly uncovered** entries (`coveredEntries` minus `previous.coveredIds`) are sent in `<conversation>` alongside `<previous-summary>` (`UPDATE_TASK`), keeping summarizer input bounded while `CompactionEntry.coversEntryIds` stays cumulative over `0..cutIdx`.
 - **Deterministic state blocks (`upsertStateBlocks`):** strips any LLM-written `<files|commands|qa>` blocks and appends machine-generated blocks scanned over the **entire** covered prefix `0..cutIdx` (lossless across repeated compactions):
@@ -53,7 +53,7 @@ CrewDesk has **two distinct compaction mechanisms** that must not be confused:
 ## Read-Side Tool Pruning (`tool-pruning.ts`)
 
 `pruneOldToolResults()` is **opt-in** (active only when `pruneConfig` is set in `.oma/settings.json`) and strictly **read-side** (never mutates stored session entries; runs per model call *after* threshold compaction):
-- Walks backward accumulating tool-result tokens; results beyond `protectTokens` (default `8_000`) on non-protected tools truncate to `[pruned: <lines> lines, <chars> chars] <first 200 chars>…` while keeping `tool_use`/`tool_result` pairing intact.
+- Walks backward inspecting every `tool_result` block inside `tool` messages independently; results beyond `protectTokens` (default `8_000`) on non-protected tools truncate to `[pruned: <lines> lines, <chars> chars] <first 200 chars>…` and drop attached `images` (annotated as `N image(s) dropped`) while keeping `tool_use`/`tool_result` pairing intact.
 - Applies only when `savedTokens >= minimumSavings` (default `500`). Does not lower the stored-entry token estimate used by threshold compaction.
 
 ## Backend `POST /api/conversations/:id/compact` (`conversation/summarize.ts`)

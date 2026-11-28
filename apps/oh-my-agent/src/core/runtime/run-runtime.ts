@@ -251,8 +251,15 @@ function buildModelPlumbing(
   // request shape (system prompt + `<conversation>` wrapper) lives in
   // compaction-prompt.ts so it is testable without a store or a model.
   const summarize: ContextSummarizer = async (messages, signal, opts) => {
+    // Cap the serialized transcript conservatively (CJK ~1.5-2 chars/token)
+    // so overflow-recovery compaction cannot overflow the summarizer itself.
+    const maxTotalChars =
+      currentModel.contextWindow > 0
+        ? Math.max(8_000, Math.floor(currentModel.contextWindow * 0.65 * 2))
+        : 64_000;
     const summaryMessages = buildSummarizationRequest(messages, {
       previousSummary: opts?.previousSummary,
+      maxTotalChars,
     });
     const timeoutSignal = AbortSignal.timeout(modelTimeoutMs);
     const combined = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
@@ -276,11 +283,13 @@ function buildModelPlumbing(
     } finally {
       if (!combined.aborted) await iter.return?.().catch(() => {});
     }
-    // An empty answer is a configuration symptom more often than a model one (a
-    // tiny output cap on this very model, a prompt the model refused), and the
-    // stored summary is the only place anyone would ever see it: the run
-    // reports success either way. Say what happened where it will be read.
-    return text || "[empty summary: the model returned no text — check this model's output cap]";
+    const trimmed = text.trim();
+    if (!trimmed) {
+      throw new Error(
+        "summarizer returned empty text — compaction aborted so conversation history is preserved",
+      );
+    }
+    return trimmed;
   };
 
   // ContextBudget from the RUN model's context window: compaction triggers

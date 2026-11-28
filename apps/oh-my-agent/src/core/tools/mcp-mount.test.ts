@@ -198,6 +198,7 @@ describe("a server's declared timeout outlives the global default", () => {
     try {
       const mounted = await mountWorkspaceMcpServers(ws, new Set(), [], true, {
         mcpTimeoutMs: 900,
+        mountTimeoutMs: 5_000,
       });
       const tool = mounted.tools.find((t) => t.name === "mcp__patient__echo");
       expect(tool).toBeDefined();

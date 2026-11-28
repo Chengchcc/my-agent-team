@@ -65,6 +65,17 @@ anything static or re-derivable from the repo. Return STRICT JSON only:
 
 const EXTRACT_TIMEOUT_MS = 60_000;
 const TRANSCRIPT_BUDGET_CHARS = 8_000;
+const MAX_CONSOLIDATE_SUMMARY_CHARS = 6_000;
+const MAX_CONSOLIDATE_MEMORY_CHARS = 24_000;
+const MAX_STORED_SUMMARY_CHARS = 4_000;
+
+function safeFactFilename(runId: string): string {
+  const safe = runId
+    .replace(/[^A-Za-z0-9._-]/g, "_")
+    .replace(/^\.+/, "")
+    .slice(0, 120);
+  return `${safe || "run"}.md`;
+}
 
 interface ExtractedFact {
   content: string;
@@ -143,7 +154,7 @@ export async function extractAutonomousMemory(
     if (fresh.length === 0) return { ran: true, freshFacts: 0 };
 
     mkdirSync(factsDir, { recursive: true });
-    writeFileAtomic(join(factsDir, `${input.runId}.md`), renderFacts(input.runId, fresh));
+    writeFileAtomic(join(factsDir, safeFactFilename(input.runId)), renderFacts(input.runId, fresh));
 
     // Vector index double-write: best-effort per fact (an embedding failure
     // must never fail the memory pass); the file layer stays the truth.
@@ -162,8 +173,14 @@ export async function extractAutonomousMemory(
       }
     }
 
-    const oldSummary = readTextOrNull(join(memDir, "memory_summary.md"));
-    const oldMemory = readTextOrNull(join(memDir, "MEMORY.md"));
+    const oldSummary = readTextOrNull(join(memDir, "memory_summary.md"))?.slice(
+      0,
+      MAX_CONSOLIDATE_SUMMARY_CHARS,
+    );
+    const oldMemory = readTextOrNull(join(memDir, "MEMORY.md"))?.slice(
+      0,
+      MAX_CONSOLIDATE_MEMORY_CHARS,
+    );
     const raw = await callModel(
       input.modelRuntime,
       modelRef,
@@ -172,7 +189,11 @@ export async function extractAutonomousMemory(
     );
     const consolidated = parseConsolidation(raw);
     if (consolidated.summary) {
-      writeFileAtomic(join(memDir, "memory_summary.md"), redactMemorySecrets(consolidated.summary));
+      const boundedSummary = redactMemorySecrets(consolidated.summary).slice(
+        0,
+        MAX_STORED_SUMMARY_CHARS,
+      );
+      writeFileAtomic(join(memDir, "memory_summary.md"), boundedSummary);
     }
     if (consolidated.memory) {
       writeFileAtomic(join(memDir, "MEMORY.md"), redactMemorySecrets(consolidated.memory));
@@ -199,10 +220,14 @@ async function resolveMemoryModel(
     const candidates = catalog.models.filter((m) => m.available !== false);
     if (candidates.length > 0) {
       const costOf = (m: (typeof candidates)[number]) => m.cost.input + m.cost.output;
-      const cheapest = candidates.reduce((a, b) => (costOf(a) <= costOf(b) ? a : b));
+      // Ignore zero-cost (unpriced/local/stub) entries when priced models exist
+      // so an unpriced catalog entry never silently hijacks memory extraction.
+      const priced = candidates.filter((m) => costOf(m) > 0);
+      const pool = priced.length > 0 ? priced : candidates;
+      const cheapest = pool.reduce((a, b) => (costOf(a) <= costOf(b) ? a : b));
       // On a cost tie prefer the Run's own model: never surprise-upgrade
       // (or downgrade) the memory model when the catalog gives no reason.
-      const runEntry = candidates.find((m) => `${m.providerId}/${m.modelId}` === runModelId);
+      const runEntry = pool.find((m) => `${m.providerId}/${m.modelId}` === runModelId);
       if (runEntry && costOf(runEntry) <= costOf(cheapest)) return runModelId;
       return `${cheapest.providerId}/${cheapest.modelId}`;
     }
@@ -275,37 +300,81 @@ async function callModel(
   return text.trim();
 }
 
-function parseFacts(raw: string): ExtractedFact[] {
-  const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) return [];
-  let parsed: ExtractResult;
-  try {
-    parsed = JSON.parse(m[0]) as ExtractResult;
-  } catch {
-    return [];
+/** Parse a JSON object from model output: tries whole string, fenced ```json
+ *  block, and balanced `{...}` spans so surrounding prose or multiple braces
+ *  never defeat extraction. */
+function extractJsonObject(raw: string): Record<string, unknown> | null {
+  const tryParse = (s: string): Record<string, unknown> | null => {
+    try {
+      const val = JSON.parse(s) as unknown;
+      return typeof val === "object" && val !== null && !Array.isArray(val)
+        ? (val as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  };
+  const trimmed = raw.trim();
+  const direct = tryParse(trimmed);
+  if (direct) return direct;
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
+  if (fenced?.[1]) {
+    const parsed = tryParse(fenced[1].trim());
+    if (parsed) return parsed;
   }
-  if (!Array.isArray(parsed.facts)) return [];
+  // Scan balanced `{...}` objects from each `{` so `{note} {"facts":[]}` still parses.
+  for (let start = trimmed.indexOf("{"); start !== -1; start = trimmed.indexOf("{", start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < trimmed.length; i++) {
+      const ch = trimmed[i]!;
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\" && inString) {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          const parsed = tryParse(trimmed.slice(start, i + 1));
+          if (parsed) return parsed;
+          break;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function parseFacts(raw: string): ExtractedFact[] {
+  const parsed = extractJsonObject(raw) as ExtractResult | null;
+  if (!parsed || !Array.isArray(parsed.facts)) return [];
   return parsed.facts.filter(
     (f): f is ExtractedFact => typeof f?.content === "string" && f.content.trim().length > 0,
   );
 }
 
 function parseConsolidation(raw: string): { summary?: string; memory?: string } {
-  const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) return {};
-  try {
-    const parsed = JSON.parse(m[0]) as { summary?: unknown; memory?: unknown };
-    return {
-      ...(typeof parsed.summary === "string" && parsed.summary.trim()
-        ? { summary: parsed.summary.trim() }
-        : {}),
-      ...(typeof parsed.memory === "string" && parsed.memory.trim()
-        ? { memory: parsed.memory.trim() }
-        : {}),
-    };
-  } catch {
-    return {};
-  }
+  const parsed = extractJsonObject(raw);
+  if (!parsed) return {};
+  return {
+    ...(typeof parsed.summary === "string" && parsed.summary.trim()
+      ? { summary: parsed.summary.trim() }
+      : {}),
+    ...(typeof parsed.memory === "string" && parsed.memory.trim()
+      ? { memory: parsed.memory.trim() }
+      : {}),
+  };
 }
 
 function renderFacts(runId: string, facts: readonly ExtractedFact[]): string {

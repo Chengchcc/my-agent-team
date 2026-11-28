@@ -28,19 +28,24 @@ export interface CompactionBudget {
   overheadTokens?: number;
 }
 
-/** If the cut lands between an assistant tool_use and its tool_result,
- *  move the cut before the assistant so the pair stays intact. */
+/** If the cut lands on a `tool` message whose `tool_result` blocks reference an
+ *  earlier `assistant(tool_use)`, move the cut before the earliest associated
+ *  assistant message so no tool_result is ever orphaned from its tool_use. */
 function adjustCutForToolPairs(messages: readonly CodingSessionEntry[], cutIdx: number): number {
   let cut = cutIdx;
-  while (cut < messages.length && messages[cut]?.type === "message") {
+  while (cut > 0 && cut < messages.length && messages[cut]?.type === "message") {
     const first = messages[cut] as {
       role?: string;
       message?: { blocks?: Array<{ type?: string; tool_use_id?: string }> };
     };
     if (first.role !== "tool") break;
-    const toolUseId = first.message?.blocks?.find((b) => b.type === "tool_result")?.tool_use_id;
-    if (!toolUseId) break;
-    let assocIdx = -1;
+    const toolUseIds = new Set(
+      (first.message?.blocks ?? [])
+        .filter((b) => b.type === "tool_result" && typeof b.tool_use_id === "string")
+        .map((b) => b.tool_use_id!),
+    );
+    if (toolUseIds.size === 0) break;
+    let earliestIdx = -1;
     for (let i = 0; i < cut; i++) {
       const m = messages[i] as {
         role?: string;
@@ -48,14 +53,14 @@ function adjustCutForToolPairs(messages: readonly CodingSessionEntry[], cutIdx: 
       };
       if (
         m.role === "assistant" &&
-        m.message?.blocks?.some((b) => b.type === "tool_use" && b.id === toolUseId)
+        m.message?.blocks?.some((b) => b.type === "tool_use" && b.id && toolUseIds.has(b.id))
       ) {
-        assocIdx = i;
+        earliestIdx = i;
+        break;
       }
     }
-    if (assocIdx === -1) break;
-    cut = assocIdx;
-    break;
+    if (earliestIdx === -1) break;
+    cut = earliestIdx;
   }
   return cut;
 }

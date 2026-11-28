@@ -1,5 +1,9 @@
-import type { Message } from "@chengchenccc/message";
-import { estimateMessageTokens } from "./context-estimate.js";
+import type { ContentBlock, Message } from "@chengchenccc/message";
+import {
+  estimateMessageTokens,
+  estimateTextTokens,
+  IMAGE_ESTIMATE_TOKENS,
+} from "./context-estimate.js";
 
 /** Configuration for old tool-result pruning. */
 export interface PruneConfig {
@@ -23,35 +27,43 @@ const DEFAULT_CONFIG: PruneConfig = {
 
 const PRUNED_PREFIX = "[pruned:";
 
-/** Check whether a message's tool_result blocks have already been pruned. */
-function isAlreadyPruned(message: Message): boolean {
-  if (message.role !== "tool" || !message.blocks) return false;
-  return message.blocks.some(
-    (b) =>
-      b.type === "tool_result" &&
-      typeof b.content === "string" &&
-      b.content.startsWith(PRUNED_PREFIX),
+function isBlockAlreadyPruned(block: Extract<ContentBlock, { type: "tool_result" }>): boolean {
+  return (
+    typeof block.content === "string" &&
+    block.content.startsWith(PRUNED_PREFIX) &&
+    !(block.images && block.images.length > 0)
   );
 }
 
-/** Same estimator the compaction budget uses (context-estimate.ts), so the
- *  pruning window and "savedTokens" are on the budget's scale. A local copy
- *  that counted different block types made those numbers incomparable.
- *
- *  Note: the loop still decides compaction on the STORED entries, so a pruned
- *  result does not by itself lower the threshold estimate. */
-const estimateTokens = estimateMessageTokens;
+function resolveToolName(
+  messages: readonly Message[],
+  beforeIdx: number,
+  toolUseId: string,
+): string | undefined {
+  for (let j = beforeIdx - 1; j >= 0; j--) {
+    const prev = messages[j]!;
+    if (prev.role !== "assistant" || !prev.blocks) continue;
+    const use = prev.blocks.find((b) => b.type === "tool_use" && b.id === toolUseId);
+    if (use && use.type === "tool_use") return use.name;
+  }
+  return undefined;
+}
 
-/** Prune old tool-result content from a message list.
+function estimateBlockTokens(block: Extract<ContentBlock, { type: "tool_result" }>): number {
+  const textTokens = estimateTextTokens(block.content);
+  const imageTokens = (block.images?.length ?? 0) * IMAGE_ESTIMATE_TOKENS;
+  return Math.ceil(textTokens) + imageTokens;
+}
+
+/** Prune old tool-result content (and attached images) from a message list.
  *
- *  Walks backward from the newest message, accumulating tool-result tokens.
- *  Once the protect window is exceeded, tool results outside the window are
- *  truncated to a short summary — the pairing stays intact (the tool_use
- *  block is never touched) but the verbose output is replaced. Protected
- *  tools (skills, plans, config) are never pruned.
+ *  Walks backward from the newest message, inspecting EVERY `tool_result` block
+ *  independently (supporting multi-tool-result batches). Once the protect window
+ *  is exceeded, older non-protected tool results are truncated to a short
+ *  summary and their attached images are dropped — keeping `tool_use` pairing
+ *  intact.
  *
- *  This is a READ-SIDE transform: the stored entries are unchanged. The model
- *  sees truncated results; the UI trace reads the full original from the store. */
+ *  This is a READ-SIDE transform: stored entries are unchanged. */
 export function pruneOldToolResults(
   messages: readonly Message[],
   config: Partial<PruneConfig> = {},
@@ -60,60 +72,54 @@ export function pruneOldToolResults(
   let protectedTokens = 0;
   let savedTokens = 0;
 
-  // Walk backward: accumulate recent tool output into the protect window.
   const pruned = [...messages];
   for (let i = pruned.length - 1; i >= 0; i--) {
     const msg = pruned[i]!;
-    if (msg.role !== "tool" || !msg.blocks) continue;
-    if (isAlreadyPruned(msg)) continue;
+    if (msg.role !== "tool" || !msg.blocks || msg.blocks.length === 0) continue;
 
-    // Check if this tool result comes from a protected tool — we need to
-    // find the associated tool_use block to get the tool name. Walk forward
-    // from this tool message's position is wrong — the tool_use is in a
-    // PRIOR assistant message. We match by tool_use_id.
-    const toolResultBlock = msg.blocks.find((b) => b.type === "tool_result");
-    if (toolResultBlock?.type !== "tool_result") continue;
+    let msgChanged = false;
+    let firstPrunedSummary: string | undefined;
+    const nextBlocks: ContentBlock[] = [...msg.blocks];
 
-    // Find the associated tool_use to check if the tool is protected.
-    let toolName: string | undefined;
-    for (let j = i - 1; j >= 0; j--) {
-      const prev = pruned[j]!;
-      if (prev.role !== "assistant" || !prev.blocks) continue;
-      const use = prev.blocks.find(
-        (b) => b.type === "tool_use" && b.id === toolResultBlock.tool_use_id,
+    // Walk blocks newest-to-oldest inside the message as well.
+    for (let bIdx = nextBlocks.length - 1; bIdx >= 0; bIdx--) {
+      const block = nextBlocks[bIdx]!;
+      if (block.type !== "tool_result") continue;
+      if (isBlockAlreadyPruned(block)) continue;
+
+      const toolName = resolveToolName(pruned, i, block.tool_use_id);
+      if (toolName && cfg.protectedTools.has(toolName)) continue;
+
+      const blockTokens = estimateBlockTokens(block);
+      protectedTokens += blockTokens;
+      if (protectedTokens <= cfg.protectTokens) continue;
+
+      const droppedImages = block.images?.length ?? 0;
+      const summary = truncateContent(
+        typeof msg.text === "string" && msg.blocks.length === 1 ? msg.text : "",
+        block.content,
+        droppedImages,
       );
-      if (use && use.type === "tool_use") {
-        toolName = use.name;
-        break;
-      }
+      if (summary === block.content && droppedImages === 0) continue;
+
+      const { images: _dropped, ...rest } = block;
+      nextBlocks[bIdx] = { ...rest, content: summary };
+      msgChanged = true;
+      firstPrunedSummary = summary;
     }
 
-    // Protected tools are never pruned.
-    if (toolName && cfg.protectedTools.has(toolName)) continue;
-
-    const msgTokens = estimateTokens(msg);
-    protectedTokens += msgTokens;
-
-    // Within the protect window — leave intact.
-    if (protectedTokens <= cfg.protectTokens) continue;
-
-    // Outside the window — truncate the tool_result content.
-    const originalTokens = msgTokens;
-    const summary = truncateContent(
-      typeof msg.text === "string" ? msg.text : "",
-      toolResultBlock.content,
-    );
-    pruned[i] = {
+    if (!msgChanged) continue;
+    const originalTokens = estimateMessageTokens(msg);
+    const updated: Message = {
       ...msg,
-      text: summary,
-      blocks: msg.blocks.map((b) =>
-        b.type === "tool_result" && b.tool_use_id === toolResultBlock.tool_use_id
-          ? { ...b, content: summary }
-          : b,
-      ),
+      ...(firstPrunedSummary !== undefined && msg.blocks.length === 1
+        ? { text: firstPrunedSummary }
+        : {}),
+      blocks: nextBlocks,
     };
-    const prunedTokens = estimateTokens(pruned[i]!);
-    savedTokens += originalTokens - prunedTokens;
+    const prunedTokens = estimateMessageTokens(updated);
+    pruned[i] = updated;
+    savedTokens += Math.max(0, originalTokens - prunedTokens);
   }
 
   if (savedTokens < cfg.minimumSavings) {
@@ -122,10 +128,15 @@ export function pruneOldToolResults(
   return { messages: pruned, savedTokens };
 }
 
-/** Produce a short summary of pruned content: first 200 chars + line count. */
-function truncateContent(text: string, content: string): string {
+/** Produce a short summary of pruned content: first 200 chars + line count + dropped images. */
+function truncateContent(text: string, content: string, droppedImages = 0): string {
   const source = content || text;
-  if (source.length <= 200) return source;
+  const imgTag = droppedImages > 0 ? `, ${droppedImages} image(s) dropped` : "";
+  if (source.length <= 200) {
+    return droppedImages > 0
+      ? `${PRUNED_PREFIX} ${source.length} chars${imgTag}] ${source}`
+      : source;
+  }
   const lines = source.split("\n").length;
-  return `${PRUNED_PREFIX} ${lines} lines, ${source.length} chars] ${source.slice(0, 200)}…`;
+  return `${PRUNED_PREFIX} ${lines} lines, ${source.length} chars${imgTag}] ${source.slice(0, 200)}…`;
 }
