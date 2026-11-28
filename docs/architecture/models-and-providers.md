@@ -22,11 +22,11 @@ Model integration is split cleanly between **`@chengchenccc/ai`** (three polymor
 
 ## Three Wire Protocol Implementations (`packages/ai`)
 
-All three providers register via `registerApi()`, stream over `fetchSSE()` (`DEFAULT_SSE_IDLE_TIMEOUT_MS = 120_000`, parses `retry-after-ms` and `Retry-After`, secret-redacts errors via `normalizeProviderError`), and cap output tokens at `MAX_OUTPUT_TOKENS = 131_072`:
+All three providers register via `registerApi()`, stream over `fetchSSE()` (`DEFAULT_SSE_IDLE_TIMEOUT_MS = 120_000`, parses `retry-after-ms` and `Retry-After`, secret-redacts errors via `normalizeProviderError`), and honor per-call `opts.maxTokens` as a downward-only cap `min(max(1, floor(opts.maxTokens)), model.maxTokens, MAX_OUTPUT_TOKENS)` (`MAX_OUTPUT_TOKENS = 131_072`, powering `--max-budget-usd`):
 
 | API Identifier | Endpoint & Auth | Protocol Specifics |
 |---|---|---|
-| `anthropic-messages` | `POST /messages` (`x-api-key`, `anthropic-version: 2023-06-01`) | Ephemeral `cache_control` on system prompt & last tool; lone-surrogate sanitization; `forceAdaptiveThinking` + `output_config: { effort }`; structured output via injected `report_result` tool. |
+| `anthropic-messages` | `POST /messages` (`x-api-key`, `anthropic-version: 2023-06-01`) | Ephemeral `cache_control` on system prompt & last tool; lone-surrogate sanitization; `forceAdaptiveThinking` + `output_config: { effort }`; clamps fixed `thinking.budget_tokens < max_tokens` (omits fixed thinking when `max_tokens <= 1024`); structured output via injected `report_result` tool. |
 | `openai-completions` | `POST /chat/completions` (`Authorization: Bearer`, `stream_options.include_usage: true`) | `resolveOpenAICompat()` adapts `max_tokens` vs `max_completion_tokens`, `supportsDeveloperRole`, `reasoning_effort`, and `thinkingFormat`: `"deepseek"` (re-sends `reasoning_content` on assistant history; degrades `json_schema` → `json_object`), `"qwen"` (`enable_thinking`), `"zai"` (`thinking`), `"openrouter"` (`reasoning: { effort }`). |
 | `openai-responses` | `POST /responses` (`Authorization: Bearer`, `store: false`) | Structured `input` items (`message`, `function_call`, `function_call_output`); `reasoning: { effort, summary: "auto" }` (clamps `xhigh`/`max` → `high`); `text.format` `json_schema`. |
 

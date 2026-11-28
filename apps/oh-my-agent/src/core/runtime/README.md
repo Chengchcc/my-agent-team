@@ -57,7 +57,9 @@ deliberate:
 |---|---|
 | `plugin.ts` / `plugin-runtime.ts` | Plugin shape + the capabilities injected into hooks. |
 | `permission-classifier.ts` | `permissionMode: "auto"` reviewer (fail-closed). |
-| `approval.ts` | HITL approval types + deadline (deny on timeout). |
+| `permission-rules.ts` | Pattern-based allow/deny rules (`tool:pattern` / `Tool(pattern)`) + bash compound-syntax anti-injection guard. |
+| `approval.ts` | HITL approval types (`allow`, `allow_always`, `allow_rule`, `deny`, `deny_always`) + deadline (deny on timeout). |
+| `cost.ts` | Per-1M-token USD spend accounting (`calculateUsageCostUsd`) and budget output-token clamping (`computeBudgetMaxTokens`). |
 | `prompts.ts` / `prompt.ts` | System prompt and the per-loop Meta message. |
 | `compaction.ts` / `context-estimate.ts` / `message-cache.ts` | When and how context is compacted; token accounting. |
 | `retry.ts` / `stream-rules.ts` / `title.ts` | Stream retry policy; TTSR rules; auto-title (opt-in). |

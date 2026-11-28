@@ -30,15 +30,18 @@ bun run test         # bun test
 ```
 src/
   cli.ts                         # entrypoint
-  main.ts                        # argument parsing + lazy mode dispatch
+  main.ts                        # argument parsing, worktree isolation + lazy mode dispatch
   version.ts                     # zero-dep package version reader
+  cli/                           # args, setup-wizard, doctor-command, worktree, gateway/update
   core/
     runtime/README.md            # reading order + file map (start here)
     runtime/create-runtime.ts    # createOmaRuntime: the per-Run facade
     runtime/run-runtime.ts       # assembleRunRuntime: Run assembly coordinator
     runtime/run-tools.ts         # native tool table, timeouts, MCP mount stage
     runtime/run-permissions.ts   # ask/deny/auto permission gates & classifier
-    runtime/run-delegation.ts    # subagent executor, workflow script runner, hub
+    runtime/permission-rules.ts  # pattern allow/deny rules + bash anti-injection guard
+    runtime/cost.ts              # USD cost accounting + computeBudgetMaxTokens()
+    runtime/run-delegation.ts    # subagent executor, orchestrate runner, hub
     runtime/agent-loop.ts        # createOmaSession (the loop factory)
     runtime/agent-loop-runner.ts # model-turn retry loop & runLoop driver
     runtime/agent-loop-lifecycle.ts # start, resume, background hold, steer, finalize
@@ -46,18 +49,21 @@ src/
     runtime/plugin-runtime.ts    # runtime capabilities injected into hooks
     runtime/tool-filter.ts       # --tools whitelist/blacklist
   modes/
-    print-mode.ts
-    json-mode.ts
+    print-mode.ts                # headless print mode + createBudgetGuard()
+    json-mode.ts                 # headless JSONL mode
     acp/acp-mode.ts              # ACP session/run lifecycle (stdout is protocol-only)
     acp/acp-protocol.ts          # ACP wire mapping, MCP-over-ACP, approvals
-    tui/                         # interactive TUI (ask-panel + ask-panel-model, ...)
+    tui/                         # interactive TUI (ask-panel, approval-panel, pty-console, ...)
   core/tools/                    # native tools (bash, grep, todo, eval, browser, ...)
-  core/session/                  # CLI-owned session files (JSONL): paths, file, fork, markers
+  core/session/                  # CLI session JSONL: paths, file, fork, checkpoints, export-markdown
+  core/delegation/               # subagent fan-out (task, yield, roles, pool)
+  core/orchestrate/              # sandboxed JS dynamic orchestration engine
+  core/coordination/             # CoordinationRegistry + hub tool
   core/loops/                    # loop mode: limits, condition, ralph
   core/goals/                    # goal mode state machine + tool
   core/plans/                    # plan mode state machine + prompts
   core/gateway/                  # `oma gateway` daemon, supervisor, doctor, artifact
-  core/settings/                 # .oma/settings.json + workspace context
+  core/settings/                 # 3-tier settings merge (user/project/local) + workspace context
   core/plugins/                  # plugin loading/trust
   core/memory/                   # autonomous memory + vector memory bridge
 ```

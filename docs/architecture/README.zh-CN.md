@@ -57,10 +57,10 @@ tags: [index, overview, conventions, zh]
 ### 工作区、编排与扩展
 - [Workspaces & Projects](./workspaces-and-projects.md) — Agent 工作区布局、Workspace Bridge、加密 MCP 目录、Worktree 与安全推送、Coding 终端
 - [Workflow Engine](./workflow.md) — Workflow DSL、5 类节点、13 运算符 JSON-Logic、波次并行、返工预算门、Cron/Webhook 触发与 `artifacts://`
-- [Skills & Plugins](./skills-and-plugins.md) — 按角色分流的内置技能、Skill Pack 安装同步状态机、渐进式技能发现、Oma 插件信任矩阵与权限模式
+- [Skills & Plugins](./skills-and-plugins.md) — 按角色分流的内置技能、Skill Pack 安装同步状态机、渐进式技能发现、Oma 插件信任矩阵、权限模式与模式级规则
 
 ### Oma 运行时与模型
-- [Oma Runtime](./oma-runtime.md) — `oma` 四种模式、核心循环、原生工具与 MCP 挂载、子代理扇出、自主记忆、TUI 分层与 Goal/Loop/Plan
+- [Oma Runtime](./oma-runtime.md) — `oma` 四种模式、`setup`/`doctor`/`--worktree`、三层配置与动态预算封顶、核心循环、原生工具与 MCP 挂载、子代理与 `orchestrate` 动态编排、影子快照、自主记忆、TUI 分层与 Goal/Loop/Plan
 - [Models & Providers](./models-and-providers.md) — `@chengchenccc/ai` 三种线协议、内置目录与 `models.yml`、凭据解析与在线模型探测
 - [Compaction](./compaction.md) — 四类触发入口、CJK 感知切点与工具配对保护、六段摘要与确定性状态块、后端 `/compact`
 

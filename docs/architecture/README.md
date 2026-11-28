@@ -59,10 +59,10 @@ Find the exact pages to read before editing a subsystem:
 ### Workspaces, Workflows & Extensibility
 - [Workspaces & Projects](./workspaces-and-projects.md) — Agent workspace layout, Workspace Bridge, encrypted MCP file catalog, Git mirrors & worktrees, safe `project_push`, Coding PTY terminals
 - [Workflow Engine](./workflow.md) — Pure DSL (`packages/workflow`), 5 node types, 13-op JSON-Logic, parallel waves, rework & `#budget` gates, cron/webhook triggers, `artifacts://`
-- [Skills & Plugins](./skills-and-plugins.md) — Role-scoped builtin skills, Skill Pack install/sync state machine, progressive skill discovery, Oma plugin trust matrix, HITL permission modes
+- [Skills & Plugins](./skills-and-plugins.md) — Role-scoped builtin skills, Skill Pack install/sync state machine, progressive skill discovery, Oma plugin trust matrix, HITL permission modes & pattern rules
 
 ### Oma Runtime & Models
-- [Oma Runtime](./oma-runtime.md) — `apps/oh-my-agent` 4 modes (`print`/`json`/`acp`/`tui`), `createOmaSession()`, native tools, delegation fan-out, autonomous memory, TUI layering, goals/loops/plans
+- [Oma Runtime](./oma-runtime.md) — `apps/oh-my-agent` 4 modes (`print`/`json`/`acp`/`tui`), `setup`/`doctor`/`--worktree`, 3-tier settings, dynamic USD budget cap, `createOmaSession()`, native tools, delegation & `orchestrate`, shadow checkpoints, autonomous memory, TUI layering, goals/loops/plans
 - [Models & Providers](./models-and-providers.md) — `@chengchenccc/ai` 3 wire protocols, `BUILTIN_CATALOG` vs `$OMA_HOME/models.yml`, credential resolution, aliases, live catalog probing
 - [Compaction](./compaction.md) — `oma` 4-trigger compaction, CJK-aware cut points, 6-section + deterministic state blocks, opt-in tool pruning, backend `/compact`
 

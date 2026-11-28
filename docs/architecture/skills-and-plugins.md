@@ -18,7 +18,7 @@ CrewDesk separates **declarative progressive skills** (Markdown `SKILL.md` loade
 - `apps/oh-my-agent/src/cli/initial-input.ts` & `apps/oh-my-agent/src/core/settings/workspace-context.ts` — Standalone & ACP skill root discovery
 - `apps/oh-my-agent/src/core/runtime/plugin.ts` — `Plugin`, 9 `PluginHooks`, `validatePlugins()`, `renderMeta()`, `collectTools()`
 - `apps/oh-my-agent/src/core/plugins/plugin-marketplace.ts` & `plugin-resolve.ts` & `plugin-trust.ts` & `plugin-code.ts` — Manifest resolution, SHA-256 trust store, scope × mode matrix
-- `apps/oh-my-agent/src/core/runtime/run-permissions.ts` & `approval.ts` & `permission-classifier.ts` — `ask`/`auto`/`deny`/`yolo` gates & LLM classifier
+- `apps/oh-my-agent/src/core/runtime/run-permissions.ts` & `permission-rules.ts` & `approval.ts` & `permission-classifier.ts` — `ask`/`auto`/`deny`/`yolo` gates, pattern allow/deny rules & LLM classifier
 
 ## Builtin Role-Scoped Skills (`skills/`, `builtin-roles.ts`)
 
@@ -57,7 +57,7 @@ Packs (`skill_pack` + `agent_skill_pack` tables) support three sources: `builtin
   - `user_invocable: false` / `disableModelInvocation: false` (and kebab-case variants; all default `true`, ANDed): hides the `/skill:<name>` slash command.
 - **Name collision rule:** **earliest root wins**; final index sorted lexicographically.
   - **ACP / Product runs:** `<cwd>/.oma/skills/*` (populated by Workspace Bridge from `[builtinRoleDir, ...readyPacks]`), plus `<agentDir>/managed-skills` appended last on `read_write` workspaces.
-  - **Standalone CLI (`resolveStandaloneSkillRoots`):** explicit `.oma/settings.json` `skills[]` if non-empty; otherwise `<ws>/.oma/skills` → `<agentDir>/skills` → optional `.claude`/`.codex`/`.agent(s)` roots → enabled marketplace plugin `skillsDir`s → `<agentDir>/managed-skills` last.
+  - **Standalone CLI (`resolveStandaloneSkillRoots`):** explicit `skills[]` from merged 3-tier settings (`~/.oma/settings.json` → `.oma/settings.json` → `.oma/settings.local.json`) if non-empty; otherwise `<ws>/.oma/skills` → `<agentDir>/skills` → optional `.claude`/`.codex`/`.agent(s)` roots → enabled marketplace plugin `skillsDir`s → `<agentDir>/managed-skills` last.
 
 ## Oma Plugin System & Trust Matrix (`core/runtime/plugin.ts`, `core/plugins/`)
 
@@ -78,7 +78,7 @@ Plugins are plain objects `{ name, hooks?, tools?, meta? }` validated by `valida
 
 `loadPluginCode()` verifies `realpathSync(file)` remains inside `realpathSync(root)` and catches all import errors so broken plugins degrade gracefully without crashing the Run.
 
-## HITL Permission Modes (`run-permissions.ts`, `permission-classifier.ts`)
+## HITL Permission Modes & Pattern Rules (`run-permissions.ts`, `permission-rules.ts`, `permission-classifier.ts`)
 
 | Mode | Behavior |
 |---|---|
@@ -87,7 +87,9 @@ Plugins are plain objects `{ name, hooks?, tools?, meta? }` validated by `valida
 | `deny` | Blocks all high-risk tools and drops all `codePlugins` before `import()`. |
 | `yolo` | Skips judgment gates, **force-enables OS bash sandbox** when available, and still obeys backend-injected `OMA_DENY_WRITE_PATHS` / `OMA_ALLOW_WRITE_PATHS` / `OMA_DENY_COMMANDS`. Untrusted `.oma/settings.json` requesting `yolo` downgrades to `ask`. |
 
-`allow_always` / `deny_always` decisions are strictly Run-scoped. Approval deadline defaults to `24h` (`OMA_APPROVAL_TIMEOUT_MS`, `0` = wait indefinitely) and fails closed on timeout/cancel/error.
+- **Pattern rules (`permissions: { allow, deny }`, standalone only):** rules accept `tool:pattern`, `Tool(pattern)`, or bare `tool` globs (e.g. `bash:bun test*`, `Bash(git status*)`, `edit:src/*`, `mcp__github__*`). Evaluation order is strictly **`deny` rules → `allow` rules → approval / classifier** (`deny` always beats `allow`). Bash target allow-rules reject commands with shell chaining, redirection, or substitution (`hasShellCompoundSyntax`) unless the rule itself includes them.
+- **Persistence:** `allow_always` / `deny_always` decisions stay strictly Run-scoped, while `allow_rule` (via `[p] Always <suggestedRule>` in TUI `ApprovalPanel` or `/permission allow|deny <rule>`) persists to trusted `.oma/settings.local.json` and merges with global `~/.oma/settings.json`. ACP/product runs ignore workspace permission rules completely.
+- **Deadlines:** approval deadline defaults to `24h` (`OMA_APPROVAL_TIMEOUT_MS`, `0` = wait indefinitely) and fails closed on timeout/cancel/error.
 
 ## See also
 
