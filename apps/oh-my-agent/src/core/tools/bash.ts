@@ -1,4 +1,6 @@
-import { resolve as resolvePath } from "node:path";
+import { randomBytes } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join, resolve as resolvePath } from "node:path";
 import type { Tool } from "@chengchenccc/message";
 import { childEnv } from "@chengchenccc/message";
 import { type CoordinationRegistry, defaultRegistry } from "../coordination/registry.js";
@@ -25,6 +27,32 @@ export const MAX_BASH_TIMEOUT_MS = 600_000;
 /** M10: cap captured output — a runaway `yes` must OOM neither the child
  *  nor this process. Streams to onOutput keep flowing; accumulation stops. */
 const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
+/** Model-facing inline cap for foreground bash results: keeps huge test/build
+ *  logs from blowing up the context window while spilling the full raw output
+ *  to `.oma/runs/` so the model can inspect any range with `read`. */
+const MAX_INLINE_BASH_CHARS = 32_000;
+const INLINE_HEAD_CHARS = 8_000;
+const INLINE_TAIL_CHARS = 24_000;
+
+function formatBashOutputForModel(raw: string, workspaceRoot: string): string {
+  if (raw.length <= MAX_INLINE_BASH_CHARS) return raw;
+  const omitted = raw.length - INLINE_HEAD_CHARS - INLINE_TAIL_CHARS;
+  let spillNote = "narrow the command or redirect output to a file";
+  try {
+    const runsDir = join(workspaceRoot, ".oma", "runs");
+    mkdirSync(runsDir, { recursive: true });
+    const filename = `bash-${Date.now()}-${randomBytes(2).toString("hex")}.log`;
+    writeFileSync(join(runsDir, filename), raw, "utf8");
+    spillNote = `full output (${raw.length} chars) saved to .oma/runs/${filename} — use read with offset/limit to inspect`;
+  } catch {
+    /* read-only workspace or fs error — still truncate safely */
+  }
+  return (
+    `${raw.slice(0, INLINE_HEAD_CHARS)}\n` +
+    `... [omitted ${omitted} chars; ${spillNote}] ...\n` +
+    `${raw.slice(-INLINE_TAIL_CHARS)}`
+  );
+}
 
 async function cappedText(stream: ReadableStream<Uint8Array>): Promise<string> {
   const reader = stream.getReader();
@@ -849,7 +877,8 @@ export function createBashTool(opts: {
       // MCP bearers. Full inheritance let one `env`/`printenv` read every
       // secret the oma process holds, voiding the childEnv allowlist and
       // stderr redaction above it.
-      const BASH_ENV_DENY = /API_KEY|AUTH_TOKEN|_TOKEN$|_SECRET$|PASSWORD|PASSWD/;
+      const BASH_ENV_DENY =
+        /API_KEY|AUTH_TOKEN|ACCESS_KEY|PRIVATE_KEY|ENCRYPTION_KEY|_TOKEN$|_SECRET$|PASSWORD|PASSWD|CREDENTIAL/i;
       const bashEnv: Record<string, string> = Object.fromEntries(
         Object.entries(childEnv(process.env)).filter(([k]) => !BASH_ENV_DENY.test(k)),
       );
@@ -943,8 +972,9 @@ export function createBashTool(opts: {
         const stderr = await stderrPromise;
         const exitCode = await proc.exited;
         const noticeLine = notice ? `\n${notice}` : "";
+        const fullContent = `${stdout}\n[exit: ${exitCode}]${stderr ? `\n${stderr}` : ""}${noticeLine}`;
         return {
-          content: `${stdout}\n[exit: ${exitCode}]${stderr ? `\n${stderr}` : ""}${noticeLine}`,
+          content: formatBashOutputForModel(fullContent, opts.workspaceRoot),
           isError: exitCode !== 0,
         };
       } finally {

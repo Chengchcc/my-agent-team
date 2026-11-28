@@ -114,7 +114,7 @@ export function createLearnTool(opts: {
     },
     async execute(args) {
       const content = typeof args.memory === "string" ? args.memory.trim() : "";
-      if (!content) return { learned: false, error: "memory is required" };
+      if (!content) return { learned: false, error: "memory is required", isError: true };
       const context = typeof args.context === "string" ? args.context.trim() : "";
       const cappedContent = redact(content.replace(/\s+/g, " ").slice(0, MAX_CONTENT_CHARS));
       const cappedContext = context ? redact(context.slice(0, MAX_CONTEXT_CHARS)) : "";

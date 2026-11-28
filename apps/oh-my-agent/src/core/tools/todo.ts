@@ -31,7 +31,7 @@ function createTodoWriteTool(opts: TodoPluginOptions): PluginTool {
       args: Readonly<Record<string, unknown>>,
     ): Promise<Readonly<Record<string, unknown>>> {
       const rawItems = args.items;
-      if (!Array.isArray(rawItems)) return { error: "items must be an array" };
+      if (!Array.isArray(rawItems)) return { error: "items must be an array", isError: true };
       const items = normalizeTodoItems(rawItems);
       opts.store.write(items);
       return { items };

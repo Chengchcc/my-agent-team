@@ -24,6 +24,7 @@ import {
   createTreeTool,
   createWriteTool,
   MAX_BASH_TIMEOUT_MS,
+  MAX_BROWSER_TIMEOUT_MS,
   MAX_EVAL_TIMEOUT_MS,
 } from "../tools/index.js";
 import {
@@ -78,11 +79,12 @@ async function withToolTimeout(
   }
 }
 
-/** Wrapper deadline per tool: bash/eval enforce their own deadline so they get
- *  a backstop at their ceiling rather than the generic 30s default. */
+/** Wrapper deadline per tool: bash/eval/browser enforce their own deadline so
+ *  they get a backstop at their ceiling rather than the generic 30s default. */
 export function wrapperBackstopMs(toolName: string): number {
   if (toolName === "bash") return MAX_BASH_TIMEOUT_MS;
   if (toolName === "eval") return MAX_EVAL_TIMEOUT_MS;
+  if (toolName === "browser") return MAX_BROWSER_TIMEOUT_MS;
   return DEFAULT_NATIVE_TOOL_TIMEOUT_MS;
 }
 

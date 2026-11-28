@@ -201,9 +201,9 @@ export function createHubTool(deps: HubToolDeps): readonly PluginTool[] {
           };
         }
         case "output": {
-          if (!id) return { ok: false, error: "id is required" };
+          if (!id) return { ok: false, error: "id is required", isError: true };
           const e = deps.get(id);
-          if (!e) return { ok: false, error: `unknown id "${id}"` };
+          if (!e) return { ok: false, error: `unknown id "${id}"`, isError: true };
           if (e.status !== "running") deps.acknowledge?.([e.id]);
           const out: Record<string, unknown> = {
             id: e.id,
@@ -227,7 +227,12 @@ export function createHubTool(deps: HubToolDeps): readonly PluginTool[] {
             const payload = e.result?.output ?? e.result?.text ?? e.output;
             const picked = readDotPath(payload, fieldPath);
             return picked === undefined
-              ? { id: e.id, path: fieldPath, error: `no field "${fieldPath}" on ${e.id}` }
+              ? {
+                  id: e.id,
+                  path: fieldPath,
+                  error: `no field "${fieldPath}" on ${e.id}`,
+                  isError: true,
+                }
               : { id: e.id, path: fieldPath, value: picked };
           }
           if (e.exitCode !== undefined) out.exitCode = e.exitCode;
@@ -271,18 +276,21 @@ export function createHubTool(deps: HubToolDeps): readonly PluginTool[] {
           return { content: text, waited: out.settled, timedOut: out.timedOut };
         }
         case "steer": {
-          if (!id) return { ok: false, error: "id is required" };
-          if (!prompt) return { ok: false, error: "prompt is required" };
-          return deps.steer(id, prompt);
+          if (!id) return { ok: false, error: "id is required", isError: true };
+          if (!prompt) return { ok: false, error: "prompt is required", isError: true };
+          const res = deps.steer(id, prompt);
+          return res.ok ? res : { ...res, isError: true };
         }
         case "stop": {
-          if (!id) return { ok: false, error: "id is required" };
-          return deps.stop(id);
+          if (!id) return { ok: false, error: "id is required", isError: true };
+          const res = deps.stop(id);
+          return res.ok ? res : { ...res, isError: true };
         }
         default:
           return {
             ok: false,
             error: `unknown op "${op}" (jobs|output|wait|steer|stop)`,
+            isError: true,
           };
       }
     },

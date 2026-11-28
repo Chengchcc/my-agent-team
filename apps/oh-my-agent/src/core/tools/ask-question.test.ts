@@ -16,33 +16,40 @@ function ask(
 
 describe("ask_question input validation", () => {
   test("a missing or empty questions array is refused", async () => {
-    expect(await ask({})).toEqual({ error: "questions must be a non-empty array" });
+    expect(await ask({})).toEqual({ error: "questions must be a non-empty array", isError: true });
     expect(await ask({ questions: [] })).toEqual({
       error: "questions must be a non-empty array",
+      isError: true,
     });
     expect(await ask({ questions: "nope" })).toEqual({
       error: "questions must be a non-empty array",
+      isError: true,
     });
     expect(await ask({ questions: [null] })).toEqual({
       error: "each question must be an object",
+      isError: true,
     });
   });
 
   test("each question needs a string id and question text", async () => {
     expect(await ask({ questions: [{ id: "q1" }] })).toEqual({
       error: "each question needs string id and question",
+      isError: true,
     });
     expect(await ask({ questions: [{ id: 7, question: "why?" }] })).toEqual({
       error: "each question needs string id and question",
+      isError: true,
     });
   });
 
   test("a select question without options is refused (kind defaults to select)", async () => {
     expect(await ask({ questions: [{ id: "q1", question: "pick" }] })).toEqual({
       error: "question q1: select needs options",
+      isError: true,
     });
     expect(await ask({ questions: [{ id: "q1", question: "pick", options: [] }] })).toEqual({
       error: "question q1: select needs options",
+      isError: true,
     });
   });
 
@@ -121,7 +128,7 @@ describe("ask_question fails closed", () => {
       { questions: [{ id: "q1", question: "pick", options: ["a"] }] },
       async () => null,
     );
-    expect(result).toEqual({ error: "ask pipeline returned no answer" });
+    expect(result).toEqual({ error: "ask pipeline returned no answer", isError: true });
   });
 
   test("a pipeline rejection propagates (the loop turns it into a tool error)", async () => {

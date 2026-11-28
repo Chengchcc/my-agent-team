@@ -1,6 +1,7 @@
 import { type Dirent, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Tool } from "@chengchenccc/message";
+import { deniedReadRefusal } from "./file-tools.js";
 import { WorkspaceSandbox } from "./workspace-sandbox.js";
 
 const descriptionParam = {
@@ -8,6 +9,10 @@ const descriptionParam = {
   description:
     "Must be the first parameter. A short human-readable summary explaining why this tool is being called.",
 };
+
+const MAX_LS_ENTRIES = 500;
+const MAX_TREE_ENTRIES = 500;
+const MAX_TREE_DEPTH = 10;
 
 const DEFAULT_IGNORES = new Set([
   "node_modules",
@@ -49,7 +54,7 @@ export function createLsTool(opts: { cwd: string }): Tool {
   return {
     name: "ls",
     description:
-      "List files and directories at a given path. Returns entry names sorted by modification time (newest first). " +
+      "List files and directories at a given path. Returns entry names sorted by modification time (newest first, capped at 500 entries). " +
       "Common noise directories (node_modules, .git, build output) are omitted.",
     inputSchema: {
       type: "object",
@@ -76,9 +81,13 @@ export function createLsTool(opts: { cwd: string }): Tool {
           };
         }
       }
+      const denied = deniedReadRefusal(dir);
+      if (denied) return { content: `Error: ${denied}`, isError: true };
       try {
-        const entries = readdirSync(dir, { withFileTypes: true })
-          .filter((e) => !isIgnored(e.name))
+        const raw = readdirSync(dir, { withFileTypes: true }).filter((e) => !isIgnored(e.name));
+        const total = raw.length;
+        const capped = raw.slice(0, MAX_LS_ENTRIES);
+        const entries = capped
           .map((e) => {
             const fullPath = join(dir, e.name);
             try {
@@ -97,6 +106,11 @@ export function createLsTool(opts: { cwd: string }): Tool {
           const size = e.isDir ? "" : formatSize(e.size).padStart(8);
           return `${type}  ${size}  ${e.name}`;
         });
+        if (total > MAX_LS_ENTRIES) {
+          lines.push(
+            `... (truncated at ${MAX_LS_ENTRIES} of ${total} entries; narrow with glob or a subdirectory)`,
+          );
+        }
         return { content: lines.join("\n") };
       } catch (err) {
         return { content: `Error: ${err instanceof Error ? err.message : err}`, isError: true };
@@ -105,15 +119,15 @@ export function createLsTool(opts: { cwd: string }): Tool {
   };
 }
 
-/** tree tool: recursive directory listing with depth control. */
+/** tree tool: recursive directory listing with depth & entry-count caps. */
 export function createTreeTool(opts: { cwd: string }): Tool {
   const { cwd } = opts;
   const sandbox = new WorkspaceSandbox(cwd);
   return {
     name: "tree",
     description:
-      "Show a recursive tree view of a directory. Useful for understanding project structure. " +
-      "Common noise directories are omitted. Use max_depth to limit recursion.",
+      "Show a recursive tree view of a directory (capped at 500 entries). Useful for understanding project structure. " +
+      "Common noise directories are omitted. Use max_depth (1-10, default 3) to limit recursion.",
     inputSchema: {
       type: "object",
       properties: {
@@ -124,7 +138,7 @@ export function createTreeTool(opts: { cwd: string }): Tool {
         },
         max_depth: {
           type: "number",
-          description: "Maximum recursion depth. Defaults to 3.",
+          description: "Maximum recursion depth (1-10). Defaults to 3.",
         },
       },
       required: [],
@@ -142,12 +156,19 @@ export function createTreeTool(opts: { cwd: string }): Tool {
           };
         }
       }
-      const maxDepth = rec.max_depth ?? 3;
+      const denied = deniedReadRefusal(dir);
+      if (denied) return { content: `Error: ${denied}`, isError: true };
+
+      const rawDepth =
+        typeof rec.max_depth === "number" && Number.isFinite(rec.max_depth) ? rec.max_depth : 3;
+      const maxDepth = Math.min(MAX_TREE_DEPTH, Math.max(1, Math.floor(rawDepth)));
 
       const lines: string[] = [];
+      let count = 0;
+      let truncated = false;
 
       function walk(currentDir: string, prefix: string, depth: number): void {
-        if (depth > maxDepth) return;
+        if (depth > maxDepth || truncated) return;
         let entries: Dirent[];
         try {
           entries = readdirSync(currentDir, { withFileTypes: true })
@@ -160,12 +181,18 @@ export function createTreeTool(opts: { cwd: string }): Tool {
           return;
         }
         for (let i = 0; i < entries.length; i++) {
+          if (count >= MAX_TREE_ENTRIES) {
+            truncated = true;
+            return;
+          }
           const e = entries[i]!;
           const isLast = i === entries.length - 1;
           const connector = isLast ? "└── " : "├── ";
           lines.push(`${prefix}${connector}${e.name}${e.isDirectory() ? "/" : ""}`);
+          count++;
           if (e.isDirectory()) {
             walk(join(currentDir, e.name), prefix + (isLast ? "    " : "│   "), depth + 1);
+            if (truncated) return;
           }
         }
       }
@@ -173,6 +200,11 @@ export function createTreeTool(opts: { cwd: string }): Tool {
       try {
         lines.push(rec.path ?? ".");
         walk(dir, "", 1);
+        if (truncated) {
+          lines.push(
+            `... (truncated at ${MAX_TREE_ENTRIES} entries; pass a narrower path or smaller max_depth)`,
+          );
+        }
         return { content: lines.join("\n") };
       } catch (err) {
         return { content: `Error: ${err instanceof Error ? err.message : err}`, isError: true };

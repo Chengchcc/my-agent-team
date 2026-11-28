@@ -166,13 +166,22 @@ function matchesPolicyPath(full: string, rule: string): boolean {
   return full === resolved;
 }
 
-export function pathPolicyRefusal(full: string): string | undefined {
+/** Read-side deny check: paths explicitly denied by OMA_DENY_WRITE_PATHS hold
+ *  secrets (e.g. `.env`, backend DB) and are blocked for reading as well as
+ *  writing. `OMA_ALLOW_WRITE_PATHS` is write-only and does NOT restrict reads. */
+export function deniedReadRefusal(full: string): string | undefined {
   const deny = policyPaths(process.env.OMA_DENY_WRITE_PATHS);
   for (const rule of deny) {
     if (matchesPolicyPath(full, rule)) {
       return `path denied by OMA_DENY_WRITE_PATHS: ${rule}`;
     }
   }
+  return undefined;
+}
+
+export function pathPolicyRefusal(full: string): string | undefined {
+  const deny = deniedReadRefusal(full);
+  if (deny) return deny;
   const allow = policyPaths(process.env.OMA_ALLOW_WRITE_PATHS);
   if (allow.length > 0 && !allow.some((rule) => matchesPolicyPath(full, rule))) {
     return "path outside OMA_ALLOW_WRITE_PATHS";
@@ -280,13 +289,17 @@ export function createReadTool(opts: { cwd: string; freshness?: FileFreshness })
       const rec = input as InputRec;
       const full = safePath(cwd, String(rec.path ?? ""));
       if (!full) return { content: "Error: path escapes workspace", isError: true };
+      const readDenied = deniedReadRefusal(full);
+      if (readDenied) return { content: `Error: ${readDenied}`, isError: true };
       try {
         const stat = statSync(full);
         if (stat.isDirectory()) {
           return { content: `Error: ${rec.path} is a directory, not a file.`, isError: true };
         }
         if (IMAGE_EXTENSIONS.has(extname(full).toLowerCase())) {
-          return { content: `[image file: ${rec.path} (${stat.size} bytes)]` };
+          return {
+            content: `[image file: ${rec.path} (${stat.size} bytes) — use read_image to inspect visually]`,
+          };
         }
         const content = readFileSync(full, "utf-8");
         const lines = content.split("\n");
@@ -393,7 +406,9 @@ export function createWriteTool(opts: {
         mkdirSync(resolve(full, ".."), { recursive: true });
         const content = String(rec.content ?? "");
         writeFileSync(full, content, "utf-8");
-        return { content: `Wrote ${Buffer.byteLength(content, "utf8")} bytes to ${rec.path}` };
+        let summary = `Wrote ${Buffer.byteLength(content, "utf8")} bytes to ${rec.path}`;
+        if (freshness === "require") summary += fingerprintFooter(computeFileFingerprint(content));
+        return { content: summary };
       } catch (err) {
         return {
           content: `Error writing file: ${err instanceof Error ? err.message : err}`,
@@ -516,7 +531,11 @@ export function createEditTool(opts: {
           : content.replace(oldStr, () => newStr);
         writeFileSync(full, newContent, "utf-8");
         const count = replaceAll ? occurrences : 1;
-        return { content: `Replaced ${count} occurrence${count === 1 ? "" : "s"} in ${rec.path}` };
+        let summary = `Replaced ${count} occurrence${count === 1 ? "" : "s"} in ${rec.path}`;
+        if (freshness === "require") {
+          summary += fingerprintFooter(computeFileFingerprint(newContent));
+        }
+        return { content: summary };
       } catch (err) {
         return {
           content: `Error editing file: ${err instanceof Error ? err.message : err}`,

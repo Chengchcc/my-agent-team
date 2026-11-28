@@ -73,6 +73,9 @@ let launching: Promise<Browser> | null = null;
 const DEFAULT_VIEWPORT = { width: 1365, height: 768 };
 const MIN_TIMEOUT_S = 1;
 const MAX_TIMEOUT_S = 300;
+/** Wrapper backstop ceiling matching MAX_TIMEOUT_S so multi-step browser calls
+ *  with timeout > 30s are not prematurely killed by the generic 30s wrapper. */
+export const MAX_BROWSER_TIMEOUT_MS = MAX_TIMEOUT_S * 1000;
 const DEFAULT_TIMEOUT_S = 30;
 /** observe/extract output caps: the model, not the page, is the sink. */
 const MAX_OBSERVE_BYTES = 12_000;
@@ -320,10 +323,20 @@ async function executeBrowserStep(
     workspaceRoot: string;
     screenshotDir: string;
     deadlineMs: number;
+    signal?: AbortSignal;
     images: Array<{ mediaType: "image/png"; base64: string }>;
   },
 ): Promise<unknown> {
-  const { name, page, allowLocalNetwork, workspaceRoot, screenshotDir, deadlineMs, images } = ctx;
+  const {
+    name,
+    page,
+    allowLocalNetwork,
+    workspaceRoot,
+    screenshotDir,
+    deadlineMs,
+    signal,
+    images,
+  } = ctx;
   switch (step.op) {
     case "goto": {
       const refused = await checkNavigationAllowed(step.url, allowLocalNetwork);
@@ -410,9 +423,21 @@ async function executeBrowserStep(
       return { url: page.url() };
     case "wait": {
       const ms = Math.max(0, Number(step.ms) || 0);
-      await new Promise<void>((resolve) => {
-        const t = setTimeout(resolve, ms);
+      await new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) {
+          reject(new Error("aborted"));
+          return;
+        }
+        const onAbort = () => {
+          clearTimeout(t);
+          reject(new Error("aborted"));
+        };
+        const t = setTimeout(() => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        }, ms);
         t.unref?.();
+        signal?.addEventListener("abort", onAbort, { once: true });
       });
       return { waitedMs: ms };
     }
@@ -625,12 +650,14 @@ export function createBrowserTool(opts: {
         const images: Array<{ mediaType: "image/png"; base64: string }> = [];
         const started = Date.now();
         let timer: ReturnType<typeof setTimeout> | undefined;
+        let onAbort: (() => void) | undefined;
         try {
           const results = await Promise.race([
             (async () => {
               const out: unknown[] = [];
               for (const step of steps) {
                 if (signal?.aborted) throw new Error("aborted");
+                const remainingMs = Math.max(100, deadlineMs - (Date.now() - started));
                 out.push(
                   await executeBrowserStep(step, {
                     name,
@@ -638,7 +665,8 @@ export function createBrowserTool(opts: {
                     allowLocalNetwork: entry.allowLocalNetwork,
                     workspaceRoot: opts.workspaceRoot,
                     screenshotDir,
-                    deadlineMs,
+                    deadlineMs: remainingMs,
+                    signal,
                     images,
                   }),
                 );
@@ -651,6 +679,14 @@ export function createBrowserTool(opts: {
                 deadlineMs,
               );
               timer.unref?.();
+              if (signal) {
+                if (signal.aborted) {
+                  reject(new Error("aborted"));
+                } else {
+                  onAbort = () => reject(new Error("aborted"));
+                  signal.addEventListener("abort", onAbort, { once: true });
+                }
+              }
             }),
           ]);
           if (signal?.aborted) {
@@ -679,9 +715,14 @@ export function createBrowserTool(opts: {
               isError: true,
             };
           }
+          if (message === "aborted" || signal?.aborted) {
+            await releaseTab(name);
+            return { content: "Error: aborted", isError: true };
+          }
           return { content: `Error: ${message}`, isError: true };
         } finally {
           if (timer) clearTimeout(timer);
+          if (onAbort && signal) signal.removeEventListener("abort", onAbort);
         }
       }
 

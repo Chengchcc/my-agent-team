@@ -1,9 +1,20 @@
 import { assertSafeUrlDeep, FETCH_TIMEOUT_MS, MAX_REDIRECTS, UrlGuardError } from "./url-guard.js";
 import type { WebFetchPort, WebSearchPort } from "./web-ports.js";
 
-/** Max bytes read from a fetched page (fetch port is heavier than the
- *  url-guard default: real pages, not snippets). */
+/** Max raw bytes read from a fetched page. */
 const FETCH_CAP_BYTES = 512_000;
+/** Max extracted text chars returned to the model from one web_fetch call. */
+const MAX_FETCH_TEXT_CHARS = 48_000;
+
+function combinedFetchSignal(signal: AbortSignal | undefined): AbortSignal {
+  const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+function capExtractedText(text: string): string {
+  if (text.length <= MAX_FETCH_TEXT_CHARS) return text;
+  return `${text.slice(0, MAX_FETCH_TEXT_CHARS)}\n... [truncated at ${MAX_FETCH_TEXT_CHARS} chars]`;
+}
 
 function decodeEntities(value: string): string {
   return value
@@ -38,7 +49,7 @@ export function createStdWebFetchPort(): WebFetchPort {
       for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
         const resp = await fetch(current, {
           redirect: "manual",
-          signal: signal ?? AbortSignal.timeout(FETCH_TIMEOUT_MS),
+          signal: combinedFetchSignal(signal),
           headers: { "user-agent": "oma/0.1 (+web_fetch)" },
         });
         if ([301, 302, 303, 307, 308].includes(resp.status)) {
@@ -54,19 +65,26 @@ export function createStdWebFetchPort(): WebFetchPort {
         const reader = resp.body?.getReader();
         if (!reader) {
           const text = await resp.text();
-          return { text: htmlToText(text).slice(0, FETCH_CAP_BYTES), title: titleOf(text) };
+          return { text: capExtractedText(htmlToText(text)), title: titleOf(text) };
         }
         const chunks: Uint8Array[] = [];
         let bytes = 0;
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          bytes += value.byteLength;
-          chunks.push(value);
-          if (bytes > FETCH_CAP_BYTES) break;
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            bytes += value.byteLength;
+            chunks.push(value);
+            if (bytes > FETCH_CAP_BYTES) {
+              await reader.cancel().catch(() => {});
+              break;
+            }
+          }
+        } finally {
+          reader.releaseLock();
         }
         const html = new TextDecoder().decode(concat(chunks));
-        return { text: htmlToText(html), title: titleOf(html) };
+        return { text: capExtractedText(htmlToText(html)), title: titleOf(html) };
       }
       throw new UrlGuardError(`too many redirects (>${MAX_REDIRECTS})`);
     },
@@ -143,7 +161,7 @@ export function createDdgWebSearchPort(): WebSearchPort {
           "user-agent": "oma/0.1 (+web_search)",
         },
         body: new URLSearchParams({ q: query }).toString(),
-        signal: signal ?? AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        signal: combinedFetchSignal(signal),
       });
       const html = await resp.text();
       if (html.includes("anomaly-modal") || html.includes("anomaly.js")) {

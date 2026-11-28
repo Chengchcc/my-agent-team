@@ -157,7 +157,9 @@ describe("read: line numbers, ranges, size guard", () => {
     const read = createReadTool({ cwd });
     await createWriteTool({ cwd }).execute({ path: "a.png", content: "not-really-a-png" });
     const res = await read.execute({ path: "a.png" });
-    expect(res.content).toMatch(/^\[image file: a\.png \(\d+ bytes\)\]$/);
+    expect(res.content).toMatch(
+      /^\[image file: a\.png \(\d+ bytes\) — use read_image to inspect visually\]$/,
+    );
   });
 
   test("output is capped at 256KB with a truncation hint", async () => {

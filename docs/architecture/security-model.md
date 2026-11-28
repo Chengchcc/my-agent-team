@@ -66,7 +66,7 @@ CrewDesk is designed for a **single-operator, local / self-hosted deployment** (
 | Area | Current Gap / Residual Risk |
 |---|---|
 | **MCP stdio CRUD** | Any holder of `BACKEND_AUTH_TOKEN` can register arbitrary `command`/`args`/`env` (host RCE; accepted under single-operator model). |
-| **Path jail & Seatbelt** | `WorkspaceSandbox` is check-then-use (TOCTOU / hardlinks); macOS `SeatbeltBashSandbox` writes its temp profile inside agent-writable `<ws>/.oma/`; `grep` `rg` subprocess inherits full parent env (`RIPGREP_CONFIG_PATH`). |
+| **Path jail & Seatbelt** | `WorkspaceSandbox` is check-then-use (TOCTOU / hardlinks); macOS `SeatbeltBashSandbox` writes its temp profile inside agent-writable `<ws>/.oma/`. |
 | **Session & Queue routes** | `cliSessionRef` is not path-validated before joining in `oma`; `GET /api/conversations/:id/inputs` ignores the `:id` path parameter when reading by branch; `/entries` does not realpath symlinked directories. |
 | **Workflow & Local MCP** | Human-task answers bypass `outputSchema`/form metadata validation; JSON-Logic `pathGet` walks the JS prototype chain; workflow execution listing & batch human-task resolve are uncapped; local `agent-config` and `workflow` MCP servers do not mandate bearer auth by default on `127.0.0.1`. |
 | **Web Auth & BFF** | Login rate-limit is a single global bucket ignoring `X-Forwarded-For`; BFF path normalization allows `%2e%2e` prefix escape (only `/health` exists outside `/api/`); `/api/auth/logout` lacks CSRF token; expired sessions on `/api/*` receive middleware `302` instead of `401`. |

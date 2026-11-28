@@ -60,15 +60,15 @@ export function createSkill(opts: SkillOptions): SkillModule {
       args: Readonly<Record<string, unknown>>,
     ): Promise<Readonly<Record<string, unknown>>> {
       const name = args.name;
-      if (typeof name !== "string") return { error: "Skill name must be a string" };
+      if (typeof name !== "string") return { error: "Skill name must be a string", isError: true };
       const entry: SkillIndexEntry | undefined = index.find((s) => s.name === name);
-      if (!entry) return { error: `Skill "${name}" not found` };
+      if (!entry) return { error: `Skill "${name}" not found`, isError: true };
 
       const fullPath = resolve(entry.root, entry.relativePath);
       if (!isWithinRoot(entry.root, fullPath)) {
-        return { error: "Path escape detected" };
+        return { error: "Path escape detected", isError: true };
       }
-      if (!existsSync(fullPath)) return { error: `Skill file not found` };
+      if (!existsSync(fullPath)) return { error: `Skill file not found`, isError: true };
 
       const content = readFileSync(fullPath, "utf8");
       const body = content.replace(/^---\n[\s\S]*?\n---\n?/, "");

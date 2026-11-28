@@ -1,5 +1,6 @@
 import { recallMemories, retainMemory } from "@chengchenccc/embedding";
 import type { PluginTool } from "../index.js";
+import { redactMemorySecrets } from "./learn.js";
 import type { VectorMemory } from "./vector-memory.js";
 
 /** Model-facing vector-memory tools: `recall` (hybrid retrieval over the
@@ -65,7 +66,7 @@ export function createRetainTool(memory: VectorMemory): PluginTool {
     async execute(args: Record<string, unknown>) {
       const content = typeof args.content === "string" ? args.content.trim() : "";
       if (!content) return { content: "Error: content is required", isError: true };
-      const bounded = content.slice(0, 2000);
+      const bounded = redactMemorySecrets(content.slice(0, 2000));
       // Check before retainMemory (which returns the existing row id on duplicate)
       // so duplicate writes skip embedding work and report honestly.
       const existing = memory.store.byContent(bounded);
@@ -75,7 +76,7 @@ export function createRetainTool(memory: VectorMemory): PluginTool {
       const id = await retainMemory(memory.store, memory.provider, {
         content: bounded,
         ...(typeof args.context === "string" && args.context.trim()
-          ? { context: args.context.trim().slice(0, 400) }
+          ? { context: redactMemorySecrets(args.context.trim().slice(0, 400)) }
           : {}),
         source: "retain",
         ...(typeof args.importance === "number"

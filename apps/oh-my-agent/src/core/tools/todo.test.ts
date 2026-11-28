@@ -47,7 +47,10 @@ describe("todo plugin", () => {
   test("a non-array items argument is refused and writes nothing", async () => {
     const store = memoryStore();
     const tool = createTodo({ store }).tools![0]!;
-    expect(await tool.execute({ items: "nope" })).toEqual({ error: "items must be an array" });
+    expect(await tool.execute({ items: "nope" })).toEqual({
+      error: "items must be an array",
+      isError: true,
+    });
     expect(store.written).toEqual([]);
   });
 

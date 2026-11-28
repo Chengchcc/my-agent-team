@@ -1,4 +1,6 @@
+import { resolve } from "node:path";
 import type { Tool } from "@chengchenccc/message";
+import { deniedReadRefusal } from "./file-tools.js";
 import { readStringField } from "./presentation.js";
 import { WorkspaceSandbox } from "./workspace-sandbox.js";
 
@@ -55,12 +57,18 @@ export function createGlobTool(opts: { workspaceRoot: string }): Tool {
         }
       }
 
+      const cwdDenied = deniedReadRefusal(validatedCwd);
+      if (cwdDenied) {
+        return { content: `Error: ${cwdDenied}`, isError: true };
+      }
+
       const LIMIT = 500;
       const glob = new Bun.Glob(normalized);
       const matches: string[] = [];
       let truncated = false;
       for await (const m of glob.scan({ cwd: validatedCwd, absolute: false, onlyFiles: true })) {
         if (m.includes("..")) continue;
+        if (deniedReadRefusal(resolve(validatedCwd, m))) continue;
         if (matches.length >= LIMIT) {
           truncated = true;
           break;

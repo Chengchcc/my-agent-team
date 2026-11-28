@@ -66,6 +66,7 @@ export function createOrchestrateTool(deps: OrchestrateToolDeps): readonly Plugi
         return {
           ok: false,
           error: `invalid orchestration name (allowed: [a-z0-9-], max 64): ${name}`,
+          isError: true,
         };
       }
       if (rawScript && name) deps.writeScript(name, rawScript);
@@ -76,11 +77,12 @@ export function createOrchestrateTool(deps: OrchestrateToolDeps): readonly Plugi
           return {
             ok: false,
             error: `orchestration "${name}" not found in .oma/orchestrations`,
+            isError: true,
           };
         }
         script = saved;
       }
-      if (!script) return { ok: false, error: "script or name is required" };
+      if (!script) return { ok: false, error: "script or name is required", isError: true };
       const rawTimeout = typeof args.timeoutMs === "number" ? args.timeoutMs : undefined;
       const timeoutMs =
         rawTimeout !== undefined && Number.isFinite(rawTimeout) && rawTimeout > 0

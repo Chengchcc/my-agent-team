@@ -1,6 +1,10 @@
 // standalone tools
 export { createBashTool, MAX_BASH_TIMEOUT_MS } from "./bash.js";
-export { createBrowserTool, resolveChromeExecutable } from "./browser.js";
+export {
+  createBrowserTool,
+  MAX_BROWSER_TIMEOUT_MS,
+  resolveChromeExecutable,
+} from "./browser.js";
 export { createEvalTool, MAX_EVAL_TIMEOUT_MS } from "./eval.js";
 export {
   computeFileFingerprint,

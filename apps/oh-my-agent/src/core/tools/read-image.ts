@@ -1,5 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import type { Tool, ToolExecuteResult } from "@chengchenccc/message";
+import { deniedReadRefusal } from "./file-tools.js";
 import { WorkspaceSandbox } from "./workspace-sandbox.js";
 
 const MEDIA_TYPES: Record<string, "image/png" | "image/jpeg" | "image/gif" | "image/webp"> = {
@@ -58,6 +59,10 @@ export function createReadImageTool(opts: { cwd: string }): Tool {
       } catch {
         return { content: `Error: path escapes workspace: ${raw}`, isError: true };
       }
+      const denied = deniedReadRefusal(abs);
+      if (denied) {
+        return { content: `Error: ${denied}`, isError: true };
+      }
       try {
         const st = statSync(abs);
         if (!st.isFile()) return { content: `Error: not a file: ${raw}`, isError: true };
@@ -67,14 +72,13 @@ export function createReadImageTool(opts: { cwd: string }): Tool {
             isError: true,
           };
         }
-        const bytes = new Uint8Array(readFileSync(abs));
+        const buf = readFileSync(abs);
+        const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
         const ext = abs.slice(abs.lastIndexOf(".")).toLowerCase();
         const mediaType = sniffMediaType(bytes) ?? MEDIA_TYPES[ext];
         if (!mediaType) {
           return { content: `Error: unsupported image format: ${raw}`, isError: true };
         }
-        let binary = "";
-        for (const byte of bytes) binary += String.fromCharCode(byte);
         return {
           content: `[image ${raw} attached for vision]`,
           mediaType,
@@ -82,7 +86,7 @@ export function createReadImageTool(opts: { cwd: string }): Tool {
             {
               type: "image" as const,
               mediaType: mediaType as "image/png" | "image/jpeg" | "image/gif" | "image/webp",
-              base64: btoa(binary),
+              base64: buf.toString("base64"),
             },
           ],
         } as unknown as ToolExecuteResult;

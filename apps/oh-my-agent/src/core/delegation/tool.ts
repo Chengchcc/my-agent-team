@@ -93,22 +93,32 @@ export function createDelegationTools(deps: DelegationToolDeps): readonly Plugin
           return {
             ok: false,
             error: "context is required for batch calls (shared background for every spawn)",
+            isError: true,
           };
         }
         const items = args.tasks as Array<Record<string, unknown>>;
-        if (items.length === 0) return { ok: false, error: "tasks must be a non-empty array" };
+        if (items.length === 0)
+          return { ok: false, error: "tasks must be a non-empty array", isError: true };
         if (items.length > MAX_BATCH_TASKS) {
-          return { ok: false, error: `too many tasks (${items.length}; max ${MAX_BATCH_TASKS})` };
+          return {
+            ok: false,
+            error: `too many tasks (${items.length}; max ${MAX_BATCH_TASKS})`,
+            isError: true,
+          };
         }
         const seen = new Set<string>();
         for (const item of items) {
           if (typeof item.task !== "string" || item.task.trim() === "") {
-            return { ok: false, error: "each task item needs a non-empty task" };
+            return { ok: false, error: "each task item needs a non-empty task", isError: true };
           }
           if (typeof item.name === "string" && item.name.trim() !== "") {
             const key = item.name.trim().toLowerCase();
             if (seen.has(key)) {
-              return { ok: false, error: `duplicate task name "${item.name.trim()}"` };
+              return {
+                ok: false,
+                error: `duplicate task name "${item.name.trim()}"`,
+                isError: true,
+              };
             }
             seen.add(key);
           }
@@ -132,6 +142,7 @@ export function createDelegationTools(deps: DelegationToolDeps): readonly Plugin
             return {
               ok: false,
               error: `unknown subagent "${agent}" (builtin: ${builtinAgentNames().join(", ")}; or .oma/agents/<name>.md)`,
+              isError: true,
             };
           }
           metas.push({
@@ -184,7 +195,7 @@ export function createDelegationTools(deps: DelegationToolDeps): readonly Plugin
         );
         return { ok: batch.ok, content: lines.join("\n\n"), results };
       }
-      if (!prompt) return { ok: false, error: "prompt is required" };
+      if (!prompt) return { ok: false, error: "prompt is required", isError: true };
       if (resume) {
         const result = await deps.runSubagent(
           { prompt, ...(agent ? { label: agent } : {}), resumeHandle: resume },
@@ -192,13 +203,20 @@ export function createDelegationTools(deps: DelegationToolDeps): readonly Plugin
         );
         return { label: result.label, text: result.text, ok: result.ok };
       }
-      if (!agent) return { ok: false, error: "agent (or resume handle) and prompt are required" };
+      if (!agent) {
+        return {
+          ok: false,
+          error: "agent (or resume handle) and prompt are required",
+          isError: true,
+        };
+      }
       const def = await resolveAgent(agent, deps.readAgentDefinition);
       if (!def) {
         const builtin = builtinAgentNames().join(", ");
         return {
           ok: false,
           error: `unknown subagent "${agent}" (builtin: ${builtin}; or .oma/agents/<name>.md)`,
+          isError: true,
         };
       }
       const schema = args.schema;
