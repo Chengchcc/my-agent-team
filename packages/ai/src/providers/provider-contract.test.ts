@@ -528,4 +528,95 @@ describe("Provider contract — wire serialization", () => {
     // Missing inputSchema defaults to {}, tool is not dropped
     expect(tools).toContainEqual({ name: "read", description: "Read a file", input_schema: {} });
   });
+
+  test("all three providers honor opts.maxTokens as a downward-only cap", async () => {
+    const responsesModel: Model = { ...openaiModel, id: "test-resp", api: "openai-responses" };
+
+    // 1. Anthropic Messages: lowers max_tokens, never raises above model.maxTokens,
+    //    clamps thinking.budget_tokens < max_tokens, omits fixed thinking when <= 1024.
+    {
+      const provider = makeProvider(anthropicModel);
+      const low = mockFetchCapture(sseRes([DONE]));
+      await collectChunks(
+        provider.stream(anthropicModel, [{ role: "user", text: "hi" }], {
+          apiKey: "test-key",
+          maxTokens: 2000,
+          thinking: { type: "enabled", budgetTokens: 3000 },
+        }),
+      );
+      low.restore();
+      expect(low.getBody()!.max_tokens).toBe(2000);
+      expect(low.getBody()!.thinking).toEqual({ type: "enabled", budget_tokens: 1999 });
+
+      const tiny = mockFetchCapture(sseRes([DONE]));
+      await collectChunks(
+        provider.stream(anthropicModel, [{ role: "user", text: "hi" }], {
+          apiKey: "test-key",
+          maxTokens: 512,
+          thinking: { type: "enabled", budgetTokens: 2048 },
+        }),
+      );
+      tiny.restore();
+      expect(tiny.getBody()!.max_tokens).toBe(512);
+      expect(tiny.getBody()!.thinking).toBeUndefined();
+
+      const high = mockFetchCapture(sseRes([DONE]));
+      await collectChunks(
+        provider.stream(anthropicModel, [{ role: "user", text: "hi" }], {
+          apiKey: "test-key",
+          maxTokens: 99_999,
+        }),
+      );
+      high.restore();
+      expect(high.getBody()!.max_tokens).toBe(anthropicModel.maxTokens);
+    }
+
+    // 2. OpenAI Completions: lowers and never raises above model.maxTokens.
+    {
+      const provider = makeProvider(openaiModel);
+      const low = mockFetchCapture(sseRes([DONE]));
+      await collectChunks(
+        provider.stream(openaiModel, [{ role: "user", text: "hi" }], {
+          apiKey: "test-key",
+          maxTokens: 750,
+        }),
+      );
+      low.restore();
+      expect(low.getBody()!.max_tokens).toBe(750);
+
+      const high = mockFetchCapture(sseRes([DONE]));
+      await collectChunks(
+        provider.stream(openaiModel, [{ role: "user", text: "hi" }], {
+          apiKey: "test-key",
+          maxTokens: 99_999,
+        }),
+      );
+      high.restore();
+      expect(high.getBody()!.max_tokens).toBe(openaiModel.maxTokens);
+    }
+
+    // 3. OpenAI Responses: lowers max_output_tokens and never raises above model.maxTokens.
+    {
+      const provider = makeProvider(responsesModel);
+      const low = mockFetchCapture(sseRes([DONE]));
+      await collectChunks(
+        provider.stream(responsesModel, [{ role: "user", text: "hi" }], {
+          apiKey: "test-key",
+          maxTokens: 640,
+        }),
+      );
+      low.restore();
+      expect(low.getBody()!.max_output_tokens).toBe(640);
+
+      const high = mockFetchCapture(sseRes([DONE]));
+      await collectChunks(
+        provider.stream(responsesModel, [{ role: "user", text: "hi" }], {
+          apiKey: "test-key",
+          maxTokens: 99_999,
+        }),
+      );
+      high.restore();
+      expect(high.getBody()!.max_output_tokens).toBe(responsesModel.maxTokens);
+    }
+  });
 });

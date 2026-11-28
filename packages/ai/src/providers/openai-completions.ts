@@ -130,10 +130,15 @@ function buildRequest(
 ): { url: string; headers: Record<string, string>; body: Record<string, unknown> } {
   const compat = resolveOpenAICompat(model);
 
+  const effectiveMaxTokens = Math.min(
+    opts?.maxTokens !== undefined ? Math.max(1, Math.floor(opts.maxTokens)) : model.maxTokens,
+    model.maxTokens,
+    MAX_OUTPUT_TOKENS,
+  );
   const body: Record<string, unknown> = {
     model: model.id,
     messages: convertMessages(messages, compat),
-    [compat.maxTokensField]: Math.min(opts?.maxTokens ?? model.maxTokens, MAX_OUTPUT_TOKENS),
+    [compat.maxTokensField]: effectiveMaxTokens,
     stream: true,
     stream_options: { include_usage: true },
   };

@@ -125,12 +125,17 @@ function buildRequest(
   // o-series models prefer the "developer" role over the deprecated "system".
   const systemRole = resolveOpenAICompat(model).supportsDeveloperRole ? "developer" : "system";
 
+  const effectiveMaxTokens = Math.min(
+    opts?.maxTokens !== undefined ? Math.max(1, Math.floor(opts.maxTokens)) : model.maxTokens,
+    model.maxTokens,
+    MAX_OUTPUT_TOKENS,
+  );
   const body: Record<string, unknown> = {
     model: model.id,
     input: convertInput(messages, systemRole),
     stream: true,
     store: false, // do not persist conversations server-side
-    max_output_tokens: Math.min(model.maxTokens, MAX_OUTPUT_TOKENS),
+    max_output_tokens: effectiveMaxTokens,
   };
 
   if (model.reasoning && opts?.effort) {

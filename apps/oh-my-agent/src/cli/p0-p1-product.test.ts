@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModelRuntime, parseCatalogYAML } from "@chengchenccc/ai";
-import { calculateUsageCostUsd, formatUsd } from "../core/runtime/cost.js";
+import { calculateUsageCostUsd, computeBudgetMaxTokens, formatUsd } from "../core/runtime/cost.js";
 import {
   captureCheckpointTree,
   diffWorkspaceAgainstTree,
@@ -13,6 +13,8 @@ import {
   restoreFileFromTree,
 } from "../core/session/session-file.js";
 import { loadProjectSettings } from "../core/settings/project-settings.js";
+import { runJsonMode } from "../modes/json-mode.js";
+import { runPrintMode } from "../modes/print-mode.js";
 import { runTuiSession } from "../modes/tui/tui-mode.js";
 import type { TuiIo } from "../modes/tui/tui-seam.js";
 import type { TuiViewState } from "../modes/tui/view-state.js";
@@ -267,4 +269,157 @@ describe("P1 cost, export, and TUI slash commands", () => {
       else process.env.OMA_SESSION_DIR = savedSess;
     }
   }, 20_000);
+});
+
+describe("P1 --max-budget-usd dynamic provider maxTokens capping", () => {
+  test("computeBudgetMaxTokens clamps affordable output tokens and handles edge cases", () => {
+    const cost = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
+    // $0.03 at $15/1M output = 2000 tokens
+    expect(computeBudgetMaxTokens(0.03, cost)).toBe(2000);
+    // Respects smaller requestedMaxTokens
+    expect(computeBudgetMaxTokens(0.03, cost, 500)).toBe(500);
+    expect(computeBudgetMaxTokens(0.03, cost, 4096)).toBe(2000);
+    // Exhausted or sub-1-token remaining → 0
+    expect(computeBudgetMaxTokens(0, cost)).toBe(0);
+    expect(computeBudgetMaxTokens(-0.01, cost)).toBe(0);
+    expect(computeBudgetMaxTokens(0.000001, cost)).toBe(0);
+    // Free / missing pricing leaves requestedMaxTokens untouched
+    expect(computeBudgetMaxTokens(0.03, undefined, 4096)).toBe(4096);
+    expect(computeBudgetMaxTokens(0.03, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })).toBe(
+      undefined,
+    );
+  });
+
+  test("runPrintMode dynamically tightens maxTokens per step and stops before overshooting", async () => {
+    const ws = makeTmp("oma-budget-print-");
+    const sessDir = makeTmp("oma-budget-print-sess-");
+    const savedSess = process.env.OMA_SESSION_DIR;
+    process.env.OMA_SESSION_DIR = sessDir;
+    const seenMaxTokens: Array<number | undefined> = [];
+    let calls = 0;
+
+    const rt = createModelRuntime();
+    rt.registerProvider({
+      id: "fake",
+      name: "Fake",
+      getModels: () => [
+        {
+          id: "echo",
+          name: "Echo",
+          provider: "fake",
+          api: "anthropic-messages",
+          reasoning: false,
+          input: ["text"],
+          cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+          contextWindow: 200_000,
+          maxTokens: 8_192,
+        },
+      ],
+      async *stream(_model, _messages, opts) {
+        calls++;
+        seenMaxTokens.push(opts?.maxTokens);
+        if (calls === 1) {
+          // Step 1: spend $0.003 + $0.015 = $0.018 (remaining $0.012 → 800 tokens)
+          yield { delta: { type: "tool_use", id: "t1", name: "ls" } };
+          yield { delta: { type: "input_json_delta", id: "t1", partial_json: "{}" } };
+          yield { usage: { input: 1000, output: 1000, cacheRead: 0, cacheCreate: 0 } };
+          yield { stopReason: "tool_use" };
+          return;
+        }
+        // Step 2: spend $0.003 + $0.0105 = $0.0135 → total $0.0315 >= $0.03
+        yield { delta: { type: "tool_use", id: "t2", name: "ls" } };
+        yield { delta: { type: "input_json_delta", id: "t2", partial_json: "{}" } };
+        yield { usage: { input: 1000, output: 700, cacheRead: 0, cacheCreate: 0 } };
+        yield { stopReason: "tool_use" };
+      },
+    });
+
+    const stderrChunks: string[] = [];
+    const origStderrWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderrChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      const code = await runPrintMode({
+        prompt: "inspect workspace",
+        workspaceRoot: ws,
+        modelRuntime: rt,
+        maxBudgetUsd: 0.03,
+      });
+      expect(code).toBe(1);
+      expect(calls).toBe(2);
+      expect(seenMaxTokens).toEqual([2000, 800]);
+      expect(stderrChunks.join("")).toContain("budget exceeded");
+    } finally {
+      process.stderr.write = origStderrWrite;
+      if (savedSess === undefined) delete process.env.OMA_SESSION_DIR;
+      else process.env.OMA_SESSION_DIR = savedSess;
+    }
+  });
+
+  test("runJsonMode fails fast before calling provider when budget cannot fund 1 output token", async () => {
+    const ws = makeTmp("oma-budget-json-");
+    const sessDir = makeTmp("oma-budget-json-sess-");
+    const savedSess = process.env.OMA_SESSION_DIR;
+    process.env.OMA_SESSION_DIR = sessDir;
+    let calls = 0;
+
+    const rt = createModelRuntime();
+    rt.registerProvider({
+      id: "fake",
+      name: "Fake",
+      getModels: () => [
+        {
+          id: "echo",
+          name: "Echo",
+          provider: "fake",
+          api: "anthropic-messages",
+          reasoning: false,
+          input: ["text"],
+          cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+          contextWindow: 200_000,
+          maxTokens: 8_192,
+        },
+      ],
+      async *stream() {
+        calls++;
+        yield { delta: { type: "text", text: "should never run" } };
+        yield { stopReason: "end_turn" };
+      },
+    });
+
+    const stdoutChunks: string[] = [];
+    const origStdoutWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      const code = await runJsonMode({
+        prompt: "hi",
+        workspaceRoot: ws,
+        modelRuntime: rt,
+        maxBudgetUsd: 0.000001,
+      });
+      expect(code).toBe(1);
+      expect(calls).toBe(0);
+      const lines = stdoutChunks
+        .join("")
+        .trim()
+        .split("\n")
+        .map(
+          (l) => JSON.parse(l) as { type: string; outcome?: { status: string; error?: string } },
+        );
+      const outcomeLine = lines.find((l) => l.type === "outcome");
+      expect(outcomeLine?.outcome?.status).toBe("failed");
+      expect(outcomeLine?.outcome?.error).toContain("budget exceeded");
+    } finally {
+      process.stdout.write = origStdoutWrite;
+      if (savedSess === undefined) delete process.env.OMA_SESSION_DIR;
+      else process.env.OMA_SESSION_DIR = savedSess;
+    }
+  });
 });

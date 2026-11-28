@@ -1,5 +1,4 @@
 import { buildCliRunInput } from "../cli/initial-input.js";
-import type { OmaLoopEvent } from "../core/index.js";
 import { assemblePluginRuntime } from "../core/plugins/plugin-resolve.js";
 import { denyAllApprovals } from "../core/runtime/approval.js";
 import type { BackendRunOutcome } from "../core/runtime/contract/index.js";
@@ -40,7 +39,7 @@ export async function runJsonMode(opts: CliRunOptions): Promise<number> {
     standaloneRuntimeOptions(
       built,
       {
-        modelRuntime: opts.modelRuntime,
+        modelRuntime: budget.wrapModelRuntime(opts.modelRuntime),
         ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
         session,
         pluginRt,
@@ -51,7 +50,6 @@ export async function runJsonMode(opts: CliRunOptions): Promise<number> {
           ? { settings: { ...baseKnobs, maxSteps: opts.maxTurns } }
           : {}),
         onEvent: (envelope) => {
-          budget.onEvent(envelope.data as OmaLoopEvent);
           // Raw runtime event object, e.g. {"type":"agent_start"}.
           process.stdout.write(`${JSON.stringify({ type: "event", event: envelope.data })}\n`);
         },

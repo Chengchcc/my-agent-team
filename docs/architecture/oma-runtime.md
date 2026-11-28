@@ -11,7 +11,7 @@ tags: [oma, runtime, tools, tui, delegation]
 ## Authoritative files
 
 - `apps/oh-my-agent/src/cli.ts`, `main.ts`, `cli/args.ts`, `cli/doctor-command.ts`, `cli/setup-wizard.ts` — CLI entrypoint, reserved subcommands (`gateway`, `update`, `doctor`, `setup`), flag parsing
-- `apps/oh-my-agent/src/modes/print-mode.ts` & `json-mode.ts` — One-shot headless modes (`--max-turns`, `--max-budget-usd`, `--output-schema`, `--effort`)
+- `apps/oh-my-agent/src/modes/print-mode.ts` & `json-mode.ts` — One-shot headless modes (`--max-turns`, `--max-budget-usd` with provider-side dynamic `maxTokens` capping, `--output-schema`, `--effort`)
 - `apps/oh-my-agent/src/modes/acp/acp-mode.ts` & `acp-protocol.ts` — ACP stdio server (`oma --mode acp`)
 - `apps/oh-my-agent/src/modes/tui/tui-mode.ts` & `tui-transcript-reconciler.ts` & `tui-frame-provider.ts` — Interactive TUI surface
 - `apps/oh-my-agent/src/core/runtime/agent-loop.ts` & `agent-loop-runner.ts` — `createOmaSession()` model+tool loop

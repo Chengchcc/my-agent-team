@@ -16,9 +16,14 @@ function buildRequest(
   const compat = resolveAnthropicCompat(model);
   const systemMsg = messages.find((m) => m.role === "system");
   const cacheControl = { type: "ephemeral" } as const;
+  const effectiveMaxTokens = Math.min(
+    opts?.maxTokens !== undefined ? Math.max(1, Math.floor(opts.maxTokens)) : model.maxTokens,
+    model.maxTokens,
+    MAX_OUTPUT_TOKENS,
+  );
   const request: Record<string, unknown> = {
     model: model.id,
-    max_tokens: Math.min(model.maxTokens, MAX_OUTPUT_TOKENS),
+    max_tokens: effectiveMaxTokens,
     messages: convertMessages(messages, opts, { allowEmptySignature: compat.allowEmptySignature }),
     stream: true,
   };
@@ -80,9 +85,15 @@ function buildRequest(
     const thinking: Record<string, unknown> = { type };
     if (opts.thinking.display ?? compat.forceAdaptiveThinking)
       thinking.display = opts.thinking.display ?? "summarized";
-    if (!compat.forceAdaptiveThinking && opts.thinking.budgetTokens)
-      thinking.budget_tokens = opts.thinking.budgetTokens;
-    request.thinking = thinking;
+    if (!compat.forceAdaptiveThinking && opts.thinking.budgetTokens) {
+      // Anthropic requires max_tokens > thinking.budget_tokens (and budget_tokens >= 1024).
+      if (effectiveMaxTokens > 1024) {
+        thinking.budget_tokens = Math.min(opts.thinking.budgetTokens, effectiveMaxTokens - 1);
+        request.thinking = thinking;
+      }
+    } else {
+      request.thinking = thinking;
+    }
   }
   // Effort scales the whole response (thinking included); per the Messages
   // API it travels in output_config.

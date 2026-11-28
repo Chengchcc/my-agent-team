@@ -1,10 +1,14 @@
-import type { ModelCost, ModelRuntime } from "@chengchenccc/ai";
-import type { Message, ReasoningEffort } from "@chengchenccc/message";
+import {
+  type ModelCost,
+  type ModelRuntime,
+  ProviderError,
+  type ProviderStreamOptions,
+} from "@chengchenccc/ai";
+import type { AIMessageChunk, Message, ReasoningEffort } from "@chengchenccc/message";
 import { buildCliRunInput } from "../cli/initial-input.js";
-import type { OmaLoopEvent } from "../core/index.js";
 import { assemblePluginRuntime } from "../core/plugins/plugin-resolve.js";
 import { denyAllApprovals } from "../core/runtime/approval.js";
-import { calculateUsageCostUsd, formatUsd } from "../core/runtime/cost.js";
+import { calculateUsageCostUsd, computeBudgetMaxTokens, formatUsd } from "../core/runtime/cost.js";
 import { createOmaRuntime, type OmaRuntime } from "../core/runtime/create-runtime.js";
 import type { ToolFilter } from "../core/runtime/tool-filter.js";
 import { persistSessionTurn, resolveSession } from "../core/session/session-loop.js";
@@ -50,31 +54,111 @@ export async function resolveModelCost(
   }
 }
 
-/** Track live USD spend across `message_end` events and stop the runtime
- *  immediately if `maxBudgetUsd` is exceeded. */
+/** Enforce `--max-budget-usd` at the `ModelRuntime.stream` boundary:
+ *  1. Dynamically clamps each outgoing request's provider-side `maxTokens` to
+ *     what the remaining USD budget can afford for that model's output price.
+ *  2. Blocks new requests fail-fast (non-retryable quota error) once the cap
+ *     is exhausted so a single step or subagent cannot overshoot the budget.
+ *  3. Accumulates live USD spend across all streamed usage chunks (main loop,
+ *     compaction summaries, subagents) and stops the runtime once reached. */
 export function createBudgetGuard(opts: {
   maxBudgetUsd?: number;
   modelCost?: ModelCost;
   getRuntime: () => OmaRuntime | null;
 }): {
-  onEvent: (event: OmaLoopEvent) => void;
+  wrapModelRuntime: (base: ModelRuntime) => ModelRuntime;
+  spentUsd: () => number;
   exceededReason: () => string | undefined;
 } {
   let spentUsd = 0;
   let exceeded: string | undefined;
+
+  const markExceeded = (): string => {
+    if (!exceeded) {
+      exceeded = `budget exceeded: ${formatUsd(spentUsd)} of ${formatUsd(opts.maxBudgetUsd!)} cap`;
+      void opts
+        .getRuntime()
+        ?.stop()
+        .catch(() => {});
+    }
+    return exceeded;
+  };
+
   return {
-    onEvent(event) {
-      if (opts.maxBudgetUsd === undefined || exceeded) return;
-      if (event.type !== "message_end" || !event.usage) return;
-      spentUsd += calculateUsageCostUsd(event.usage, opts.modelCost);
-      if (spentUsd >= opts.maxBudgetUsd) {
-        exceeded = `budget exceeded: ${formatUsd(spentUsd)} of ${formatUsd(opts.maxBudgetUsd)} cap`;
-        void opts
-          .getRuntime()
-          ?.stop()
-          .catch(() => {});
-      }
+    wrapModelRuntime(base) {
+      if (opts.maxBudgetUsd === undefined) return base;
+      const capUsd = opts.maxBudgetUsd;
+      let catalogCosts: Map<string, ModelCost> | null = null;
+      const costFor = async (
+        providerId: string,
+        modelId: string,
+      ): Promise<ModelCost | undefined> => {
+        if (!catalogCosts) {
+          catalogCosts = new Map();
+          try {
+            const catalog = await base.getCatalog();
+            for (const m of catalog.models) {
+              catalogCosts.set(`${m.providerId}/${m.modelId}`, m.cost);
+            }
+          } catch {
+            // Fall back to default modelCost below.
+          }
+        }
+        return catalogCosts.get(`${providerId}/${modelId}`) ?? opts.modelCost;
+      };
+
+      const wrapped: ModelRuntime = {
+        registerProvider: (p) => base.registerProvider(p),
+        setProvider: (p) => base.setProvider(p),
+        getProvider: (id) => base.getProvider(id),
+        resolveModel: (providerId, modelId) => base.resolveModel(providerId, modelId),
+        getCatalog: () => base.getCatalog(),
+        refreshCatalog: () => {
+          catalogCosts = null;
+          return base.refreshCatalog();
+        },
+        async *stream(
+          providerId: string,
+          modelId: string,
+          messages: readonly Message[],
+          streamOpts?: ProviderStreamOptions,
+        ): AsyncIterable<AIMessageChunk> {
+          if (exceeded || spentUsd >= capUsd) {
+            throw new ProviderError(markExceeded(), "quota");
+          }
+          const callCost = await costFor(providerId, modelId);
+          const cappedMaxTokens = computeBudgetMaxTokens(
+            capUsd - spentUsd,
+            callCost,
+            streamOpts?.maxTokens,
+          );
+          if (cappedMaxTokens === 0) {
+            throw new ProviderError(markExceeded(), "quota");
+          }
+          const nextOpts: ProviderStreamOptions | undefined =
+            cappedMaxTokens !== undefined
+              ? { ...streamOpts, maxTokens: cappedMaxTokens }
+              : streamOpts;
+          for await (const chunk of base.stream(providerId, modelId, messages, nextOpts)) {
+            if (chunk.usage) {
+              spentUsd += calculateUsageCostUsd(
+                {
+                  inputTokens: chunk.usage.input,
+                  outputTokens: chunk.usage.output,
+                  cacheReadTokens: chunk.usage.cacheRead,
+                  cacheWriteTokens: chunk.usage.cacheCreate,
+                },
+                callCost,
+              );
+              if (spentUsd >= capUsd) markExceeded();
+            }
+            yield chunk;
+          }
+        },
+      };
+      return wrapped;
     },
+    spentUsd: () => spentUsd,
     exceededReason: () => exceeded,
   };
 }
@@ -123,7 +207,7 @@ export async function runPrintMode(opts: CliRunOptions): Promise<number> {
     standaloneRuntimeOptions(
       built,
       {
-        modelRuntime: opts.modelRuntime,
+        modelRuntime: budget.wrapModelRuntime(opts.modelRuntime),
         ...(opts.toolFilter ? { toolFilter: opts.toolFilter } : {}),
         session,
         pluginRt,
@@ -132,9 +216,6 @@ export async function runPrintMode(opts: CliRunOptions): Promise<number> {
         approvalHandler: denyAllApprovals,
         ...(opts.maxTurns !== undefined
           ? { settings: { ...baseKnobs, maxSteps: opts.maxTurns } }
-          : {}),
-        ...(opts.maxBudgetUsd !== undefined
-          ? { onEvent: (envelope) => budget.onEvent(envelope.data as OmaLoopEvent) }
           : {}),
       },
     ),
